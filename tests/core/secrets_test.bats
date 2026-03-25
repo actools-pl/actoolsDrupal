@@ -17,25 +17,25 @@ teardown() {
 # --- rand_pass tests ---
 
 @test "rand_pass generates a non-empty string" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   result=$(rand_pass)
   [ -n "$result" ]
 }
 
 @test "rand_pass generates exactly 22 characters" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   result=$(rand_pass)
   [ "${#result}" -eq 22 ]
 }
 
 @test "rand_pass generates only alphanumeric characters" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   result=$(rand_pass)
   [[ "$result" =~ ^[A-Za-z0-9]+$ ]]
 }
 
 @test "rand_pass generates different values each time" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   pass1=$(rand_pass)
   pass2=$(rand_pass)
   [ "$pass1" != "$pass2" ]
@@ -44,24 +44,24 @@ teardown() {
 # --- gen_if_empty tests ---
 
 @test "gen_if_empty leaves existing value unchanged" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   MY_VAR="existing_value"
   gen_if_empty MY_VAR
   [ "$MY_VAR" = "existing_value" ]
 }
 
 @test "gen_if_empty generates value when empty" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   MY_VAR=""
   gen_if_empty MY_VAR
   [ -n "$MY_VAR" ]
 }
 
 @test "gen_if_empty errors on CHANGEME value" {
-  source /home/actools/core/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
   MY_VAR="CHANGEME"
   run bash -c "
-    source /home/actools/core/secrets.sh
+    source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -77,7 +77,7 @@ teardown() {
   echo "DB_ROOT_PASS=" > "$TEST_ENV"
   echo "DRUPAL_ADMIN_PASS=" >> "$TEST_ENV"
   run bash -c "
-    source /home/actools/core/secrets.sh
+    source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -93,7 +93,7 @@ teardown() {
 @test "writeback does not overwrite existing DB_ROOT_PASS" {
   echo "DB_ROOT_PASS=alreadyset" > "$TEST_ENV"
   run bash -c "
-    source /home/actools/core/secrets.sh
+    source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -109,7 +109,7 @@ teardown() {
   echo "DB_ROOT_PASS=   # set before install" > "$TEST_ENV"
   echo "DRUPAL_ADMIN_PASS=" >> "$TEST_ENV"
   run bash -c "
-    source /home/actools/core/secrets.sh
+    source "${BATS_TEST_DIRNAME}/../../core/secrets.sh"
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }

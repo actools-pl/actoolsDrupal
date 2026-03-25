@@ -4,7 +4,7 @@
 # =============================================================================
 
 setup() {
-  source /home/actools/core/validate.sh
+  source ${BATS_TEST_DIRNAME}/../../core/validate.sh
   # Stub log/warn/error for testing
   log()  { echo "LOG: $*"; }
   warn() { echo "WARN: $*"; }
@@ -75,7 +75,7 @@ setup() {
   S3_ENDPOINT_URL="https://s3.us-west-000.backblazeb2.com"
   S3_ENDPOINT=""
   run bash -c "
-    source /home/actools/core/validate.sh
+    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -92,7 +92,7 @@ setup() {
 
 @test "S3 provider auto-detected as wasabi" {
   run bash -c "
-    source /home/actools/core/validate.sh
+    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -109,7 +109,7 @@ setup() {
 
 @test "S3 provider auto-detected as aws" {
   run bash -c "
-    source /home/actools/core/validate.sh
+    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -126,7 +126,7 @@ setup() {
 
 @test "S3 provider defaults to aws when no endpoint set" {
   run bash -c "
-    source /home/actools/core/validate.sh
+    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
@@ -143,7 +143,7 @@ setup() {
 
 @test "S3 provider auto-detected as custom for unknown endpoint" {
   run bash -c "
-    source /home/actools/core/validate.sh
+    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
     log()  { echo \"LOG: \$*\"; }
     warn() { echo \"WARN: \$*\"; }
     error() { echo \"ERROR: \$*\"; exit 1; }
