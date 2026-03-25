@@ -5,7 +5,7 @@
 # =============================================================================
 
 check_db_creds() {
-  cd "$INSTALL_DIR"
+  cd "$INSTALL_DIR" || exit
   docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" \
     -e "SELECT 1;" &>/dev/null 2>&1 \
     || error "Cannot authenticate to MariaDB with current DB_ROOT_PASS.

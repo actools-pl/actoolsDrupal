@@ -5,7 +5,7 @@
 # =============================================================================
 
 wait_db() {
-  cd "$INSTALL_DIR"
+  cd "$INSTALL_DIR" || exit
   log "Waiting for MariaDB (write-check)..."
   local _wp="${DB_ROOT_PASS}"
   local _tries=0
