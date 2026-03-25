@@ -1,4 +1,4 @@
-# Actools v9.1 — Drupal 11 Enterprise Installer
+# Actools v1.1 — Drupal 11 Enterprise Installer
 ### Complete Guide: Installation · Hardening · Docker Operations · Troubleshooting
 
 **Stack:** Docker CE · Caddy 2.8 (custom build) · PHP 8.3-FPM · MariaDB 11.4 · Redis 7 · Drush  
