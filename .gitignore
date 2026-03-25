@@ -1,0 +1,138 @@
+# =============================================================================
+# Actools — .gitignore for actools-pl/actoolsDrupal
+# Feesix.com | Drupal 11 + MariaDB 11.4 + XeLaTeX + S3
+# =============================================================================
+
+# =============================================================================
+# SECRETS — NEVER COMMIT THESE
+# =============================================================================
+
+# Real environment file with credentials
+actools.env
+actools.toml
+
+# Auto-generated credential files written by installer
+.actools-state.json
+.actools-db-creds
+.actools-admin-pass
+
+# =============================================================================
+# DOCKER GENERATED FILES
+# These are regenerated every time actools.sh runs — do not commit them
+# =============================================================================
+
+docker-compose.yml
+Caddyfile
+my.cnf
+Dockerfile.caddy
+Dockerfile.worker
+
+# =============================================================================
+# DRUPAL CODEBASE
+# Too large for git — managed separately via Composer
+# =============================================================================
+
+docroot/
+vendor/
+web/sites/default/files/
+web/sites/default/settings.php
+web/sites/default/services.yml
+
+# =============================================================================
+# RUNTIME LOGS
+# =============================================================================
+
+logs/
+actools-install.log
+
+# =============================================================================
+# BACKUPS
+# Database dumps and file archives — never in source control
+# =============================================================================
+
+backups/
+
+# =============================================================================
+# TLS CERTIFICATES + CADDY DATA
+# Auto-obtained by Caddy from Let's Encrypt
+# =============================================================================
+
+caddy/data/
+caddy/config/
+
+# =============================================================================
+# DOCKER VOLUMES + BUILD CACHE
+# =============================================================================
+
+.docker/
+*.tar
+*.tar.gz
+*.sql.gz
+*.sql
+
+# =============================================================================
+# LOCK FILES
+# =============================================================================
+
+/tmp/actools.lock
+*.lock
+
+# =============================================================================
+# EDITOR + OS FILES
+# =============================================================================
+
+# Vim
+*.swp
+*.swo
+*~
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (PHPStorm, IntelliJ)
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+.fuse_hidden*
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =============================================================================
+# NODE / NPM (if any tooling added later)
+# =============================================================================
+
+node_modules/
+npm-debug.log*
+
+# =============================================================================
+# PYTHON (if healthd or future tooling uses Python)
+# =============================================================================
+
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# =============================================================================
+# WHAT IS COMMITTED (for reference)
+# =============================================================================
+# actools.sh              ← the installer
+# actools.env.example     ← sanitized template with all variables documented
+# .gitignore              ← this file
+# docs/README.md          ← quick start guide
+# docs/CHANGELOG.md       ← version history
+# cron/stats.sh           ← hourly Docker stats collector
