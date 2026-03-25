@@ -1055,7 +1055,7 @@ cd "\${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found: \${INSTALL_DIR}" >
 for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
   DB="actools_\${env}"
   DUMPFILE="\${BACKUP_DIR}/\${env}_db_\${TIMESTAMP}.sql.gz"
-  docker exec actools_db mariadump \
+  docker exec actools_db mariadb-dump \
     --single-transaction --quick \
     -ubackup -p"${backup_pass}" "\$DB" \
     | gzip > "\$DUMPFILE"
