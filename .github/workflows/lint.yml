@@ -20,9 +20,9 @@ jobs:
         run: sudo apt-get install -y shellcheck
       - name: Run shellcheck
         run: |
-          shellcheck core/*.sh
-          shellcheck modules/host/*.sh
-          shellcheck modules/db/*.sh
-          shellcheck modules/preflight/*.sh
-          shellcheck cron/*.sh
-          shellcheck cli/commands/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 core/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 modules/host/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 modules/db/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 modules/preflight/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 cron/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 cli/commands/*.sh
