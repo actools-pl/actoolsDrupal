@@ -99,6 +99,22 @@ All notable changes to Actools are documented here.
 
 ---
 
+## [v11.0.0] — 2026-03-26 — Phase 4: AI-Native Dev Environment
+
+### Added
+- Ollama 0.18.3 installed as system service
+- deepseek-coder:1.3b model (776MB, CPU-optimized)
+- `actools ai <question>` — ask anything with full codebase context
+- `actools ai explain <file>` — explain any module file
+- `actools ai review --security` — security vulnerability review
+- `actools ai review --performance` — performance review
+- `actools ai context` — rebuild codebase index
+- modules/ai/assistant.sh — AI module with Ollama API integration
+- Context builder indexes all core/, modules/, cli/ bash files
+- Low temperature (0.2-0.3) for precise, factual code answers
+
+---
+
 ## [v10.6.0] — 2026-03-26 — Phase 3 Complete
 
 ### Added

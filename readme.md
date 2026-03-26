@@ -217,7 +217,8 @@ actools/
 │   ├── health/     Monitoring: checks, remediation
 │   ├── observability/ Prometheus + Grafana
 │   ├── preview/    Branch environments
-│   └── migrate/    Zero-downtime migrations
+│   ├── migrate/    Zero-downtime migrations
+│   └── ai/          AI assistant (Ollama + deepseek-coder)
 ├── cli/commands/   20+ CLI commands
 ├── cron/           backup, stats collection
 ├── templates/      Dockerfiles, CI workflows, Drupal settings
@@ -226,6 +227,34 @@ actools/
 
 ---
 
+
+## AI-Native Dev Environment
+
+An AI assistant that understands your actual codebase — not generic advice.
+```bash
+# Ask anything about your codebase
+actools ai "How does the wait_db function work?"
+actools ai "What happens when a preview environment is created?"
+
+# Explain a specific module
+actools ai explain modules/drupal/provision.sh
+actools ai explain modules/preview/branch.sh
+
+# Security review
+actools ai review --security
+
+# Performance review
+actools ai review --performance
+
+# Rebuild codebase index
+actools ai context
+```
+
+**Model:** deepseek-coder:1.3b (776MB, runs on CPU)  
+**Engine:** Ollama 0.18.3  
+**Context:** Your actual codebase — answers reference real function names, line numbers, and implementation details.
+
+---
 ## vs Managed Drupal Hosts
 
 | Feature | Actools | Acquia | Pantheon |
@@ -238,6 +267,7 @@ actools/
 | Cost optimization CLI | ✅ | ❌ | ❌ |
 | Zero-downtime migrations | ✅ gh-ost | ✅ | ✅ |
 | CI/CD generation | ✅ | paid | paid |
+| AI code assistant | ✅ codebase-aware | ❌ | ❌ |
 | Full code ownership | ✅ 100% | ❌ | ❌ |
 
 ---
@@ -249,7 +279,7 @@ actools/
 | Phase 1 | ✅ Complete | Modular refactor, 32 modules, 21 bats tests, CI |
 | Phase 2 | ✅ Complete | Health checks, cost-optimize, Grafana, backup hardening, quantum TLS |
 | Phase 3 | ✅ Complete | Preview environments, zero-downtime migrations, CI/CD generation |
-| Phase 4 | 🔜 Next | AI-native dev environment (Ollama + ChromaDB) |
+| Phase 4 | ✅ Complete | AI-native dev environment (Ollama + deepseek-coder) |
 
 ---
 
