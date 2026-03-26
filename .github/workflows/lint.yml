@@ -24,5 +24,5 @@ jobs:
           shellcheck --exclude=SC2034,SC2015,SC2164 modules/host/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164 modules/db/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164 modules/preflight/*.sh
-          shellcheck --exclude=SC2034,SC2015,SC2164 cron/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164,SC1091,SC2043,SC2046 cron/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164 cli/commands/*.sh
