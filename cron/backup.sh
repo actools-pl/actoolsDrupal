@@ -14,6 +14,7 @@ cd "${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found" >&2; exit 1; }
 
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/actools.env"
+BACKUP_PASS="2mr7Ao7ZUoCzMj8L0XkEA8"
 
 ENVIRONMENTS="prod"
 for env in $ENVIRONMENTS; do
@@ -22,7 +23,7 @@ for env in $ENVIRONMENTS; do
 
   docker exec actools_db mariadb-dump \
     --single-transaction --quick \
-    -ubackup -p"${BACKUP_RETENTION_DAYS:-7}" "$DB" \
+    -ubackup -p"${BACKUP_PASS}" "$DB" \
     | gzip > "$DUMPFILE"
 
   sha256sum "$DUMPFILE" > "$DUMPFILE.sha256"
