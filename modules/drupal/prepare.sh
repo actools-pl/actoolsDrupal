@@ -6,7 +6,7 @@
 
 drupal_prepare() {
   local env="$1"
-  local db_name="actools_${env}"
+  
 
   section "Stage 1: Prepare — ${env}"
 

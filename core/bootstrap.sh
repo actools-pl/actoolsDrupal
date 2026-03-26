@@ -4,19 +4,19 @@
 # Extracted from actools.sh v9.2 during Phase 1 modular refactor
 # =============================================================================
 
-ACTOOLS_VERSION="9.2"
+export ACTOOLS_VERSION="9.2"
 MODE="${1:-fresh}"
 
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo "~$REAL_USER")"
 
-ENV_FILE="$REAL_HOME/actools.env"
-STATE_FILE="$REAL_HOME/.actools-state.json"
+export ENV_FILE="$REAL_HOME/actools.env"
+export STATE_FILE="$REAL_HOME/.actools-state.json"
 LOCK_FILE="/tmp/actools.lock"
 LOG_FILE="$REAL_HOME/actools-install.log"
 LOG_DIR="$REAL_HOME/logs/install"
-INSTALL_DIR="$REAL_HOME"
-PKG_DONE_FLAG="/var/lib/actools/.packages_done"
+export INSTALL_DIR="$REAL_HOME"
+export PKG_DONE_FLAG="/var/lib/actools/.packages_done"
 
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
 
