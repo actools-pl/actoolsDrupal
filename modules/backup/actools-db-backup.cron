@@ -1,0 +1,11 @@
+# /etc/cron.d/actools-db-backup
+# Phase 4.5 Item 2 — Database backup cron jobs
+#
+# Deploy: sudo cp actools-db-backup /etc/cron.d/
+#         sudo chmod 644 /etc/cron.d/actools-db-backup
+
+# ── Full dump daily at 02:00 ───────────────────────────────────────────────────
+0 2 * * * actools /home/actools/modules/backup/db-full-backup.sh --verify >> /home/actools/logs/backup-db.log 2>&1
+
+# ── Binlog rotation hourly at :05 ─────────────────────────────────────────────
+5 * * * * actools /home/actools/modules/backup/binlog-rotate.sh >> /home/actools/logs/binlog-rotate.log 2>&1
