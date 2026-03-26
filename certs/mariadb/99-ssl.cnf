@@ -1,0 +1,11 @@
+# /etc/mysql/mariadb.conf.d/99-ssl.cnf
+# Phase 4.5 — MariaDB SSL encryption in transit
+
+[mysqld]
+ssl-ca     = /etc/mysql/certs/ca-cert.pem
+ssl-cert   = /etc/mysql/certs/server-cert.pem
+ssl-key    = /etc/mysql/certs/server-key.pem
+
+# Require SSL for all non-local connections
+# Comment out require_secure_transport if Drupal SSL connection fails
+require_secure_transport = ON

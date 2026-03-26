@@ -153,3 +153,4 @@ docker-compose.observability.yml
 .lesshst
 .ssh/
 .local/
+certs/mariadb/*-key.pem
