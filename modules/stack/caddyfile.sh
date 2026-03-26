@@ -11,6 +11,9 @@ generate_caddyfile() {
     log {
         level INFO
     }
+    servers {
+        protocols h1 h2 h3
+    }
 }
 
 (drupal_base) {
