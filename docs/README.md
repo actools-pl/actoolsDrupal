@@ -1,1297 +1,162 @@
-# Actools v9.1 — Drupal 11 Enterprise Installer
-### Complete Guide: Installation · Hardening · Docker Operations · Troubleshooting
+# Actools — Drupal 11 Enterprise Installer
 
-**Stack:** Docker CE · Caddy 2.8 (custom build) · PHP 8.3-FPM · MariaDB 11.4 · Redis 7 · Drush  
-**Platform:** Ubuntu 24.04 LTS  
-**Last updated:** v9.1 patch release
+Production-grade Drupal 11 stack installer for Ubuntu 24.04.  
+Solves the compatibility problems that plague manual Docker setups.
 
----
-
-## Table of Contents
-
-1. [What Actools Does](#1-what-actools-does)
-2. [Before You Begin — Prerequisites](#2-before-you-begin--prerequisites)
-3. [File Layout After Install](#3-file-layout-after-install)
-4. [Installation Step by Step](#4-installation-step-by-step)
-5. [Fixing the Two Errors You Saw](#5-fixing-the-two-errors-you-saw)
-6. [actools.env Reference](#6-actoolsenv-reference)
-7. [The Log Directory — Finding and Reading Logs](#7-the-log-directory--finding-and-reading-logs)
-8. [Caddy — Configuration and Hardening](#8-caddy--configuration-and-hardening)
-9. [Drupal settings.php — Hardening Guide](#9-drupal-settingsphp--hardening-guide)
-10. [Docker — Daily Operations](#10-docker--daily-operations)
-11. [S3 Storage — Setup and Testing](#11-s3-storage--setup-and-testing)
-12. [XeLaTeX Worker Container](#12-xelatex-worker-container)
-13. [Backup and Restore](#13-backup-and-restore)
-14. [Security Hardening Checklist](#14-security-hardening-checklist)
-15. [Troubleshooting](#15-troubleshooting)
-16. [CLI Quick Reference](#16-cli-quick-reference)
-17. [v9.1 Patch Notes — What Was Fixed](#17-v91-patch-notes--what-was-fixed)
+**Live example:** [feesix.com](https://feesix.com)
 
 ---
 
-## 1. What Actools Does
+## What it solves
 
-Actools is a single-script installer that sets up a **production-grade Drupal 11** server from scratch on a blank Ubuntu 24.04 VPS. One script does all of this automatically:
+Every team running Drupal 11 with Docker hits the same walls:
 
-- Installs Docker CE and Docker Compose
-- Configures the UFW firewall and fail2ban
-- Builds two custom Docker images (Caddy with rate-limiting, a worker with XeLaTeX inside)
-- Starts the full stack: Caddy (HTTPS), PHP-FPM, MariaDB, Redis, and a PDF worker
-- Installs Drupal 11 via Composer and runs the full site install
-- Sets up daily database backups with integrity checking
-- Installs the `actools` CLI helper command for everyday operations
+- MariaDB 11.4 dropped `mysqladmin` and `mysql` — healthchecks break silently
+- Docker Compose v2 tries to pull locally-built images from Docker Hub — fails with 403
+- XeLaTeX in Docker is a dependency nightmare — library paths, host mounts, broken builds
+- Caddyfile syntax changed in 2.8 — inline log blocks rejected
+- `DB_ROOT_PASS` writeback breaks on lines with trailing comments
 
-After the installer finishes, you have a working Drupal 11 site at `https://your-domain.com` with automatic HTTPS from Let's Encrypt.
+**Actools v9.2 fixes all 8 of these.** Documented, tested, production-proven.
 
 ---
 
-## 2. Before You Begin — Prerequisites
-
-### 2.1 Server Requirements
-
-| Item | Minimum | Recommended |
-|------|---------|-------------|
-| OS | Ubuntu 24.04 LTS | Ubuntu 24.04 LTS |
-| RAM | 4 GB | 8 GB |
-| Disk | 40 GB | 80 GB SSD |
-| CPU | 2 vCPU | 4 vCPU |
-| Internet | Required | Required |
-
-> **Why 4 GB minimum?** The XeLaTeX PDF worker alone needs up to 2 GB RAM. MariaDB uses another 2 GB. With less memory, PDF generation will fail with out-of-memory errors. The installer creates a 4 GB swap file as a safety net.
-
-### 2.2 DNS Must Be Set Up First
-
-**This step is critical.** Caddy uses Let's Encrypt to get your HTTPS certificate automatically — but Let's Encrypt needs to reach your domain over the internet to verify it. If DNS is wrong, the installer will work but TLS will fail.
-
-Before running the installer, log in to your domain registrar and create these DNS records:
-
-```
-Type  Name                Value
-A     feesix.com          YOUR_SERVER_IP
-A     stg.feesix.com      YOUR_SERVER_IP   (only if using all-in-one mode)
-A     dev.feesix.com      YOUR_SERVER_IP   (only if using all-in-one mode)
-```
-
-Replace `feesix.com` with your actual domain and `YOUR_SERVER_IP` with your server's public IP address.
-
-To verify DNS has propagated (wait up to 15 minutes after setting records):
-
+## Quick Start
 ```bash
-nslookup feesix.com
-# or
-dig feesix.com +short
+# 1. Clone the repo
+git clone https://github.com/actools-pl/actoolsDrupal.git
+cd actoolsDrupal
+
+# 2. Configure
+cp actools.env.example actools.env
+# Edit actools.env — set BASE_DOMAIN, DRUPAL_ADMIN_EMAIL, DB_ROOT_PASS
+
+# 3. Install
+sudo ./actools.sh fresh
 ```
 
-The output should show your server IP.
-
-### 2.3 Create the actools System User
-
-The installer should run as a dedicated `actools` user with sudo access, not as root directly. This is both a security best practice and required by the script.
-
-```bash
-# As root on your fresh server:
-adduser actools
-usermod -aG sudo actools
-
-# Switch to the actools user
-su - actools
-```
-
-### 2.4 Upload the Files
-
-From your local machine, upload both files to the server:
-
-```bash
-scp actools.sh actools.env actools@YOUR_SERVER_IP:~/
-```
-
-Or use any SFTP client (FileZilla, WinSCP, Cyberduck) to upload both files to `/home/actools/`.
+That's it. Drupal 11 + MariaDB 11.4 + Caddy 2.8 + Redis + XeLaTeX worker
+fully configured and running in under 30 minutes.
 
 ---
 
-## 3. File Layout After Install
+## Stack
 
-Understanding where files live helps enormously when things go wrong.
-
-```
-/home/actools/
-├── actools.sh              ← The installer (keep this, used for updates)
-├── actools.env             ← Your configuration (edit before first run)
-├── actools-install.log     ← Full combined install log (all runs appended)
-├── .actools-state.json     ← Installation state tracker (don't delete!)
-├── .actools-db-creds       ← Database passwords (chmod 600, back this up!)
-├── .actools-admin-pass     ← Drupal admin password (chmod 600)
-│
-├── docker-compose.yml      ← Auto-generated by installer
-├── Caddyfile               ← Auto-generated Caddy config
-├── Dockerfile.caddy        ← Caddy custom image build file
-├── Dockerfile.worker       ← Worker image with XeLaTeX
-├── my.cnf                  ← MariaDB config
-│
-├── docroot/
-│   └── prod/               ← Drupal prod codebase (Composer project)
-│       ├── web/            ← Drupal webroot (public files go here)
-│       └── vendor/         ← PHP dependencies
-│
-├── logs/
-│   ├── install/            ← Per-run install logs (NEW in v9.1)
-│   │   └── actools-2026-03-25_145145.log
-│   ├── caddy/              ← Caddy access and error logs
-│   ├── db/                 ← MariaDB slow query and error logs
-│   ├── php_prod/           ← PHP-FPM logs and slow request log
-│   └── worker/             ← XeLaTeX worker logs
-│
-├── backups/
-│   ├── prod_db_2026-03-25.sql.gz
-│   └── prod_db_2026-03-25.sql.gz.sha256
-│
-└── caddy/
-    ├── data/               ← Let's Encrypt certificates (persisted)
-    └── config/             ← Caddy runtime config
-```
-
-> **Important:** The `.actools-state.json` file tells the installer which environments are already set up. If you delete it, the installer will try to re-install Drupal and fail because the database already exists. Keep this file.
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Drupal | 11 | PHP 8.3 FPM |
+| MariaDB | 11.4 | InnoDB tuned, slow query log |
+| Caddy | 2.8 | Custom build with caddy-ratelimit |
+| Redis | 7 | LRU eviction |
+| XeLaTeX | texlive | Self-contained inside worker container |
+| PHP | 8.3 | OPcache configured |
 
 ---
 
-## 4. Installation Step by Step
-
-### Step 1 — Configure actools.env
-
+## CLI
 ```bash
-nano ~/actools.env
-```
-
-The minimum you must change:
-
-```ini
-BASE_DOMAIN=feesix.com          # ← Change to YOUR domain
-DRUPAL_ADMIN_EMAIL=you@feesix.com  # ← Change to YOUR email
-
-ENVIRONMENT_MODE=production-isolated  # prod only (recommended)
-
-# Leave passwords blank — installer auto-generates strong passwords
-DB_ROOT_PASS=
-DRUPAL_ADMIN_PASS=
-```
-
-For production, also set:
-
-```ini
-PHP_OPCACHE_VALIDATE_TIMESTAMPS=0   # Faster PHP on production
-ENABLE_SWAP=true
-```
-
-Save and close (`Ctrl+O`, `Enter`, `Ctrl+X` in nano).
-
-### Step 2 — Dry Run First (Recommended)
-
-This shows exactly what the installer will do without making any changes:
-
-```bash
-sudo ./actools.sh dry-run
-```
-
-Review the output. If anything looks wrong (wrong domain, wrong memory limits), edit `actools.env` and run dry-run again.
-
-### Step 3 — Make the Script Executable and Run
-
-```bash
-chmod +x actools.sh
-sudo ./actools.sh
-```
-
-The installer will ask you to confirm before making any changes. Type `y` and press Enter.
-
-**What to expect during installation:**
-
-| Phase | What Happens | Time |
-|-------|-------------|------|
-| Pre-flight | Checks DNS, disk, validates env | < 30s |
-| Packages | Installs curl, git, jq, fail2ban, etc. | 2–3 min |
-| Docker | Installs Docker CE if not present | 2–3 min |
-| Caddy build | Builds custom Caddy with rate-limit plugin | ~60s |
-| Worker build | Builds worker with XeLaTeX inside | 3–5 min |
-| Stack start | Starts all containers | 30s |
-| Drupal install | Composer + drush site:install | 5–10 min |
-| TLS | Caddy gets Let's Encrypt certificate | 30–60s |
-| **Total** | | **~15–25 min** |
-
-### Step 4 — Verify the Installation
-
-When the installer finishes, it prints a summary box like this:
-
-```
-╔══════════════════════════════════════════════════════════╗
-║       AcTools v9 -- Drupal 11 + XeLaTeX in Container    ║
-╠══════════════════════════════════════════════════════════╣
-║  Production : https://feesix.com
-║  Admin user : admin
-║  Admin pass : xK9mLpQ3rW8nVb2j   <-- SAVE THIS
-║  DB creds   : /home/actools/.actools-db-creds
-║  Log        : /home/actools/actools-install.log
-╚══════════════════════════════════════════════════════════╝
-```
-
-**Save the admin password immediately.** Then verify:
-
-```bash
-# Check all containers are running
-actools status
-
-# Check the website responds
-actools health
-
-# Check TLS certificate
-actools tls-status
+actools status          # Container health
+actools health          # HTTP + /health endpoint check
+actools pdf-test        # XeLaTeX test inside worker container
+actools storage-test    # S3 PUT/GET/DELETE round-trip
+actools storage-info    # Provider, bucket, endpoint summary
+actools cost-optimize   # Memory usage vs limits (Phase 2)
+actools backup          # Run backup now
+actools restore-test    # Verify latest backup integrity
+actools drush prod cr   # Run drush in prod environment
+actools slow-log prod   # PHP-FPM slow request log
+actools redis-info      # Redis memory usage
+actools worker-status   # Drupal queue status
+actools logs            # Stream all container logs
 ```
 
 ---
 
-## 5. Fixing the Two Errors You Saw
+## S3 Storage
 
-You reported two errors in your `error.txt`. Here is what caused each one and how to prevent them going forward.
-
-### Error 1 — Permission Denied on Lock File
-
-```
-./actools.sh: line 72: /tmp/actools.lock: Permission denied
-```
-
-**What happened:** The installer creates a lock file at `/tmp/actools.lock` to prevent two simultaneous runs. When the first run was interrupted (possibly because the script was run as root directly, not with `sudo`), the lock file was left behind owned by root. When you ran again with `sudo` as the `actools` user, the shell couldn't open it.
-
-**The v9.1 fix:** The script now runs `touch "$LOCK_FILE" 2>/dev/null || true` before trying to open it, which ensures the file exists and has appropriate permissions.
-
-**Going forward:** Always run with `sudo ./actools.sh`, never as root directly. If you ever get this error again:
-
+Supports AWS, Backblaze B2, Wasabi, and any S3-compatible endpoint.
+Provider is auto-detected from the endpoint URL.
 ```bash
-sudo rm -f /tmp/actools.lock
-sudo ./actools.sh
-```
-
-### Error 2 — Docker Image Pull Denied for actools_caddy
-
-```
-pull access denied for actools_caddy, repository does not exist or may require 'docker login'
-```
-
-**What happened:** After the lock file was removed and the script resumed, it tried to pull `actools_caddy:custom` from Docker Hub — but this is a **locally-built** custom image that never gets pushed to any registry. The script builds it at install time using `docker build`. The pull attempt was wrong because the image hadn't been built yet during that particular run.
-
-**The root cause:** The first run was interrupted before the `docker build` step for the Caddy image completed, so the image didn't exist. When Docker Compose tried to `docker compose pull`, it interpreted the local image name as a registry reference and failed.
-
-**How v9.1 handles this:** The build step still happens at the top of `setup_stack()` before the pull. The pull only pulls images that come from Docker Hub (mariadb, drupal, redis). The custom images are built locally. If a build fails, the error is now clearer.
-
-**If it happens again:** Manually build the images, then re-run:
-
-```bash
-# Build Caddy image
-docker build -t actools_caddy:custom -f ~/Dockerfile.caddy ~/
-
-# Build worker image  
-docker build -t actools_worker:latest -f ~/Dockerfile.worker ~/
-
-# Then re-run the installer
-sudo ./actools.sh
-```
-
----
-
-## 6. actools.env Reference
-
-Full explanation of every configuration variable:
-
-```ini
-# ── REQUIRED ──────────────────────────────────────────────────────────────────
-BASE_DOMAIN=feesix.com
-# Your production domain. DNS A record must point to this server.
-
-DRUPAL_ADMIN_EMAIL=you@example.com
-# Used for Let's Encrypt certificate registration and Drupal admin account.
-
-# ── ENVIRONMENT MODE ──────────────────────────────────────────────────────────
-ENVIRONMENT_MODE=production-isolated
-# production-isolated  →  only prod environment (recommended for live servers)
-# all-in-one           →  dev + stg + prod on one server (for testing only)
-
-# ── PASSWORDS (leave blank for auto-generation) ───────────────────────────────
-DB_ROOT_PASS=
-DRUPAL_ADMIN_PASS=
-# When left blank, the installer generates strong random passwords and writes
-# them back into this file. On re-run, it reads them from here — idempotent.
-
-# ── PHP PERFORMANCE ──────────────────────────────────────────────────────────
-PHP_MEMORY_LIMIT=512m        # Web containers (Drupal page requests)
-WORKER_MEMORY_LIMIT=2g       # PDF worker (XeLaTeX needs 1–2 GB per compile)
-PHP_UPLOAD_MAX=256m          # Max file upload size
-PHP_MAX_EXEC=300             # Max execution time in seconds
-
-PHP_OPCACHE_ENABLE=1
-PHP_OPCACHE_MEMORY=256       # OPcache size in MB
-PHP_OPCACHE_MAX_FILES=20000
-PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
-# ↑ Set to 0 on production for best performance (disable on dev/stg)
-
-# ── DATABASE ──────────────────────────────────────────────────────────────────
-DB_MEMORY_LIMIT=2g
-INNODB_BUFFER_POOL=1G        # Should be ~50% of DB_MEMORY_LIMIT
-INNODB_LOG_FILE_SIZE=256M
-MARIADB_MAX_CONNECTIONS=100
-
-# ── REDIS ─────────────────────────────────────────────────────────────────────
-ENABLE_REDIS=true
-REDIS_MEMORY_LIMIT=256m
-
-# ── SWAP ──────────────────────────────────────────────────────────────────────
-ENABLE_SWAP=true
-SWAP_SIZE=4G
-# Critical on servers with less than 8 GB RAM. XeLaTeX can spike to 2–3 GB.
-
-# ── S3 STORAGE ───────────────────────────────────────────────────────────────
-ENABLE_S3_STORAGE=false
-# Set to true to store Drupal files in S3-compatible object storage.
-# When false, files live in the container filesystem (not recommended for prod).
-
-STORAGE_PROVIDER=backblaze   # aws | backblaze | wasabi | custom
-AWS_ACCESS_KEY_ID=           # Your S3 access key
-AWS_SECRET_ACCESS_KEY=       # Your S3 secret key
-S3_BUCKET=my-bucket-name
-AWS_REGION=us-east-1         # AWS only
-S3_ENDPOINT_URL=https://s3.us-west-000.backblazeb2.com  # Non-AWS providers
-ASSET_CDN_HOST=              # Optional: CDN domain for public files
-
-# ── XELATEX ───────────────────────────────────────────────────────────────────
-XELATEX_MODE=local           # local = inside worker container (default)
-XELATEX_ENDPOINT=            # Only used when XELATEX_MODE=remote
-
-# ── BACKUP ────────────────────────────────────────────────────────────────────
-BACKUP_RETENTION_DAYS=7
-RCLONE_REMOTE=               # Optional: rclone remote for offsite backup
-```
-
----
-
-## 7. The Log Directory — Finding and Reading Logs
-
-v9.1 introduces a structured log directory so you can audit every install run and diagnose issues efficiently.
-
-### Log Locations
-
-| Log File | Contents | How to View |
-|----------|----------|-------------|
-| `~/actools-install.log` | Combined log of all runs (appended) | `tail -100 ~/actools-install.log` |
-| `~/logs/install/actools-DATE_TIME.log` | Log of one specific run | `cat ~/logs/install/actools-2026-03-25_145145.log` |
-| `~/logs/caddy/` | Caddy HTTP access and error logs | `tail -f ~/logs/caddy/access.log` |
-| `~/logs/php_prod/` | PHP-FPM error log, slow request log | `tail -f ~/logs/php_prod/error.log` |
-| `~/logs/db/` | MariaDB slow query log | `tail -50 ~/logs/db/slow.log` |
-| `~/logs/worker/` | XeLaTeX worker output | `actools worker-logs` |
-
-### Using the CLI to Navigate Logs
-
-```bash
-# List all install runs with their timestamps
-actools log-dir
-
-# View install logs (shows location and latest file)
-actools log-dir
-
-# Stream all container logs live
-actools logs
-
-# Stream only the worker container
-actools worker-logs
-
-# PHP slow requests (anything taking over 5 seconds)
-actools slow-log prod
-
-# Recent OOM (out of memory) kills
-actools oom
-```
-
-### Searching Logs for Errors
-
-```bash
-# Find all errors in the combined install log
-grep -i "error\|failed\|warn" ~/actools-install.log
-
-# Find errors in a specific run
-grep -i "error" ~/logs/install/actools-2026-03-25_145145.log
-
-# Find Drupal PHP errors
-docker compose exec php_prod tail -50 /var/log/php/error.log
-```
-
-### Log Rotation
-
-Logs are automatically rotated daily by logrotate. Configuration is at `/etc/logrotate.d/actools`. Each log file is kept for 7 days and compressed after 1 day. You can check the rotation schedule:
-
-```bash
-cat /etc/logrotate.d/actools
-```
-
----
-
-## 8. Caddy — Configuration and Hardening
-
-Caddy is the web server and reverse proxy. It handles HTTPS automatically using Let's Encrypt.
-
-### 8.1 How Caddy is Configured
-
-The Caddyfile lives at `~/Caddyfile`. Here is a complete annotated version of what the installer generates:
-
-```
-{
-    email admin@feesix.com      # Let's Encrypt contact address
-    log { level INFO }          # Caddy internal log level
-}
-
-# Shared settings block — imported by every site
-(drupal_base) {
-    encode zstd gzip            # Compress responses (modern browsers prefer zstd)
-
-    # Long-lived caching for static assets (CSS, JS, images, fonts)
-    @static {
-        file
-        path *.css *.js *.png *.jpg *.jpeg *.gif *.svg *.woff2 *.woff *.ico *.pdf
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    # Security headers (applied to all responses)
-    header {
-        Strict-Transport-Security   "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options      "nosniff"
-        X-Frame-Options             "SAMEORIGIN"
-        Referrer-Policy             "strict-origin-when-cross-origin"
-        -Server                     # Remove "Caddy" from Server header
-    }
-
-    # Health check endpoint (used by actools health)
-    handle /health {
-        respond "OK" 200
-    }
-
-    # Rate limiting on login pages: 5 requests per 60 seconds per IP
-    @login {
-        path /user/login /user/password
-    }
-    rate_limit @login {
-        zone login_protect {
-            key {remote_host}
-            events 5
-            window 60s
-        }
-    }
-
-    file_server                 # Serve static files directly (bypasses PHP)
-}
-
-# Production site
-feesix.com {
-    root * /var/www/html/prod/web
-    php_fastcgi php_prod:9000   # Forward PHP to the PHP-FPM container
-    import drupal_base
-    tls admin@feesix.com
-}
-```
-
-### 8.2 Applying Caddy Config Changes
-
-**Never restart the Caddy container to apply config changes.** Instead, use zero-downtime reload:
-
-```bash
-actools caddy-reload
-# or directly:
-docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile
-```
-
-This reloads config with zero dropped connections. Caddy keeps existing connections open while applying the new config.
-
-### 8.3 Hardening Caddy Further
-
-Edit `~/Caddyfile` and add these sections for a stricter production setup:
-
-```
-feesix.com {
-    root * /var/www/html/prod/web
-    php_fastcgi php_prod:9000
-    import drupal_base
-
-    # Block access to sensitive Drupal paths
-    @blocked {
-        path /core/install.php
-        path /update.php
-        path *.sql
-        path *.bak
-        path *.orig
-        path /vendor/*
-        path /core/scripts/*
-    }
-    respond @blocked 403
-
-    # Block hidden files (e.g. .git, .env, .htaccess)
-    @dotfiles {
-        path /.*
-    }
-    respond @dotfiles 404
-
-    # Content Security Policy (adjust for your Drupal modules)
-    header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
-
-    # Permissions Policy
-    header Permissions-Policy "camera=(), microphone=(), geolocation=()"
-}
-```
-
-After editing, apply with:
-
-```bash
-actools caddy-reload
-```
-
-### 8.4 Adding a Redirector (www to non-www)
-
-Add this block to `~/Caddyfile`:
-
-```
-www.feesix.com {
-    redir https://feesix.com{uri} permanent
-}
-```
-
-Then: `actools caddy-reload`
-
-### 8.5 TLS Certificate Status
-
-```bash
-# Check when certs expire
-actools tls-status
-
-# Check Caddy's certificate storage
-docker exec actools_caddy caddy list-certs 2>/dev/null || \
-  ls ~/caddy/data/caddy/certificates/
-```
-
-Caddy auto-renews certificates when they are 30 days from expiry. No manual action needed.
-
----
-
-## 9. Drupal settings.php — Hardening Guide
-
-The Drupal `settings.php` file is at:
-```
-~/docroot/prod/sites/default/settings.php
-```
-
-### 9.1 What the Installer Already Adds
-
-The installer injects these sections automatically. You do not need to add them manually:
-
-**Trusted host patterns** — prevents Drupal from responding to requests with wrong Host headers:
-```php
-$settings['trusted_host_patterns'] = [
-    '^feesix\.com$',
-    '^.*\.feesix\.com$',
-];
-```
-
-**S3 credentials** (only if `ENABLE_S3_STORAGE=true`) — read from container environment at runtime, never stored in the database:
-```php
-// S3FS configuration -- injected by actools installer (v9.1).
-// Credentials read from container env vars via getenv(). Never in config export.
-$config['s3fs.settings']['access_key']        = getenv('AWS_ACCESS_KEY_ID') ?: '';
-$config['s3fs.settings']['secret_key']        = getenv('AWS_SECRET_ACCESS_KEY') ?: '';
-$config['s3fs.settings']['bucket']            = getenv('S3_BUCKET') ?: '';
-$config['s3fs.settings']['region']            = getenv('AWS_REGION') ?: 'us-east-1';
-$config['s3fs.settings']['use_s3_for_public'] = TRUE;
-$config['s3fs.settings']['use_s3_for_private'] = TRUE;
-
-// Provider-specific: custom endpoint for non-AWS providers.
-$_s3_endpoint = getenv('S3_ENDPOINT_URL');
-if (!empty($_s3_endpoint)) {
-  $config['s3fs.settings']['use_customhost'] = TRUE;
-  $config['s3fs.settings']['hostname']       = $_s3_endpoint;
-}
-
-// CDN: serve public files via CDN hostname when configured.
-$_cdn_host = getenv('ASSET_CDN_HOST');
-if (!empty($_cdn_host)) {
-  $config['s3fs.settings']['use_cname'] = TRUE;
-  $config['s3fs.settings']['domain']    = $_cdn_host;
-}
-```
-
-> **Why `$config` not `$settings`?** S3FS reads from `$config['s3fs.settings']`. The old code used `$settings['s3fs.*']` which S3FS never reads — this was a bug that made S3 completely non-functional (fixed in v9.1).
-
-### 9.2 Additional Hardening to Add Manually
-
-Edit settings.php inside the container:
-
-```bash
-actools shell php_prod
-# Then inside the container:
-nano /var/www/html/prod/sites/default/settings.php
-```
-
-Or from the host directly:
-
-```bash
-nano ~/docroot/prod/sites/default/settings.php
-```
-
-Add these at the bottom of the file:
-
-```php
-// ── Production Performance ─────────────────────────────────────────────────
-
-// Use Redis for caching (requires the redis Drupal module)
-$settings['redis.connection']['interface'] = 'PhpRedis';
-$settings['redis.connection']['host'] = 'redis';
-$settings['redis.connection']['port'] = 6379;
-$settings['cache']['default'] = 'cache.backend.redis';
-
-// Increase PHP limits for large content
-ini_set('memory_limit', getenv('PHP_MEMORY_LIMIT') ?: '512M');
-
-// ── Security ───────────────────────────────────────────────────────────────
-
-// Never show PHP errors to website visitors
-$config['system.logging']['error_level'] = 'hide';
-
-// Disable update notifications (reduces information leakage; manage updates manually)
-$config['update.settings']['check']['interval_days'] = 0;
-
-// Hash salt — auto-generated by drush site:install, do not change after install
-// $settings['hash_salt'] is already set above by the installer
-
-// ── File System ────────────────────────────────────────────────────────────
-
-// Temporary directory (use tmpfs for speed and security — already mounted as tmpfs)
-$settings['file_temp_path'] = '/tmp';
-
-// ── Session Security ──────────────────────────────────────────────────────
-
-// Require HTTPS for sessions (set to FALSE only during local development)
-ini_set('session.cookie_secure', TRUE);
-ini_set('session.cookie_httponly', 1);
-ini_set('session.cookie_samesite', 'Strict');
-
-// ── Reverse Proxy (Caddy) ─────────────────────────────────────────────────
-
-// Tell Drupal it's behind a reverse proxy (Caddy) so it uses correct scheme/IP
-$settings['reverse_proxy'] = TRUE;
-$settings['reverse_proxy_addresses'] = ['caddy'];
-// This allows Drupal to read the real client IP from X-Forwarded-For header
-```
-
-After editing, clear Drupal's cache:
-
-```bash
-actools drush prod cr
-```
-
-### 9.3 Protecting settings.php
-
-The file permissions should be read-only. Check and fix:
-
-```bash
-# Inside the container
-docker exec actools_php_prod ls -la /var/www/html/prod/sites/default/settings.php
-
-# Correct permissions: 444 (read-only for all, no write)
-docker exec actools_php_prod chmod 444 /var/www/html/prod/sites/default/settings.php
-```
-
----
-
-## 10. Docker — Daily Operations
-
-### 10.1 Understanding the Containers
-
-After install, you will have these containers running:
-
-```
-CONTAINER              IMAGE                    STATUS
-actools_caddy          actools_caddy:custom     Up (HTTPS reverse proxy)
-actools_php_prod       drupal:11-php8.3-fpm     Up (Drupal PHP)
-actools_worker_prod    actools_worker:latest    Up (XeLaTeX PDF queue)
-actools_db             mariadb:11.4             Up (healthy)
-actools_redis          redis:7-alpine           Up (session/page cache)
-```
-
-Check their status:
-
-```bash
-actools status
-# or for more detail:
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-```
-
-### 10.2 Container Health
-
-Each container runs a health check. When all containers are healthy, Drupal runs correctly. If a container shows `unhealthy`, that component has a problem.
-
-```bash
-# Quick health overview
-docker inspect actools_php_prod --format='{{.State.Health.Status}}'
-docker inspect actools_worker_prod --format='{{.State.Health.Status}}'
-docker inspect actools_db --format='{{.State.Health.Status}}'
-```
-
-### 10.3 Getting a Shell Inside a Container
-
-```bash
-# Shell into PHP (Drupal) container
-actools shell php_prod
-
-# Shell into database container
-actools shell db
-
-# Shell into Caddy container
-actools shell caddy
-```
-
-Once inside, you have a full bash shell. To run Drush:
-
-```bash
-# From inside the php_prod container:
-cd /var/www/html/prod
-./vendor/bin/drush status
-./vendor/bin/drush cr
-./vendor/bin/drush updb
-```
-
-Or from outside (preferred):
-
-```bash
-actools drush prod status
-actools drush prod cr
-actools drush prod updb --yes
-```
-
-### 10.4 Viewing Live Logs
-
-```bash
-# All containers at once
-actools logs
-
-# Just Caddy (HTTP access log)
-actools logs caddy
-
-# Just PHP
-actools logs php_prod
-
-# Just the worker
-actools worker-logs
-```
-
-Press `Ctrl+C` to stop following.
-
-### 10.5 Restarting Containers
-
-```bash
-# Restart a single container
-docker restart actools_php_prod
-
-# Restart everything
-docker compose -f ~/docker-compose.yml restart
-
-# Stop everything (data persists in volumes)
-docker compose -f ~/docker-compose.yml stop
-
-# Start everything back up
-docker compose -f ~/docker-compose.yml up -d
-```
-
-### 10.6 Resource Usage
-
-```bash
-# Live CPU and memory stats
-actools stats
-
-# Detailed memory usage by container
-docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}"
-```
-
-### 10.7 Running Updates (Drupal + Docker Images)
-
-```bash
-# This does everything safely:
-# 1. Takes a database snapshot before starting
-# 2. Pulls latest Docker images
-# 3. Restarts containers with new images
-# 4. Runs drush updb (Drupal database updates)
-# 5. Clears caches
-# 6. Reloads Caddy config (zero-downtime)
-sudo ./actools.sh update
-```
-
-Or use the CLI:
-
-```bash
-actools update
-```
-
-### 10.8 The Compose File
-
-The `docker-compose.yml` is auto-generated by the installer. If you need to inspect or modify it:
-
-```bash
-cat ~/docker-compose.yml
-```
-
-**Important:** Do not modify the compose file directly for configuration changes. Instead:
-- Memory limits → change in `actools.env`, re-run `sudo ./actools.sh update`
-- Env variables → change in `actools.env`, re-run update
-- New containers → add to compose file, then `docker compose up -d`
-
-### 10.9 Database Access
-
-MariaDB is not exposed on any external port by design — you can only access it from inside the Docker network. To run SQL:
-
-```bash
-# Interactive MySQL shell
-docker exec -it actools_db mysql -uroot -p"$(grep DB_ROOT_PASS ~/actools.env | cut -d= -f2)"
-
-# Non-interactive query
-docker exec actools_db mysql -uroot -p"PASSWORD" -e "SHOW DATABASES;"
-```
-
-Your per-environment database credentials are at:
-
-```bash
-cat ~/.actools-db-creds
-```
-
----
-
-## 11. S3 Storage — Setup and Testing
-
-S3-compatible object storage keeps Drupal files out of the container filesystem. This is essential for production because container filesystems are ephemeral.
-
-### 11.1 Enabling S3 Storage
-
-Edit `actools.env`:
-
-```ini
+# actools.env
 ENABLE_S3_STORAGE=true
-STORAGE_PROVIDER=backblaze       # or: aws, wasabi, custom
-
-AWS_ACCESS_KEY_ID=your-key-id
-AWS_SECRET_ACCESS_KEY=your-secret-key
-S3_BUCKET=your-bucket-name
-
-# For Backblaze B2:
+STORAGE_PROVIDER=backblaze
 S3_ENDPOINT_URL=https://s3.us-west-000.backblazeb2.com
-# For AWS S3:
-AWS_REGION=us-east-1
-# For Wasabi:
-S3_ENDPOINT_URL=https://s3.wasabisys.com
+S3_BUCKET=your-bucket-name
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
 ```
 
-Then run the installer (fresh install) or update:
-
-```bash
-sudo ./actools.sh update
-```
-
-### 11.2 Testing S3 After Setup
-
-```bash
-# Full write/read/delete round-trip test
-actools storage-test
-
-# Show current configuration
-actools storage-info
-```
-
-A passing `storage-test` output looks like:
-
-```
-=== S3 Storage Round-Trip Test ===
-Testing S3 write via stream wrapper...
-WRITE OK (22 bytes)
-READ OK (content matches)
-DELETE OK
-
-Round-trip: PASS
-
-Config check:
- bucket: your-bucket-name
-S3FS: configured in Drupal
-```
-
-### 11.3 How Credentials Are Kept Secure
-
-S3 credentials are **never** stored in Drupal's config database. They live only in two places:
-
-1. `actools.env` on the host (chmod 600, accessible only to the actools user)
-2. Docker container environment variables (passed at runtime, not in any image layer)
-
-In `settings.php`, they are read with `getenv()` at runtime:
-
-```php
-$config['s3fs.settings']['access_key'] = getenv('AWS_ACCESS_KEY_ID') ?: '';
-```
-
-This means `drush config:export` will **never** include your S3 credentials. They cannot leak into git.
+Credentials are injected via Docker environment variables.
+They are never written to Drupal's config system or config exports.
 
 ---
 
-## 12. XeLaTeX Worker Container
+## XeLaTeX / PDF Generation
 
-The PDF worker is a custom Docker image built at install time with XeLaTeX installed inside.
-
-### 12.1 Testing XeLaTeX
-
+XeLaTeX runs self-contained inside the worker container.
+No host packages needed. No library path fragility.
 ```bash
-actools pdf-test
-```
-
-Expected output:
-
-```
-=== XeLaTeX Test (inside worker container) ===
-Worker image: actools_worker:latest
-XeTeX 3.141592653-2.6-0.999994 (TeX Live 2023/Debian)
-XeLaTeX: OK -- self-contained inside worker container
-
-Worker container healthcheck status:
-  Health: healthy
-```
-
-### 12.2 Worker Queue Operations
-
-```bash
-# Show queue depth (how many PDFs are waiting)
-actools worker-status
-
-# Manually drain the queue (useful after deploy)
-actools worker-run
-
-# Stream worker logs live
-actools worker-logs
-```
-
-### 12.3 Rebuilding the Worker Image
-
-If XeLaTeX fails or you need to update the image:
-
-```bash
-docker build -t actools_worker:latest -f ~/Dockerfile.worker ~/
-docker compose -f ~/docker-compose.yml up -d worker_prod
-```
-
-### 12.4 Memory and OOM Handling
-
-If PDF generation fails with memory errors:
-
-1. Check OOM events: `actools oom`
-2. Increase `WORKER_MEMORY_LIMIT` in `actools.env` (try `3g` or `4g`)
-3. Verify swap is active: `swapon --show`
-4. Re-run: `sudo ./actools.sh update`
-
----
-
-## 13. Backup and Restore
-
-### 13.1 Automatic Daily Backups
-
-The installer creates a cron job at `/etc/cron.daily/actools-backup` that runs every day. It:
-
-- Dumps each environment's database to `~/backups/ENV_db_DATE.sql.gz`
-- Creates a SHA-256 checksum file alongside each backup
-- Deletes backups older than `BACKUP_RETENTION_DAYS` (default: 7 days)
-- If S3 is enabled, checks bucket reachability instead of tarring files
-- If `RCLONE_REMOTE` is set, pushes backups to a remote storage
-
-### 13.2 Running Backup Manually
-
-```bash
-actools backup
-```
-
-### 13.3 Verifying Backup Integrity
-
-```bash
-# Verifies the latest backup's checksum AND does a test restore to a temp database
-actools restore-test
-```
-
-This is the most important verification command. Run it weekly.
-
-### 13.4 Restoring From Backup
-
-```bash
-# Restore prod from the most recent backup (with confirmation prompt)
-actools restore prod
-
-# Restore from a specific backup file
-actools restore prod ~/backups/prod_db_2026-03-24.sql.gz
-```
-
-The restore command drops and recreates the database. It will ask you to confirm before doing so.
-
----
-
-## 14. Security Hardening Checklist
-
-Work through this list after installation. Check off each item as you complete it.
-
-### Server Level
-
-- [ ] **SSH key-only authentication**: Disable password SSH login
-  ```bash
-  sudo nano /etc/ssh/sshd_config
-  # Set: PasswordAuthentication no
-  sudo systemctl restart ssh
-  ```
-- [ ] **Verify UFW is active**: `sudo ufw status`
-- [ ] **Fail2ban is running**: `sudo systemctl status fail2ban`
-- [ ] **Swap is configured**: `swapon --show`
-- [ ] **Automatic security updates**: Install unattended-upgrades
-  ```bash
-  sudo apt install unattended-upgrades
-  sudo dpkg-reconfigure unattended-upgrades
-  ```
-
-### Docker Level
-
-- [ ] **No containers expose ports unnecessarily**: `docker ps --format "{{.Ports}}"` — only Caddy should show 80/443
-- [ ] **Container memory limits are enforced**:
-  ```bash
-  docker inspect actools_worker_prod | grep -i memory
-  ```
-- [ ] **No containers running as root** (all drop privileges via `cap_drop: ALL`)
-
-### Caddy Level
-
-- [ ] **HTTPS is working**: `actools tls-status`
-- [ ] **HSTS header is set**: `curl -I https://feesix.com | grep Strict`
-- [ ] **Login rate limiting is active**: See `Caddyfile`, the `rate_limit @login` block
-- [ ] **Sensitive paths are blocked**: Add the `@blocked` respond block from Section 8.3
-
-### Drupal Level
-
-- [ ] **Admin password saved and strong**: See `~/.actools-admin-pass`
-- [ ] **Error display is hidden**: Set `$config['system.logging']['error_level'] = 'hide';` in settings.php
-- [ ] **Trusted host patterns set**: Already done by installer — verify with `actools drush prod php-eval "print_r(\$settings['trusted_host_patterns']);"` 
-- [ ] **Update module notifications off**: Or subscribe to Drupal security advisories at https://www.drupal.org/security
-- [ ] **File permissions on settings.php**: `chmod 444`
-- [ ] **No development modules enabled on production**: Check for `devel`, `kint`, `webprofiler`
-  ```bash
-  actools drush prod pm:list --status=enabled | grep -i devel
-  ```
-- [ ] **Cron is running**: `actools drush prod core:cron`
-
-### S3 Storage Level (if enabled)
-
-- [ ] **Storage test passes**: `actools storage-test`
-- [ ] **S3 credentials not in git**: Verify your Drupal config export has no credentials:
-  ```bash
-  grep -r "AWS_SECRET\|access_key\|secret_key" ~/docroot/prod/config/ 2>/dev/null
-  ```
-- [ ] **Bucket is not public**: Check your S3 provider's console — bucket ACLs should be private
-
----
-
-## 15. Troubleshooting
-
-### Drupal site shows a white screen or error
-
-```bash
-# Check PHP errors
-actools logs php_prod | tail -50
-
-# Check for database connection issues
-actools drush prod status
-
-# Clear all caches
-actools drush prod cr
-```
-
-### Container won't start
-
-```bash
-# Check why a container failed
-docker logs actools_php_prod --tail 50
-
-# Check docker-compose for config errors
-docker compose -f ~/docker-compose.yml config
-```
-
-### Database connection errors
-
-```bash
-# Verify MariaDB is healthy
-docker inspect actools_db --format='{{.State.Health.Status}}'
-
-# Check DB root password matches
-grep DB_ROOT_PASS ~/actools.env
-docker exec actools_db mysql -uroot -p"YOUR_PASS" -e "SELECT 1;"
-```
-
-### TLS certificate not working
-
-```bash
-# Check cert status
-actools tls-status
-
-# Check DNS resolves correctly
-nslookup feesix.com
-
-# Check Caddy logs for ACME errors
-actools logs caddy | grep -i "acme\|tls\|cert\|error"
-```
-
-### Out of disk space
-
-```bash
-# Check disk usage
-df -h
-
-# Find largest directories
-du -sh ~/* | sort -h | tail -20
-
-# Clean up Docker images not in use
-docker image prune -f
-
-# Clean up old backups
-ls -lh ~/backups/
-# Delete old ones manually or reduce BACKUP_RETENTION_DAYS in actools.env
-```
-
-### XeLaTeX / PDF generation failing
-
-```bash
-# Test XeLaTeX inside the worker
+# Test it
 actools pdf-test
 
-# Check worker container health
-docker inspect actools_worker_prod --format='{{.State.Health.Status}}'
-
-# Check for OOM kills
-actools oom
-
-# Rebuild the worker image if corrupt
-docker build -t actools_worker:latest -f ~/Dockerfile.worker ~/
-docker compose -f ~/docker-compose.yml up -d worker_prod
-```
-
-### S3 storage not working
-
-```bash
-# Full round-trip test
-actools storage-test
-
-# Check current config (re-reads actools.env live in v9.1)
-actools storage-info
-
-# Verify env vars are in the container
-docker exec actools_php_prod env | grep -E "AWS|S3|STORAGE"
-
-# Check that s3fs module is enabled in Drupal
-actools drush prod pm:list | grep s3fs
-```
-
-### Lock file error on re-run
-
-```bash
-# Remove stale lock file
-sudo rm -f /tmp/actools.lock
-
-# Then re-run
-sudo ./actools.sh
+# Future: move to remote service
+XELATEX_MODE=remote
+XELATEX_ENDPOINT=http://your-xelatex-service:8081
 ```
 
 ---
 
-## 16. CLI Quick Reference
-
-All commands are run as the `actools` user (no `sudo` needed after install):
-
-```bash
-# ── Status & Monitoring ───────────────────────────────────────────────────────
-actools status              # All container statuses
-actools stats               # Live CPU/memory (Ctrl+C to exit)
-actools health              # HTTP health check for each domain
-actools tls-status          # TLS cert expiry dates
-
-# ── Logs ─────────────────────────────────────────────────────────────────────
-actools logs                # All container logs (live)
-actools logs caddy          # Caddy logs only
-actools logs php_prod       # PHP logs only
-actools worker-logs         # Worker/XeLaTeX logs
-actools slow-log prod       # PHP-FPM slow requests (>5s)
-actools redis-info          # Redis memory usage
-actools oom                 # Recent out-of-memory kills
-actools log-dir             # List install log files (NEW v9.1)
-
-# ── Drupal Operations ─────────────────────────────────────────────────────────
-actools drush prod cr       # Clear Drupal cache (most common command)
-actools drush prod updb     # Run database updates (after module update)
-actools drush prod status   # Drupal status overview
-actools drush prod pm:list  # List all installed modules
-actools console prod        # Interactive PHP console (Drush php:cli)
-actools shell php_prod      # Bash shell inside the PHP container
-
-# ── Worker / PDF ─────────────────────────────────────────────────────────────
-actools worker-status       # Queue depth
-actools worker-run          # Manually drain the PDF queue
-actools pdf-test            # Test XeLaTeX inside worker container
-
-# ── Storage ───────────────────────────────────────────────────────────────────
-actools storage-test        # S3 write/read/delete round-trip test
-actools storage-info        # Show provider, bucket, endpoint (live from env)
-actools migrate             # Guide for moving XeLaTeX to remote service
-
-# ── Updates & Maintenance ────────────────────────────────────────────────────
-actools update              # Safe update: snapshot → pull → updb → reload
-actools caddy-reload        # Zero-downtime Caddy config reload
-actools dry-run             # Preview what update would do
-
-# ── Backup & Restore ─────────────────────────────────────────────────────────
-actools backup              # Run backup now
-actools restore-test        # Verify latest backup + S3 check
-actools restore prod        # Restore prod DB (with confirmation)
+## Architecture
 ```
+actools/
+├── core/           Engine: bootstrap, state, secrets, validate
+├── modules/
+│   ├── host/       System: packages, kernel, swap, firewall, docker
+│   ├── stack/      Docker: compose, caddyfile, images, mycnf
+│   ├── db/         MariaDB: wait, credentials, backup_user
+│   ├── drupal/     Install: prepare → provision → secure
+│   ├── storage/    S3: s3fs, settings_inject
+│   └── worker/     XeLaTeX: xelatex, queue
+├── cli/commands/   CLI: health, backup, storage, worker, restore
+├── cron/           Scheduled: backup, stats collection
+└── tests/          bats test suite — 21 tests, 0 failures
+```
+
+The `install_env()` monolith from v9.2 is now three independent stages:
+- **prepare** — database + filesystem
+- **provision** — Composer + Drupal site:install
+- **secure** — trusted_host_patterns + S3 injection + FPM config
+
+Each stage is idempotent. A failed Composer install can be resumed
+with `sudo ./actools.sh resume prod --stage=provision` without
+recreating the database.
 
 ---
 
-## 17. v9.1 Patch Notes — What Was Fixed
+## CI
 
-v9.1 is a patch release that corrects five bugs from v9.0 that made S3 storage non-functional on fresh installs.
+Every push runs:
+- ShellCheck on all `.sh` files
+- 21 bats unit tests (core/validate, core/secrets)
 
-### Fix 1 — `storage-test` Used Nonexistent S3FS Method
+[![Lint and Test](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
 
-**Problem (v9.0):** The `actools storage-test` command called `\Drupal::service('s3fs')->put()` — a method that does not exist. S3FS uses PHP stream wrappers (`s3://`) rather than a direct service object with a `put()` method.
+---
 
-**Fix (v9.1):** Replaced with the correct stream wrapper API: `file_put_contents('s3://...', $content)`, `file_get_contents('s3://...')`, and `unlink('s3://...')`.
+## Roadmap
 
-### Fix 2 — `settings.php` Used Wrong Config Keys
+| Phase | Status | What |
+|-------|--------|------|
+| Phase 1 | ✅ Complete | Modular refactor, bats tests, CI |
+| Phase 2 | 🔜 Next | Self-healing healthd, observability, cost-optimize |
+| Phase 3 | Planned | Preview environments, zero-downtime migrations, CI/CD generation |
+| Phase 4 | Future | AI-native dev environment, edge workers |
 
-**Problem (v9.0):** S3FS credentials were injected as `$settings['s3fs.access_key']` etc. The S3FS module reads from `$config['s3fs.settings']['access_key']`. The old keys were simply never read by S3FS — S3 was completely non-functional.
+---
 
-**Fix (v9.1):** All S3FS settings now use `$config['s3fs.settings'][...]`. The endpoint URL and CDN hostname are also now injected via `getenv()` in the same settings.php block.
+## Requirements
 
-### Fix 3 — Backup Cron Missing `cd` to Install Directory
-
-**Problem (v9.0):** The cron script ran `docker compose exec` without first changing to the directory containing `docker-compose.yml`. Docker Compose could not find the file and failed silently.
-
-**Fix (v9.1):** Added `cd "${INSTALL_DIR}" || exit 1` at the top of the cron script body, before any docker compose calls. Also stores `INSTALL_DIR` in the cron script at install time.
-
-### Fix 4 — `storage-info` Showed Stale Install-Time Values
-
-**Problem (v9.0):** The `storage-info` CLI command had values like `${STORAGE_PROVIDER}` baked in when the helper script was written at install time. If you later edited `actools.env` and ran update, `actools storage-info` still showed the old values — causing confusion while debugging.
-
-**Fix (v9.1):** The `storage-info` command now re-sources `actools.env` at runtime, so it always reflects the current configuration.
-
-### Fix 5 — Non-AWS Endpoint and CDN Missing from settings.php
-
-**Problem (v9.0):** For Backblaze, Wasabi, and custom providers, the `settings.php` injection only set credentials and region. The custom endpoint URL and CDN hostname were handled separately by `drush config-set` commands — but these get wiped every time `drush config:import` runs, breaking file serving.
-
-**Fix (v9.1):** The endpoint URL (`S3_ENDPOINT_URL`) and CDN hostname (`ASSET_CDN_HOST`) are now injected directly into `settings.php` as `$config['s3fs.settings']` overrides via `getenv()`. They survive `drush config:import`, never appear in config exports, and update automatically when the container is restarted with new env vars.
-
-### Additional Improvements
-
-- **Lock file handling:** The lock file is now `touch`ed before being opened, preventing Permission Denied errors when re-running after a failed run.
-- **Per-run install logs:** Each installer run now writes a timestamped log to `~/logs/install/`. The main `actools-install.log` still receives all output. Use `actools log-dir` to list and locate them.
-- **`actools log-dir` command:** New CLI command to list all install log files and show how to tail the latest one.
+- Ubuntu 24.04
+- 2GB RAM minimum (4GB+ recommended for XeLaTeX)
+- 20GB disk minimum
+- DNS A records pointing to server before install
