@@ -136,3 +136,6 @@ venv/
 # docs/README.md          ← quick start guide
 # docs/CHANGELOG.md       ← version history
 # cron/stats.sh           ← hourly Docker stats collector
+observability/
+.preview-state.json
+docker-compose.observability.yml
