@@ -96,3 +96,61 @@ All notable changes to Actools are documented here.
 - Provider auto-detection from S3_ENDPOINT_URL hostname
 - S3-aware backup cron
 - actools storage-test, storage-info, migrate CLI commands
+
+---
+
+## [v10.6.0] — 2026-03-26 — Phase 3 Complete
+
+### Added
+- `actools migrate --plan` — shows pending Drupal updates + table sizes
+- `actools migrate --apply` — pre-backup + drush updb + health check
+- `actools migrate --rollback` — one-command rollback to pre-migration snapshot
+- gh-ost 1.1.8 installed — online schema changes for tables >100k rows
+- modules/migrate/migrate.sh — zero-downtime migration module
+
+## [v10.5.0] — 2026-03-26
+
+### Added
+- `actools ci --generate` — generates 3 GitHub Actions workflows
+  - github-test.yml — PHP CodeSniffer, PHPStan, composer validate
+  - github-deploy.yml — backup + pull + updb + health check
+  - github-security.yml — weekly composer audit + Drupal advisories
+- templates/ci/ — CI workflow templates with variable substitution
+
+## [v10.4.0] — 2026-03-26
+
+### Added
+- `actools branch <name>` — create isolated preview environment
+- `actools branch --list` — list active previews
+- `actools branch --destroy <name>` — clean destroy (DB, container, vhost)
+- `actools branch --cleanup` — auto-remove previews older than 7 days
+- Preview auto-cleanup daily cron
+- modules/preview/branch.sh — full preview environment lifecycle
+- Requires wildcard DNS: *.yourdomain.com
+
+## [v10.3.1] — 2026-03-26
+
+### Added
+- Quantum-safe TLS — HTTP/3 (h1 h2 h3) enabled in Caddy 2.8
+- X25519Kyber768 post-quantum key exchange active
+- SSL Labs rating: Forward Secrecy ROBUST
+
+### Fixed
+- Backup cron: mariadb-dump correct password, removed duplicate BACKUP_PASS
+
+## [v10.2.0] — 2026-03-26
+
+### Added
+- Prometheus + Grafana observability stack
+- 3 pre-built dashboards: Node Exporter Full, cAdvisor, Redis
+- docker-compose.observability.yml — separate compose file
+- Prometheus data source auto-configured via API
+
+## [v10.1.0] — 2026-03-26
+
+### Added
+- `actools health --verbose` — full system health report
+- `actools health --cost` — memory optimization report
+- `actools cost-optimize` — reads real Docker stats, suggests memory changes
+- modules/health/checks.sh — container, TLS, disk, MariaDB, Redis checks
+- Worker container stable — loop with sleep instead of crash-restart

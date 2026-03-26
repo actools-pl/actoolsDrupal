@@ -1,9 +1,11 @@
-# Actools — Drupal 11 Enterprise Installer
+# Actools — Drupal 11 Enterprise Platform
 
-Production-grade Drupal 11 stack installer for Ubuntu 24.04.  
-Solves the compatibility problems that plague manual Docker setups.
+Production-grade Drupal 11 platform installer for Ubuntu 24.04.  
+From a single command to a fully monitored, self-healing, observable Drupal stack.
 
 **Live example:** [feesix.com](https://feesix.com)
+
+[![Lint and Test](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
 
 ---
 
@@ -17,7 +19,7 @@ Every team running Drupal 11 with Docker hits the same walls:
 - Caddyfile syntax changed in 2.8 — inline log blocks rejected
 - `DB_ROOT_PASS` writeback breaks on lines with trailing comments
 
-**Actools v9.2 fixes all 8 of these.** Documented, tested, production-proven.
+**Actools v9.2 fixed all 8 of these.** v10.x turned the installer into a platform.
 
 ---
 
@@ -35,8 +37,7 @@ cp actools.env.example actools.env
 sudo ./actools.sh fresh
 ```
 
-That's it. Drupal 11 + MariaDB 11.4 + Caddy 2.8 + Redis + XeLaTeX worker
-fully configured and running in under 30 minutes.
+Drupal 11 + MariaDB 11.4 + Caddy 2.8 + Redis + XeLaTeX worker running in under 30 minutes.
 
 ---
 
@@ -46,63 +47,159 @@ fully configured and running in under 30 minutes.
 |-----------|---------|-------|
 | Drupal | 11 | PHP 8.3 FPM |
 | MariaDB | 11.4 | InnoDB tuned, slow query log |
-| Caddy | 2.8 | Custom build with caddy-ratelimit |
+| Caddy | 2.8 | Custom build with caddy-ratelimit, HTTP/3 |
 | Redis | 7 | LRU eviction |
 | XeLaTeX | texlive | Self-contained inside worker container |
 | PHP | 8.3 | OPcache configured |
+| Prometheus | latest | 30-day metrics retention |
+| Grafana | latest | 3 pre-built dashboards |
 
 ---
 
-## CLI
+## CLI — Full Command Reference
 ```bash
-actools status          # Container health
-actools health          # HTTP + /health endpoint check
-actools pdf-test        # XeLaTeX test inside worker container
-actools storage-test    # S3 PUT/GET/DELETE round-trip
-actools storage-info    # Provider, bucket, endpoint summary
-actools cost-optimize   # Memory usage vs limits (Phase 2)
-actools backup          # Run backup now
-actools restore-test    # Verify latest backup integrity
-actools drush prod cr   # Run drush in prod environment
-actools slow-log prod   # PHP-FPM slow request log
-actools redis-info      # Redis memory usage
-actools worker-status   # Drupal queue status
-actools logs            # Stream all container logs
+# Health & Monitoring
+actools health                    # HTTP check (simple)
+actools health --verbose          # Full system health report
+actools health --cost             # Memory optimization report
+actools cost-optimize             # Detailed cost analysis with recommendations
+
+# Stack Management
+actools status                    # Container status
+actools logs [svc]                # Stream logs
+actools restart [svc]             # Restart a service
+actools stats                     # Live Docker resource usage
+actools update                    # Pre-snapshot + pull + drush updb
+
+# Preview Environments (Phase 3)
+actools branch feature-123        # Spin up isolated preview environment
+actools branch --list             # List active preview environments
+actools branch --destroy feature-123  # Destroy preview environment
+actools branch --cleanup          # Remove previews older than 7 days
+
+# Database Migrations (Phase 3)
+actools migrate [env]             # Show pending migrations + table sizes
+actools migrate --apply [env]     # Apply with pre-migration backup
+actools migrate --rollback [env]  # Rollback to pre-migration snapshot
+
+# CI/CD Generation (Phase 3)
+actools ci --generate             # Generate GitHub Actions pipelines
+actools ci --generate --platform=gitlab  # Generate GitLab CI pipeline
+
+# Backup & Restore
+actools backup                    # Run backup now (DB + files)
+actools restore-test              # Verify latest backup integrity
+actools restore [env] [file]      # Restore with confirmation
+
+# Drupal
+actools drush [env] [cmd]         # Run drush command
+actools console [env]             # Drush PHP interactive console
+actools shell [svc]               # Bash in container
+
+# Worker & PDF
+actools worker-logs               # Stream worker logs
+actools worker-status             # Drupal queue status
+actools worker-run                # Run queue worker manually
+actools pdf-test                  # Test XeLaTeX in worker container
+
+# Storage
+actools storage-test              # S3 PUT/GET/DELETE round-trip test
+actools storage-info              # Storage provider + configuration
+
+# Network & TLS
+actools caddy-reload              # Zero-downtime Caddy config reload
+actools tls-status                # TLS certificate expiry dates
+
+# Observability
+actools redis-info                # Redis memory usage
+actools slow-log [env]            # PHP-FPM slow request log
 ```
 
 ---
 
-## S3 Storage
+## Preview Environments
 
-Supports AWS, Backblaze B2, Wasabi, and any S3-compatible endpoint.
-Provider is auto-detected from the endpoint URL.
+Every branch gets its own isolated environment:
+```bash
+actools branch feature-payment
+# → Clones prod database
+# → Copies docroot
+# → Starts isolated PHP container
+# → Adds Caddy vhost: feature-payment.yourdomain.com
+# → TLS certificate auto-obtained
+# → Auto-destroys after 7 days
+
+# Output:
+# URL      : https://feature-payment.feesix.com
+# Admin    : https://feature-payment.feesix.com/user/login
+# Password : <generated>
+# Expires  : 2026-04-02
+```
+
+---
+
+## Zero-Downtime Migrations
+```bash
+actools migrate --plan prod       # Shows pending updates + table sizes
+actools migrate --apply prod      # Pre-backup → drush updb → health check
+actools migrate --rollback prod   # One-command rollback to pre-migration state
+```
+
+Large tables (>100k rows) automatically use gh-ost for online schema changes.
+
+---
+
+## CI/CD Generation
+```bash
+actools ci --generate
+# Generates in /tmp/actools-ci-output/.github/workflows/:
+#   github-test.yml     → PHP CodeSniffer, PHPStan, composer validate (on every PR)
+#   github-deploy.yml   → backup + pull + updb + health check (on merge to main)
+#   github-security.yml → composer audit + Drupal advisories (weekly)
+```
+
+---
+
+## Observability
+```bash
+# Enable observability stack
+docker compose -f docker-compose.observability.yml up -d
+
+# Access via SSH tunnel
+ssh -L 3000:localhost:3000 actools@yourdomain.com
+# Then: http://localhost:3000 (admin / actools_grafana)
+```
+
+Pre-built dashboards:
+- **Node Exporter Full** — CPU, RAM, disk, network
+- **cAdvisor** — per-container resource usage
+- **Redis** — hit rate, memory, commands/sec
+
+---
+
+## S3 Storage
 ```bash
 # actools.env
 ENABLE_S3_STORAGE=true
-STORAGE_PROVIDER=backblaze
+STORAGE_PROVIDER=backblaze        # aws | backblaze | wasabi | custom
 S3_ENDPOINT_URL=https://s3.us-west-000.backblazeb2.com
 S3_BUCKET=your-bucket-name
 AWS_ACCESS_KEY_ID=your-key
 AWS_SECRET_ACCESS_KEY=your-secret
 ```
 
-Credentials are injected via Docker environment variables.
-They are never written to Drupal's config system or config exports.
+Provider auto-detected from endpoint URL. Credentials injected via Docker env vars — never in Drupal config exports.
 
 ---
 
-## XeLaTeX / PDF Generation
+## Security
 
-XeLaTeX runs self-contained inside the worker container.
-No host packages needed. No library path fragility.
-```bash
-# Test it
-actools pdf-test
-
-# Future: move to remote service
-XELATEX_MODE=remote
-XELATEX_ENDPOINT=http://your-xelatex-service:8081
-```
+- **Quantum-safe TLS** — HTTP/3 with X25519Kyber768 post-quantum key exchange
+- **Forward Secrecy — ROBUST** (SSL Labs rating)
+- **HSTS** — max-age=31536000 with includeSubDomains
+- **Rate limiting** — Caddy caddy-ratelimit on login endpoints
+- **Zero secrets in git** — all credentials via env vars, never committed
+- **UFW + fail2ban** — SSH rate-limited, ports 80/443/22 only
 
 ---
 
@@ -116,30 +213,32 @@ actools/
 │   ├── db/         MariaDB: wait, credentials, backup_user
 │   ├── drupal/     Install: prepare → provision → secure
 │   ├── storage/    S3: s3fs, settings_inject
-│   └── worker/     XeLaTeX: xelatex, queue
-├── cli/commands/   CLI: health, backup, storage, worker, restore
-├── cron/           Scheduled: backup, stats collection
-└── tests/          bats test suite — 21 tests, 0 failures
+│   ├── worker/     XeLaTeX: xelatex, queue
+│   ├── health/     Monitoring: checks, remediation
+│   ├── observability/ Prometheus + Grafana
+│   ├── preview/    Branch environments
+│   └── migrate/    Zero-downtime migrations
+├── cli/commands/   20+ CLI commands
+├── cron/           backup, stats collection
+├── templates/      Dockerfiles, CI workflows, Drupal settings
+└── tests/          21 bats tests — all passing
 ```
-
-The `install_env()` monolith from v9.2 is now three independent stages:
-- **prepare** — database + filesystem
-- **provision** — Composer + Drupal site:install
-- **secure** — trusted_host_patterns + S3 injection + FPM config
-
-Each stage is idempotent. A failed Composer install can be resumed
-with `sudo ./actools.sh resume prod --stage=provision` without
-recreating the database.
 
 ---
 
-## CI
+## vs Managed Drupal Hosts
 
-Every push runs:
-- ShellCheck on all `.sh` files
-- 21 bats unit tests (core/validate, core/secrets)
-
-[![Lint and Test](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
+| Feature | Actools | Acquia | Pantheon |
+|---------|---------|--------|----------|
+| Monthly cost | ~€10 VPS | €134–€1000+ | €35–€800+ |
+| Preview environments | ✅ | ✅ | ✅ Multidev |
+| XeLaTeX / PDF workers | ✅ native | ❌ | ❌ |
+| Observability (Grafana) | ✅ | paid add-on | paid add-on |
+| Quantum-safe TLS | ✅ | ❌ | ❌ |
+| Cost optimization CLI | ✅ | ❌ | ❌ |
+| Zero-downtime migrations | ✅ gh-ost | ✅ | ✅ |
+| CI/CD generation | ✅ | paid | paid |
+| Full code ownership | ✅ 100% | ❌ | ❌ |
 
 ---
 
@@ -147,16 +246,17 @@ Every push runs:
 
 | Phase | Status | What |
 |-------|--------|------|
-| Phase 1 | ✅ Complete | Modular refactor, bats tests, CI |
-| Phase 2 | 🔜 Next | Self-healing healthd, observability, cost-optimize |
-| Phase 3 | Planned | Preview environments, zero-downtime migrations, CI/CD generation |
-| Phase 4 | Future | AI-native dev environment, edge workers |
+| Phase 1 | ✅ Complete | Modular refactor, 32 modules, 21 bats tests, CI |
+| Phase 2 | ✅ Complete | Health checks, cost-optimize, Grafana, backup hardening, quantum TLS |
+| Phase 3 | ✅ Complete | Preview environments, zero-downtime migrations, CI/CD generation |
+| Phase 4 | 🔜 Next | AI-native dev environment (Ollama + ChromaDB) |
 
 ---
 
 ## Requirements
 
 - Ubuntu 24.04
-- 2GB RAM minimum (4GB+ recommended for XeLaTeX)
+- 2GB RAM minimum (4GB+ recommended)
 - 20GB disk minimum
 - DNS A records pointing to server before install
+- `*.yourdomain.com` wildcard DNS for preview environments
