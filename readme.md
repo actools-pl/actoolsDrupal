@@ -290,3 +290,13 @@ actools ai context
 - 20GB disk minimum
 - DNS A records pointing to server before install
 - `*.yourdomain.com` wildcard DNS for preview environments
+
+---
+
+## Documentation
+
+| # | Guide | Description |
+|---|-------|-------------|
+| 01 | [Drupal settings.php Hardening](docs/01-drupal-settings-hardening.md) | Public vs private files, hardened settings.php, session security, Redis config |
+| 02 | [Troubleshooting & Security](docs/02-troubleshooting-performance-security.md) | MariaDB, Caddy, XeLaTeX — debugging, performance tuning, hardening |
+| 03 | [Prometheus & Grafana Guide](docs/03-prometheus-grafana-guide.md) | Dashboard usage, PromQL queries, alerts, retention |
