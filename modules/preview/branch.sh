@@ -77,7 +77,8 @@ SQL
   mkdir -p "${INSTALL_DIR}/docroot/previews/${branch}"
   cp -r "${INSTALL_DIR}/docroot/prod/." \
         "${INSTALL_DIR}/docroot/previews/${branch}/"
-  mkdir -p "${INSTALL_DIR}/logs/php_pr_${branch//-/_}"
+  sudo mkdir -p "${INSTALL_DIR}/logs/php_pr_${branch//-/_}"
+  sudo chown actools:actools "${INSTALL_DIR}/logs/php_pr_${branch//-/_}"
   echo "  ✓ Docroot copied"
 
   # Step 3: Update settings.php for preview DB
