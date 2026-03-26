@@ -1,0 +1,21 @@
+# Actools RBAC — Phase 4.5 Item 4
+# Developers: branch, drush, logs, status, health, shell
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools branch *
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools drush *
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools logs *
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools status
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools health *
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools shell *
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools worker-logs
+actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools worker-status
+
+# Ops: everything except install/destroy
+actools-ops ALL=(actools) NOPASSWD: /usr/local/bin/actools *
+actools-ops ALL=(root)    NOPASSWD: /usr/local/bin/actools health *
+
+# Viewer: read-only
+actools-viewer ALL=(actools) NOPASSWD: /usr/local/bin/actools status
+actools-viewer ALL=(actools) NOPASSWD: /usr/local/bin/actools health *
+actools-viewer ALL=(actools) NOPASSWD: /usr/local/bin/actools logs *
+actools-viewer ALL=(actools) NOPASSWD: /usr/local/bin/actools worker-status
+actools-viewer ALL=(actools) NOPASSWD: /usr/local/bin/actools tls-status

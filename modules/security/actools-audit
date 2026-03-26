@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Actools audit wrapper — logs every CLI invocation
+# Phase 4.5 Item 4 — RBAC audit trail
+AUDIT_LOG="/home/actools/logs/audit.log"
+echo "$(date -u +%FT%TZ) user=$(whoami) euid=$(id -u) args=$*" >> "${AUDIT_LOG}" 2>/dev/null || true
+exec /usr/local/bin/actools-real "$@"

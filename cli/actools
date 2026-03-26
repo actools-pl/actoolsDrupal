@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Actools CLI v10.0 — Main Dispatcher
+# =============================================================================
+
+INSTALL_DIR="/home/actools"
+cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
+
+# Load env
+source "${INSTALL_DIR}/actools.env" 2>/dev/null || true
+
+# Load command modules
+source "${INSTALL_DIR}/cli/commands/health.sh"
+source "${INSTALL_DIR}/cli/commands/backup.sh"
+source "${INSTALL_DIR}/cli/commands/worker.sh"
+source "${INSTALL_DIR}/cli/commands/storage.sh"
+source "${INSTALL_DIR}/cli/commands/restore.sh"
+source "${INSTALL_DIR}/cli/commands/update.sh"
+source "${INSTALL_DIR}/cli/commands/cost_optimize.sh"
+source "${INSTALL_DIR}/modules/health/checks.sh"
+source "${INSTALL_DIR}/modules/preview/branch.sh"
+source "${INSTALL_DIR}/cli/commands/ci_generate.sh"
+source "${INSTALL_DIR}/modules/migrate/migrate.sh"
+source "${INSTALL_DIR}/modules/ai/assistant.sh"
+
+case "${1:-help}" in
+  health)       cmd_health "${2:-}" ;;
+  restore-test) cmd_restore_test ;;
+  restore)      cmd_restore "${2:-}" "${3:-}" ;;
+  storage-test) cmd_storage_test ;;
+  storage-info) cmd_storage_info ;;
+  worker-logs)  cmd_worker_logs ;;
+  worker-status)cmd_worker_status ;;
+  worker-run)   cmd_worker_run ;;
+  pdf-test)     cmd_pdf_test ;;
+  cost-optimize)cmd_cost_optimize ;;
+  update)       cmd_update ;;
+
+  status)
+    cd "$INSTALL_DIR" && docker compose ps
+    ;;
+  logs)
+    shift
+    cd "$INSTALL_DIR" && docker compose logs -f "${@}"
+    ;;
+  restart)
+    cd "$INSTALL_DIR" && docker compose restart "${2:-}"
+    ;;
+  drush)
+    env="${2:-prod}"
+    shift 2 2>/dev/null || shift 1 2>/dev/null || true
+    cd "$INSTALL_DIR" && docker compose exec "php_${env}" bash -c \
+      "cd /var/www/html/${env} && ./vendor/bin/drush $*"
+    ;;
+  shell)
+    cd "$INSTALL_DIR" && docker compose exec "${2:-php_prod}" bash
+    ;;
+  redis-info)
+    docker compose exec redis redis-cli info memory
+    ;;
+  slow-log)
+    env="${2:-prod}"
+    docker compose exec "php_${env}" tail -50 /var/log/php/www-slow.log 2>/dev/null \
+      || echo "No slow log yet"
+    ;;
+  caddy-reload)
+    docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile
+    ;;
+  tls-status)
+    echo "=== TLS Certificate Status ==="
+    echo | openssl s_client -connect "${BASE_DOMAIN}:443" \
+      -servername "${BASE_DOMAIN}" 2>/dev/null \
+      | openssl x509 -noout -dates 2>/dev/null \
+      || echo "unavailable"
+    ;;
+  stats)
+    docker stats --no-stream
+    ;;
+
+  ai)
+    check_ollama
+    case "${2:-}" in
+      explain)      ai_explain "${3:-}" ;;
+      review)       ai_review "${3:---security}" ;;
+      context)      build_context "${3:-all}" ;;
+      *)            ai_ask "${2:-Tell me about the Actools codebase}" ;;
+    esac
+    ;;
+
+  migrate)
+    case "${2:-}" in
+      --plan|-p)     migrate_plan "${3:-prod}" ;;
+      --apply|-a)    migrate_apply "${3:-prod}" ;;
+      --rollback|-r) migrate_rollback "${3:-prod}" ;;
+      --point-in-time) shift; source /home/actools/modules/backup/cli-pitr.sh; pitr_cli "$@" ;;
+      *)             migrate_plan "${2:-prod}" ;;
+    esac
+    ;;
+  backup)
+    shift
+    source /home/actools/modules/backup/cli-pitr.sh
+    backup_cli "$@"
+    ;;
+
+  ci)
+    shift
+    platform="github-actions"
+    output="/tmp/actools-ci-output"
+    for arg in "$@"; do
+      case "$arg" in
+        --platform=*) platform="${arg#--platform=}" ;;
+        --output=*)   output="${arg#--output=}" ;;
+      esac
+    done
+    cmd_ci_generate "$platform" "$output"
+    ;;
+
+  branch)
+    case "${2:-}" in
+      --list|-l)    branch_list ;;
+      --destroy|-d) branch_destroy "${3:-}" ;;
+      --cleanup)    branch_cleanup ;;
+      *)            branch_create "${2:-}" ;;
+    esac
+    ;;
+
+  help|*)
+    echo ""
+    echo "Actools CLI v10.0 — feesix.com"
+    echo ""
+    echo "  health                  HTTP check (simple)"
+    echo "  health --verbose        Full system health report"
+    echo "  health --cost           Memory optimization report"
+    echo "  cost-optimize           Detailed cost analysis"
+    echo "  status                  Container status"
+    echo "  logs [svc]              Stream logs"
+    echo "  restart [svc]           Restart a service"
+    echo "  stats                   Live Docker resource usage"
+    echo "  update                  Pre-snapshot + pull + drush updb"
+    echo "  backup                  Run backup now"
+    echo "  restore-test            Verify latest backup"
+    echo "  restore [env] [file]    Restore with confirmation"
+    echo "  drush [env] [cmd]       Run drush command"
+    echo "  shell [svc]             Bash in container"
+    echo "  worker-logs             Stream worker logs"
+    echo "  worker-status           Drupal queue status"
+    echo "  worker-run              Run queue worker manually"
+    echo "  pdf-test                Test XeLaTeX in worker"
+    echo "  storage-test            S3 round-trip test"
+    echo "  storage-info            Storage configuration"
+    echo "  redis-info              Redis memory usage"
+    echo "  slow-log [env]          PHP-FPM slow request log"
+    echo "  caddy-reload            Zero-downtime Caddy reload"
+    echo "  tls-status              TLS certificate expiry"
+  echo "  ai <question>           Ask AI about your codebase"
+  echo "  ai explain <file>       Explain a specific module"
+  echo "  ai review --security    Security review of codebase"
+  echo "  ai review --performance Performance review"
+  echo "  ai context              Rebuild AI codebase index"
+  echo "  migrate [env]           Show pending DB migrations"
+  echo "  migrate --apply [env]   Apply migrations (with pre-backup)"
+  echo "  migrate --rollback [env] Rollback to pre-migration backup"
+  echo "  ci --generate           Generate GitHub Actions CI/CD pipeline"
+  echo "  ci --generate --platform=gitlab  Generate GitLab CI pipeline"
+  echo "  branch <name>           Create preview environment"
+  echo "  branch --list           List active previews"
+  echo "  branch --destroy <name> Destroy preview environment"
+  echo "  branch --cleanup        Remove previews older than 7 days"
+  echo "  backup db               Run full database backup now"
+  echo "  backup binlogs          Rotate and archive binary logs"
+  echo "  backup status           Show backup status and binlog position"
+  echo "  migrate --point-in-time \"YYYY-MM-DD HH:MM:SS\"  PITR restore"
+  echo "  backup db               Run full database backup now"
+  echo "  backup binlogs          Rotate and archive binary logs"
+  echo "  backup status           Show backup status and binlog position"
+  echo "  migrate --point-in-time \"YYYY-MM-DD HH:MM:SS\"  PITR restore"
+    echo ""
+    ;;
+esac
+
+# Load preview module
+source "${INSTALL_DIR}/modules/preview/branch.sh"
+source "${INSTALL_DIR}/cli/commands/ci_generate.sh"
+source "${INSTALL_DIR}/modules/migrate/migrate.sh"
+source "${INSTALL_DIR}/modules/ai/assistant.sh"
