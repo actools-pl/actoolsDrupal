@@ -142,3 +142,14 @@ docker-compose.observability.yml
 observability/
 .preview-state.json
 docker-compose.observability.yml
+.bash_history
+.bash_logout
+.bashrc
+.bash_profile
+.profile
+.cache/
+.cloud-locale-test.skip
+.gitconfig
+.lesshst
+.ssh/
+.local/
