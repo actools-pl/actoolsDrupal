@@ -139,3 +139,6 @@ venv/
 observability/
 .preview-state.json
 docker-compose.observability.yml
+observability/
+.preview-state.json
+docker-compose.observability.yml
