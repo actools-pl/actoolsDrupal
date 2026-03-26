@@ -124,6 +124,13 @@ case "${1:-help}" in
     esac
     ;;
 
+  immortalize)
+    /home/actools/modules/dr/immortalize.sh "${2:-}"
+    ;;
+  resurrect)
+    shift
+    /home/actools/modules/dr/resurrect.sh "$@"
+    ;;
   help|*)
     echo ""
     echo "Actools CLI v10.0 — feesix.com"
@@ -170,6 +177,8 @@ case "${1:-help}" in
   echo "  backup binlogs          Rotate and archive binary logs"
   echo "  backup status           Show backup status and binlog position"
   echo "  migrate --point-in-time \"YYYY-MM-DD HH:MM:SS\"  PITR restore"
+  echo "  immortalize              Snapshot complete server state to DNA"
+  echo "  resurrect --dna <file> --key <key>  Restore on fresh server"
   echo "  backup db               Run full database backup now"
   echo "  backup binlogs          Rotate and archive binary logs"
   echo "  backup status           Show backup status and binlog position"
