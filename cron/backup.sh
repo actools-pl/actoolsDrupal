@@ -15,7 +15,8 @@ cd "${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found" >&2; exit 1; }
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/actools.env"
 
-for env in "prod"; do
+ENVIRONMENTS="prod"
+for env in $ENVIRONMENTS; do
   DB="actools_${env}"
   DUMPFILE="${BACKUP_DIR}/${env}_db_${TIMESTAMP}.sql.gz"
 
