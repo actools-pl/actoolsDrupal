@@ -101,7 +101,7 @@ services:
     pull_policy: never
     container_name: actools_worker_prod
     restart: unless-stopped
-    command: ["bash", "-c", "cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export --time-limit=600"]
+    command: ["bash", "-c", "while true; do cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export --time-limit=600 2>/dev/null || true; sleep 60; done"]
     volumes:
       - ./docroot/prod:/var/www/html/prod
       - ./logs/worker:/var/log/worker
