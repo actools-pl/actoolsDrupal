@@ -3,7 +3,7 @@
 # Actools CLI v10.0 — Main Dispatcher
 # =============================================================================
 
-INSTALL_DIR="/home/actools"
+INSTALL_DIR="${ACTOOLS_HOME:-/home/actools}"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
 # Load env

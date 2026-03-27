@@ -49,12 +49,12 @@ MODE="${1:-fresh}"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo "~$REAL_USER")"
 
-ENV_FILE="$REAL_HOME/actools.env"
-STATE_FILE="$REAL_HOME/.actools-state.json"
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$INSTALL_DIR/actools.env"
+STATE_FILE="$INSTALL_DIR/.actools-state.json"
 LOCK_FILE="/tmp/actools.lock"
-LOG_FILE="$REAL_HOME/actools-install.log"
-LOG_DIR="$REAL_HOME/logs/install"
-INSTALL_DIR="$REAL_HOME"
+LOG_FILE="$INSTALL_DIR/actools-install.log"
+LOG_DIR="$INSTALL_DIR/logs/install"
 PKG_DONE_FLAG="/var/lib/actools/.packages_done"
 
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
@@ -1352,6 +1352,11 @@ esac
 HELPER
   chmod +x /usr/local/bin/actools
   log "CLI installed: /usr/local/bin/actools"
+  # Write ACTOOLS_HOME so CLI always finds the install directory
+  grep -q "ACTOOLS_HOME" /etc/environment 2>/dev/null && \
+    sed -i "s|ACTOOLS_HOME=.*|ACTOOLS_HOME=${INSTALL_DIR}|" /etc/environment \
+    || echo "ACTOOLS_HOME=${INSTALL_DIR}" >> /etc/environment
+  log "ACTOOLS_HOME set to ${INSTALL_DIR}"
 }
 
 # =============================================================================
