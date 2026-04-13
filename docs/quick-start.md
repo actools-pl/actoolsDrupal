@@ -16,7 +16,9 @@
 
 **Hetzner CX22** (2 vCPU, 4GB RAM, 40GB NVMe) is the reference server — €3.79/month.
 
-DNS A records must point to the server before install. Caddy obtains TLS certificates automatically on first request.
+DNS A records must point to the server before install. The installer checks this and warns you if DNS is not resolving correctly — but it will not stop the install. Fix DNS before the site will be accessible via HTTPS.
+
+> **Optional:** Add a DNS CAA record at your registrar (`CAA 0 issue "letsencrypt.org"`) to prevent other CAs from issuing certificates for your domain. Caddy obtains TLS certificates automatically on first request.
 
 For preview environments (`*.yourdomain.com`), add a wildcard A record pointing to the same IP.
 
@@ -35,7 +37,7 @@ nano actools.env
 # Required: BASE_DOMAIN, DRUPAL_ADMIN_EMAIL, DB_ROOT_PASS
 
 # 3. Install
-sudo ./actools.sh fresh
+sudo ./actools.sh
 ```
 
 The installer handles everything: Docker, Caddy, MariaDB, PHP-FPM, Redis, XeLaTeX worker, Prometheus, Grafana.
