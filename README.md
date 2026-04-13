@@ -117,8 +117,6 @@ Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
 | [Observability](docs/observability.md) | Prometheus, Grafana, dashboards, alerts |
 | [Enterprise hardening](docs/enterprise.md) | PITR, DNA resurrection, GDPR tools |
 | [Privacy & Data Policy](docs/privacy.md) | AI local only, zero phone-home, no telemetry |
-| [Operations](docs/operations.md) | Backups, updates, resource usage, troubleshooting |
-| [Privacy & Data Policy](docs/privacy.md) | AI local only, zero phone-home, no telemetry |
 
 ## Acknowledgements
 
