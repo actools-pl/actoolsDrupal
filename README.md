@@ -116,3 +116,7 @@ Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
 | [Hardening](docs/hardening.md) | TLS, RBAC, audit trail, settings.php |
 | [Observability](docs/observability.md) | Prometheus, Grafana, dashboards, alerts |
 | [Enterprise hardening](docs/enterprise.md) | PITR, DNA resurrection, GDPR tools |
+
+## Acknowledgements
+
+Development assisted by [Claude](https://claude.ai) (Anthropic).
