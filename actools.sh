@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Actools — Drupal 11 Enterprise Installer v9.2
+# Actools — Drupal 11 Enterprise Installer v14.0
 # Ubuntu 24.04 | Docker CE · Caddy 2.8 · PHP-FPM · MariaDB 11.4 · Redis 7
 # Dedicated Worker Image (XeLaTeX self-contained inside container)
 # Multi-Provider S3 storage: AWS · Backblaze B2 · Wasabi · Custom
@@ -43,7 +43,7 @@ trap 'error "Script failed at line ${LINENO} -- command: ${BASH_COMMAND}"' ERR
 # =============================================================================
 # BOOTSTRAP
 # =============================================================================
-ACTOOLS_VERSION="9.2"
+ACTOOLS_VERSION="14.0"
 MODE="${1:-fresh}"
 
 REAL_USER="${SUDO_USER:-$USER}"
@@ -413,7 +413,7 @@ log "Host log rotation configured."
 # SETUP STACK
 # =============================================================================
 setup_stack() {
-  section "Stack Setup (v9.2)"
+  section "Stack Setup (v14.0)"
 
   mkdir -p "$INSTALL_DIR/docroot"/{dev,stg,prod}
   mkdir -p "$INSTALL_DIR"/{caddy/{data,config},logs/{caddy,db,worker,install},backups}
@@ -1544,7 +1544,7 @@ main() {
   section "Installation Complete"
   echo
   echo -e "${G}╔══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${G}║       AcTools v9.2 -- Drupal 11 + XeLaTeX in Container  ║${NC}"
+  echo -e "${G}║       Actools v14.0 -- Drupal 11 + XeLaTeX in Container  ║${NC}"
   echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
   echo -e "${G}║${NC}  Production : ${C}https://${BASE_DOMAIN}${NC}"
   [[ "$ENVIRONMENT_MODE" == "all-in-one" ]] && {

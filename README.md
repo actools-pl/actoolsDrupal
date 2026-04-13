@@ -58,7 +58,7 @@ actools immortalize               # snapshot entire server state
 actools ai "how does the queue worker handle timeouts?"
 ```
 
-**Enterprise hardening** (v11.2.0)
+**Enterprise hardening** (v14.0)
 - RPO ~1 hour · RTO <15 minutes
 - MariaDB TLS 1.3 · age-encrypted backups · RBAC + audit trail
 - DNA resurrection — rebuild from bare metal in under 15 minutes
