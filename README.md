@@ -23,7 +23,7 @@ Actools solves all of it. One install. Full control.
 git clone https://github.com/actools-pl/actoolsDrupal.git
 cd actoolsDrupal
 cp actools.env.example actools.env   # set BASE_DOMAIN, DB_ROOT_PASS
-sudo ./actools.sh fresh
+sudo ./actools.sh
 ```
 
 Drupal 11 · MariaDB 11.4 · Caddy 2.8 · Redis · XeLaTeX — running in under 30 minutes.
@@ -99,6 +99,8 @@ actools ai "how does the queue worker handle timeouts?"
 ## Requirements
 
 Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
+> **DNS must be configured before install.** Point your A record to the server IP before running.
+> Add a DNS CAA record for extra security: `CAA 0 issue "letsencrypt.org"`
 
 ---
 
