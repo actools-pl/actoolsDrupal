@@ -214,3 +214,22 @@ docker compose up -d worker_prod
 ---
 
 *Back to [docs index](README.md)*
+
+---
+
+## Resource Usage — Real World Numbers
+
+Measured on feesix.com (Hetzner CX22 — 2 vCPU, 4GB RAM) under normal load:
+
+| Container | CPU | Memory | Limit |
+|---|---|---|---|
+| actools_caddy | 0.00% | 17 MB | — |
+| actools_php_prod | 0.01% | 111 MB | 512 MB |
+| actools_redis | 0.78% | 4 MB | 256 MB |
+| actools_db | 0.03% | 258 MB | 2 GB |
+| **Total** | **~1%** | **~390 MB** | — |
+
+A €10 Hetzner CX22 (4GB RAM) runs the full stack using under 400MB RAM at idle.
+Leaves 3.6GB headroom for traffic spikes, XeLaTeX PDF generation, and growth.
+
+*Measured April 13, 2026 — production feesix.com*
