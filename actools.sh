@@ -89,7 +89,12 @@ section "Pre-flight Checks"
 
 [[ "$(id -u)" -eq 0 ]]    || error "Run with sudo: sudo $0"
 [[ -n "${SUDO_USER:-}" ]]  || error "Use 'sudo ./actools.sh', not running as root directly"
-[[ -f "$ENV_FILE" ]]       || error "Missing $ENV_FILE -- copy actools.env to $REAL_HOME"
+[[ -f "$ENV_FILE" ]] || {
+  error "Missing actools.env — run this first:
+  cp actools.env.example actools.env
+  nano actools.env   # set BASE_DOMAIN and DRUPAL_ADMIN_EMAIL
+Then re-run: sudo ./actools.sh"
+}
 
 set -a
 # shellcheck source=/dev/null
@@ -98,8 +103,22 @@ set +a
 
 [[ -z "${BASE_DOMAIN:-}" ]]        && error "BASE_DOMAIN is not set in $ENV_FILE"
 [[ -z "${DRUPAL_ADMIN_EMAIL:-}" ]] && error "DRUPAL_ADMIN_EMAIL is not set in $ENV_FILE"
-[[ "${BASE_DOMAIN}" == *"example.com"* ]] && \
-  warn "BASE_DOMAIN looks like a placeholder. DNS must resolve before TLS works."
+[[ "${BASE_DOMAIN}" == *"example.com"* ]] &&   warn "BASE_DOMAIN looks like a placeholder. DNS must resolve before TLS works."
+
+# DNS preflight — check domain resolves to this server
+SERVER_IP="$(curl -s --max-time 5 ifconfig.me 2>/dev/null || true)"
+DNS_IP="$(getent hosts "${BASE_DOMAIN}" 2>/dev/null | awk '{print $1}' | head -1 || true)"
+if [[ -n "$SERVER_IP" && -n "$DNS_IP" && "$SERVER_IP" != "$DNS_IP" ]]; then
+  warn "DNS mismatch: ${BASE_DOMAIN} resolves to ${DNS_IP} but this server is ${SERVER_IP}"
+  warn "Caddy cannot obtain TLS certificates until DNS points to this server."
+  warn "Continuing anyway — fix DNS before the site will be accessible via HTTPS."
+elif [[ -n "$SERVER_IP" && -z "$DNS_IP" ]]; then
+  warn "DNS not resolving: ${BASE_DOMAIN} has no A record yet."
+  warn "Point your A record to ${SERVER_IP} before HTTPS will work."
+  warn "Continuing install — DNS can be set after install completes."
+else
+  log "DNS check: ${BASE_DOMAIN} → ${DNS_IP} ✓"
+fi
 
 STORAGE_PROVIDER="${STORAGE_PROVIDER:-${S3_PROVIDER:-}}"
 S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-${S3_ENDPOINT:-}}"
@@ -490,15 +509,23 @@ WORKER_DOCKERFILE
     header @static Cache-Control "public, max-age=31536000, immutable"
 
     header {
-        Strict-Transport-Security   "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options      "nosniff"
-        X-Frame-Options             "SAMEORIGIN"
-        Referrer-Policy             "strict-origin-when-cross-origin"
+        Strict-Transport-Security        "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options           "nosniff"
+        X-Frame-Options                  "SAMEORIGIN"
+        Referrer-Policy                  "strict-origin-when-cross-origin"
+        Permissions-Policy               "camera=(), microphone=(), geolocation=()"
+        Content-Security-Policy-Report-Only "default-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https:; report-uri /csp-violations"
         -Server
+        -X-Powered-By
+        -X-Generator
     }
 
     handle /health {
         respond "OK" 200
+    }
+
+    handle /csp-violations {
+        respond "logged" 204
     }
 
     @login {
@@ -911,7 +938,22 @@ GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_name}'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-  log "Composing Drupal ${DRUPAL_VERSION} for ${env}..."
+  # Resolve Drupal version constraint
+  # Supports: 11 (latest 11.x) | 11.3 (latest 11.3.x) | 11.3.5 (exact)
+  local DV="${DRUPAL_VERSION:-11}"
+  local DRUPAL_CONSTRAINT
+  if [[ "$DV" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    DRUPAL_CONSTRAINT="$DV"
+    log "Drupal version: exact ${DV}"
+  elif [[ "$DV" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    DRUPAL_CONSTRAINT="~${DV}"
+    log "Drupal version: latest ${DV}.x"
+  else
+    DRUPAL_CONSTRAINT="^${DV}"
+    log "Drupal version: latest ${DV}.x.x"
+  fi
+
+  log "Composing Drupal ${DV} for ${env}..."
   docker compose exec -T "$php_svc" bash -c "
     export COMPOSER_PROCESS_TIMEOUT=${COMPOSER_PROCESS_TIMEOUT:-600}
     set -euo pipefail
@@ -923,7 +965,7 @@ SQL
     fi
 
     if [[ ! -f composer.json ]]; then
-      composer create-project drupal/recommended-project:^${DRUPAL_VERSION} . --no-interaction
+      composer create-project drupal/recommended-project:${DRUPAL_CONSTRAINT} . --no-interaction
       composer require drush/drush --no-interaction
     fi
 
@@ -953,7 +995,7 @@ SQL
       --account-name=${DRUPAL_ADMIN_USER:-admin} \
       --account-pass=${DRUPAL_ADMIN_PASS} \
       --account-mail=${DRUPAL_ADMIN_EMAIL} \
-      --site-name='AcTools ${env^}' \
+      --site-name='${SITE_NAME:-AcTools}' \
       --yes
     ./vendor/bin/drush cr
   "
@@ -1518,6 +1560,9 @@ main() {
   echo -e "${G}║${NC}  Log        : ${C}${LOG_FILE}${NC}"
   echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
   echo -e "${G}║${NC}  actools status          actools worker-status"
+  echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
+  echo -e "${G}║${NC}  ${Y}If actools command not found, run:${NC}"
+  echo -e "${G}║${NC}    ${C}source ~/.bashrc${NC}  (or reconnect SSH)"
   echo -e "${G}║${NC}  actools pdf-test        actools storage-test"
   echo -e "${G}║${NC}  actools storage-info    actools health"
   echo -e "${G}║${NC}  actools slow-log prod   actools redis-info"
