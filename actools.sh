@@ -228,7 +228,7 @@ log "Pre-flight complete."
 # =============================================================================
 section "Secret Guard"
 
-rand_pass() { openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 22; }
+rand_pass() { openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 22; }
 
 gen_if_empty() {
   local var="$1"
