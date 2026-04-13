@@ -1,0 +1,30 @@
+# /etc/mysql/mariadb.conf.d/99-binlog.cnf
+# Phase 4.5 Item 2 — Binary logging for Point-in-Time Recovery
+# Deploy: sudo cp 99-binlog.cnf /etc/mysql/mariadb.conf.d/
+#         docker compose restart db
+# Verify: docker compose exec db mysql -u root -p -e "SHOW VARIABLES LIKE 'log_bin%';"
+
+[mysqld]
+# Binary log location (inside container maps to named volume)
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_format           = ROW
+binlog_row_image        = FULL
+
+# Retention and size
+expire_logs_days        = 7
+max_binlog_size         = 100M
+
+# Safety: each transaction committed to binlog before ack to client
+# 1 = safest (fsync on every commit), small perf cost on HDD
+# On NVMe (Hetzner CX) this is negligible
+sync_binlog             = 1
+
+# Required for binary logging — unique per server
+# If you ever add a replica/Galera node, each node needs a different ID
+server_id               = 1
+
+# Log DDL statements (CREATE TABLE, ALTER, DROP) in binlog as well
+log_bin_trust_function_creators = 1
+
+# Checksum each binlog event — detects corruption during recovery
+binlog_checksum         = CRC32

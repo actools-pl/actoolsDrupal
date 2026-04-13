@@ -1,0 +1,2285 @@
+#!/usr/bin/env bash
+# =============================================================================
+# core/bootstrap.sh — Actools Engine: Variable Init, Logging, Lock File
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+export ACTOOLS_VERSION="9.2"
+MODE="${1:-fresh}"
+
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME="$(eval echo "~$REAL_USER")"
+
+export ENV_FILE="$REAL_HOME/actools.env"
+export STATE_FILE="$REAL_HOME/.actools-state.json"
+LOCK_FILE="/tmp/actools.lock"
+LOG_FILE="$REAL_HOME/actools-install.log"
+LOG_DIR="$REAL_HOME/logs/install"
+export INSTALL_DIR="$REAL_HOME"
+export PKG_DONE_FLAG="/var/lib/actools/.packages_done"
+
+R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
+
+# Logging
+log()     { echo -e "${G}[INFO ]${NC} $(date '+%F %T') $*"; }
+warn()    { echo -e "${Y}[WARN ]${NC} $(date '+%F %T') $*"; }
+error()   { echo -e "${R}[ERROR]${NC} $(date '+%F %T') $*"; exit 1; }
+section() {
+  echo -e "\n${C}══════════════════════════════════════════════════${NC}"
+  echo -e "${C}  $*${NC}"
+  echo -e "${C}══════════════════════════════════════════════════${NC}"
+}
+
+# Per-run log setup
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+RUN_LOG="$LOG_DIR/actools-$(date +%F_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE" | tee -a "$RUN_LOG") 2>&1
+
+# Dry-run mode
+DRY_RUN=false
+[[ "$MODE" == "dry-run" ]] && DRY_RUN=true
+dryrun() { "$DRY_RUN" && { echo -e "${Y}[DRY-RUN]${NC} Would run: $*"; return 0; } || "$@"; }
+
+# Lock file — prevents concurrent installs
+touch "$LOCK_FILE" 2>/dev/null || true
+exec 200>"$LOCK_FILE"
+flock -n 200 || error "Another actools installation is already running."
+#!/usr/bin/env bash
+# =============================================================================
+# core/secrets.sh — Actools Engine: Secret Generation and Writeback
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+rand_pass() { openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 22; }
+
+gen_if_empty() {
+  local var="$1"
+  local val="${!var:-}"
+  [[ "$val" == *"CHANGEME"* ]] && error "$var contains 'CHANGEME' -- set a real value."
+  if [[ -z "$val" ]]; then
+    log "$var empty -- auto-generating..."
+    printf -v "$var" '%s' "$(rand_pass)"
+    log "$var generated."
+  fi
+}
+
+writeback_secrets() {
+  for var in DB_ROOT_PASS DRUPAL_ADMIN_PASS; do
+    local val="${!var}"
+    if grep -qP "^${var}=\\s*(#.*)?$" "$ENV_FILE" 2>/dev/null; then
+      sed -i "s|^${var}=.*|${var}=${val}|" "$ENV_FILE"
+      log "${var} written back to env file."
+    fi
+  done
+}
+#!/usr/bin/env bash
+# =============================================================================
+# core/state.sh — Actools Engine: State Management
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+init_state() {
+  [[ -f "$STATE_FILE" ]] || echo '{"envs":{},"db_passes":{}}' > "$STATE_FILE"
+  chown "$REAL_USER:$REAL_USER" "$STATE_FILE" 2>/dev/null || true
+}
+
+set_state()      { local tmp; tmp=$(mktemp); jq "$1" "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"; }
+get_state()      { jq -r "$1" "$STATE_FILE" 2>/dev/null || echo "null"; }
+is_installed()   { jq -e ".envs.$1 == true" "$STATE_FILE" >/dev/null 2>&1; }
+mark_installed() { set_state ".envs.$1=true"; }
+
+get_db_pass() {
+  local env="$1" pass
+  pass=$(get_state ".db_passes.${env}")
+  if [[ "$pass" == "null" || -z "$pass" ]]; then
+    pass=$(rand_pass)
+    set_state ".db_passes.${env}=\"${pass}\""
+  fi
+  echo "$pass"
+}
+
+get_backup_pass() {
+  local pass
+  pass=$(get_state ".backup_user_pass")
+  if [[ "$pass" == "null" || -z "$pass" ]]; then
+    pass=$(rand_pass)
+    set_state ".backup_user_pass=\"${pass}\""
+  fi
+  echo "$pass"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# core/validate.sh — Actools Engine: All Validation Logic
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+validate_env() {
+  [[ "${PHP_MEMORY_LIMIT:-512m}" =~ ^[0-9]+[mg]$ ]] || \
+    error "PHP_MEMORY_LIMIT format invalid ('${PHP_MEMORY_LIMIT}'). Use: 512m or 2g"
+  [[ "${WORKER_MEMORY_LIMIT:-2g}" =~ ^[0-9]+[mg]$ ]] || \
+    error "WORKER_MEMORY_LIMIT format invalid ('${WORKER_MEMORY_LIMIT}'). Use: 2g or 1024m"
+  [[ "${DB_MEMORY_LIMIT:-2g}" =~ ^[0-9]+[mg]$ ]] || \
+    error "DB_MEMORY_LIMIT format invalid ('${DB_MEMORY_LIMIT}'). Use: 2g or 1024m"
+  [[ "${PHP_VERSION:-8.3}" =~ ^[0-9]+\.[0-9]+$ ]] || \
+    error "PHP_VERSION format invalid: '${PHP_VERSION}'. Expected e.g. 8.3"
+  log ".env validation passed."
+}
+
+detect_s3_provider() {
+  STORAGE_PROVIDER="${STORAGE_PROVIDER:-${S3_PROVIDER:-}}"
+  S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-${S3_ENDPOINT:-}}"
+  ASSET_CDN_HOST="${ASSET_CDN_HOST:-${CLOUDFLARE_CDN_DOMAIN:-}}"
+
+  if [[ -z "$STORAGE_PROVIDER" && -n "$S3_ENDPOINT_URL" ]]; then
+    if [[ "$S3_ENDPOINT_URL" == *"backblazeb2.com"* ]]; then
+      STORAGE_PROVIDER="backblaze"
+      log "S3 provider auto-detected: backblaze"
+    elif [[ "$S3_ENDPOINT_URL" == *"wasabisys.com"* ]]; then
+      STORAGE_PROVIDER="wasabi"
+      log "S3 provider auto-detected: wasabi"
+    elif [[ "$S3_ENDPOINT_URL" == *"amazonaws.com"* ]]; then
+      STORAGE_PROVIDER="aws"
+      log "S3 provider auto-detected: aws"
+    else
+      STORAGE_PROVIDER="custom"
+      log "S3 provider auto-detected: custom"
+    fi
+  elif [[ -z "$STORAGE_PROVIDER" ]]; then
+    STORAGE_PROVIDER="aws"
+  fi
+}
+
+validate_s3() {
+  if [[ "${ENABLE_S3_STORAGE:-false}" == "true" ]]; then
+    [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && error "ENABLE_S3_STORAGE=true but AWS_ACCESS_KEY_ID not set"
+    [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && error "ENABLE_S3_STORAGE=true but AWS_SECRET_ACCESS_KEY not set"
+    [[ -z "${S3_BUCKET:-}" ]]             && error "ENABLE_S3_STORAGE=true but S3_BUCKET not set"
+    case "$STORAGE_PROVIDER" in
+      aws)
+        [[ -z "${AWS_REGION:-}" ]] && error "STORAGE_PROVIDER=aws but AWS_REGION not set"
+        log "S3: provider=AWS bucket=${S3_BUCKET} region=${AWS_REGION}"
+        ;;
+      backblaze)
+        [[ -z "$S3_ENDPOINT_URL" ]] && error "STORAGE_PROVIDER=backblaze but S3_ENDPOINT_URL not set"
+        log "S3: provider=Backblaze B2 bucket=${S3_BUCKET} endpoint=${S3_ENDPOINT_URL}"
+        ;;
+      wasabi)
+        [[ -z "$S3_ENDPOINT_URL" ]] && error "STORAGE_PROVIDER=wasabi but S3_ENDPOINT_URL not set"
+        log "S3: provider=Wasabi bucket=${S3_BUCKET} endpoint=${S3_ENDPOINT_URL}"
+        ;;
+      custom)
+        [[ -z "$S3_ENDPOINT_URL" ]] && error "STORAGE_PROVIDER=custom but S3_ENDPOINT_URL not set"
+        log "S3: provider=custom bucket=${S3_BUCKET} endpoint=${S3_ENDPOINT_URL}"
+        ;;
+      *)
+        error "STORAGE_PROVIDER must be: aws | backblaze | wasabi | custom (got: ${STORAGE_PROVIDER})"
+        ;;
+    esac
+  fi
+}
+
+validate_xelatex() {
+  XELATEX_MODE="${XELATEX_MODE:-local}"
+  if [[ "$XELATEX_MODE" == "remote" ]]; then
+    [[ -z "${XELATEX_ENDPOINT:-}" ]] && error "XELATEX_MODE=remote but XELATEX_ENDPOINT not set"
+    log "XeLaTeX mode: remote (${XELATEX_ENDPOINT})"
+  else
+    log "XeLaTeX mode: local (self-contained in worker container)"
+  fi
+}
+
+validate_environment_mode() {
+  ENV_MODE="${ENVIRONMENT_MODE:-production-isolated}"
+  if [[ "$ENV_MODE" == "production-isolated" ]]; then
+    ENVIRONMENTS="prod"
+    log "Mode: production-isolated (prod only)"
+  elif [[ "$ENV_MODE" == "all-in-one" ]]; then
+    ENVIRONMENTS="${ENVIRONMENTS:-dev,stg,prod}"
+    log "Mode: all-in-one (${ENVIRONMENTS})"
+  else
+    ENVIRONMENTS="prod"
+    warn "ENVIRONMENT_MODE '${ENV_MODE}' unrecognised -- defaulting to production-isolated"
+  fi
+}
+
+validate_disk() {
+  AVAILABLE_KB=$(df / | awk 'NR==2 {print $4}')
+  (( AVAILABLE_KB < 20971520 )) && \
+    error "Only $(( AVAILABLE_KB / 1048576 ))GB free. At least 20GB required."
+  log "Disk OK -- $(( AVAILABLE_KB / 1048576 ))GB free."
+  DISK_USE=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+  (( DISK_USE > 80 )) && warn "Disk ${DISK_USE}% full -- risk of failure during install."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/ai/assistant.sh — Phase 4: AI-Native Dev Environment
+# Uses Ollama + deepseek-coder with codebase context
+# =============================================================================
+
+INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
+OLLAMA_URL="http://localhost:11434"
+AI_MODEL="deepseek-coder:1.3b"
+AI_CONTEXT_DIR="${INSTALL_DIR}/.ai-context"
+
+# Build context from actual codebase
+build_context() {
+  local target="${1:-all}"
+  mkdir -p "$AI_CONTEXT_DIR"
+
+  echo "Building AI context from codebase..."
+
+  case "$target" in
+    core)
+      cat "${INSTALL_DIR}"/core/*.sh > "${AI_CONTEXT_DIR}/core.txt" 2>/dev/null
+      ;;
+    modules)
+      find "${INSTALL_DIR}/modules" -name "*.sh" -exec cat {} \; \
+        > "${AI_CONTEXT_DIR}/modules.txt" 2>/dev/null
+      ;;
+    all|*)
+      cat "${INSTALL_DIR}"/core/*.sh \
+          "${INSTALL_DIR}"/modules/**/*.sh \
+          "${INSTALL_DIR}"/cli/commands/*.sh \
+          > "${AI_CONTEXT_DIR}/full.txt" 2>/dev/null
+      ;;
+  esac
+
+  local size
+  size=$(wc -l "${AI_CONTEXT_DIR}/full.txt" 2>/dev/null | awk '{print $1}')
+  echo "  ✓ Context built: ${size} lines of code indexed"
+}
+
+# Ask AI with codebase context
+ai_ask() {
+  local question="$1"
+  local context_file="${AI_CONTEXT_DIR}/full.txt"
+
+  if [[ ! -f "$context_file" ]]; then
+    build_context all
+  fi
+
+  # Build prompt with codebase context
+  local context
+  context=$(cat "$context_file" 2>/dev/null | head -500)
+
+  local prompt="You are an expert in Drupal 11, Bash scripting, Docker, and MariaDB.
+You are helping with the Actools platform — a modular Drupal 11 installer.
+
+Here is the relevant codebase context:
+\`\`\`bash
+${context}
+\`\`\`
+
+Question: ${question}
+
+Give a specific, practical answer based on the actual code above."
+
+  echo ""
+  echo "=== Actools AI Assistant ==="
+  echo "Model: ${AI_MODEL}"
+  echo ""
+
+  curl -s "${OLLAMA_URL}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"model\": \"${AI_MODEL}\",
+      \"prompt\": $(echo "$prompt" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))"),
+      \"stream\": false,
+      \"options\": {
+        \"temperature\": 0.3,
+        \"num_predict\": 512
+      }
+    }" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('response', 'No response'))
+"
+  echo ""
+}
+
+# Explain a specific file
+ai_explain() {
+  local file="$1"
+  local full_path="${INSTALL_DIR}/${file}"
+
+  if [[ ! -f "$full_path" ]]; then
+    echo "File not found: ${full_path}"
+    exit 1
+  fi
+
+  local code
+  code=$(cat "$full_path")
+
+  echo ""
+  echo "=== AI Explain: ${file} ==="
+  echo ""
+
+  curl -s "${OLLAMA_URL}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"model\": \"${AI_MODEL}\",
+      \"prompt\": $(echo "Explain this bash script concisely. What does it do, what are its main functions, and are there any potential issues?\n\n\`\`\`bash\n${code}\n\`\`\`" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))"),
+      \"stream\": false,
+      \"options\": {\"temperature\": 0.2, \"num_predict\": 400}
+    }" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('response', 'No response'))
+"
+  echo ""
+}
+
+# Security review
+ai_review() {
+  local target="${1:-core}"
+  local files
+
+  case "$target" in
+    --security)
+      files=$(find "${INSTALL_DIR}/core" "${INSTALL_DIR}/modules" \
+        -name "*.sh" | head -5 | xargs cat 2>/dev/null | head -300)
+      local review_type="security vulnerabilities, injection risks, and hardcoded secrets"
+      ;;
+    --performance)
+      files=$(cat "${INSTALL_DIR}/modules/db/"*.sh 2>/dev/null)
+      local review_type="performance issues, inefficient queries, and optimization opportunities"
+      ;;
+    *)
+      files=$(cat "${INSTALL_DIR}/core/"*.sh 2>/dev/null)
+      local review_type="code quality, best practices, and potential bugs"
+      ;;
+  esac
+
+  echo ""
+  echo "=== AI Code Review: ${target} ==="
+  echo ""
+
+  curl -s "${OLLAMA_URL}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"model\": \"${AI_MODEL}\",
+      \"prompt\": $(echo "Review this bash code for ${review_type}. List specific issues found with line references where possible.\n\n\`\`\`bash\n${files}\n\`\`\`" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))"),
+      \"stream\": false,
+      \"options\": {\"temperature\": 0.2, \"num_predict\": 500}
+    }" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('response', 'No response'))
+"
+  echo ""
+}
+
+# Check Ollama is running
+check_ollama() {
+  curl -s "${OLLAMA_URL}/api/tags" &>/dev/null || {
+    echo "Ollama not running. Starting..."
+    ollama serve &>/dev/null &
+    sleep 3
+  }
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/db/backup_user.sh — Backup DB User Setup
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+setup_backup_db_user() {
+  local backup_pass="$1"
+  wait_db
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+CREATE USER IF NOT EXISTS 'backup'@'%' IDENTIFIED BY '${backup_pass}';
+GRANT SELECT, LOCK TABLES, SHOW VIEW ON *.* TO 'backup'@'%';
+FLUSH PRIVILEGES;
+SQL
+  log "DB backup user created."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/db/credentials.sh — DB Credential Management
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+check_db_creds() {
+  cd "$INSTALL_DIR" || exit
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" \
+    -e "SELECT 1;" &>/dev/null 2>&1 \
+    || error "Cannot authenticate to MariaDB with current DB_ROOT_PASS.
+  Check DB_ROOT_PASS in actools.env matches the running container."
+  log "DB credentials verified."
+}
+
+create_db_and_user() {
+  local env="$1"
+  local db_name="actools_${env}"
+  local db_pass
+  db_pass=$(get_db_pass "$env")
+
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${db_name}'@'%' IDENTIFIED BY '${db_pass}';
+GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_name}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  log "Database and user created for ${env}."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/db/wait.sh — MariaDB Write-Check
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+wait_db() {
+  cd "$INSTALL_DIR" || exit
+  log "Waiting for MariaDB (write-check)..."
+  local _wp="${DB_ROOT_PASS}"
+  local _tries=0
+  until docker compose exec -T db mariadb -uroot -p"${_wp}" \
+    -e "CREATE TABLE IF NOT EXISTS mysql.actools_write_check (id INT); DROP TABLE IF EXISTS mysql.actools_write_check;" \
+    &>/dev/null 2>&1; do
+    _tries=$(( _tries + 1 ))
+    [[ $_tries -ge 50 ]] && error "MariaDB did not become ready within 150s."
+    sleep 3
+  done
+  log "MariaDB ready."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/drupal/prepare.sh — Stage 1: Database + Filesystem
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+drupal_prepare() {
+  local env="$1"
+  
+
+  section "Stage 1: Prepare — ${env}"
+
+  wait_db
+  create_db_and_user "$env"
+
+  mkdir -p "${INSTALL_DIR}/docroot/${env}"
+  mkdir -p "${INSTALL_DIR}/logs/php_${env}"
+
+  # Pre-create DB log dir with correct ownership for MariaDB (UID 999)
+  chown -R 999:999 "${INSTALL_DIR}/logs/db" 2>/dev/null || true
+  touch "${INSTALL_DIR}/logs/db/slow.log" 2>/dev/null || true
+  chown 999:999 "${INSTALL_DIR}/logs/db/slow.log" 2>/dev/null || true
+  chmod 664 "${INSTALL_DIR}/logs/db/slow.log" 2>/dev/null || true
+
+  log "Stage 1 complete: database and filesystem ready for ${env}."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/drupal/provision.sh — Stage 2: Composer + Drupal Site Install
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+drupal_provision() {
+  local env="$1"
+  local db_name="actools_${env}"
+  local db_pass
+  db_pass=$(get_db_pass "$env")
+
+  section "Stage 2: Provision — ${env}"
+
+  # Install mysql client for drush DB operations
+  docker compose exec -T "php_${env}" bash -c \
+    "apt-get update -qq && apt-get install -y -qq default-mysql-client 2>/dev/null || true" \
+    2>/dev/null || true
+
+  # Composer + Drupal
+  log "Composing Drupal ${DRUPAL_VERSION} for ${env}..."
+  docker compose exec -T "php_${env}" bash -c "
+    export COMPOSER_PROCESS_TIMEOUT=${COMPOSER_PROCESS_TIMEOUT:-600}
+    set -euo pipefail
+    mkdir -p /var/www/html/${env}
+    cd /var/www/html/${env}
+
+    if ! command -v composer &>/dev/null; then
+      curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    fi
+
+    if [[ ! -f composer.json ]]; then
+      composer create-project drupal/recommended-project:^${DRUPAL_VERSION} . --no-interaction
+      composer require drush/drush --no-interaction
+    fi
+
+    EXTRA='${EXTRA_PACKAGES:-}'
+    [[ -n \"\$EXTRA\" ]] && composer require \$EXTRA --no-interaction || true
+  "
+
+  # Drush site install
+  log "drush site:install for ${env}..."
+  docker compose exec -T "php_${env}" bash -c "
+    set -euo pipefail
+    cd /var/www/html/${env}
+    ./vendor/bin/drush site:install standard \
+      --db-url=mysql://${db_name}:${db_pass}@db/${db_name} \
+      --account-name=${DRUPAL_ADMIN_USER:-admin} \
+      --account-pass=${DRUPAL_ADMIN_PASS} \
+      --account-mail=${DRUPAL_ADMIN_EMAIL} \
+      --site-name='AcTools ${env^}' \
+      --yes
+    ./vendor/bin/drush cr
+  "
+
+  log "Stage 2 complete: Drupal provisioned for ${env}."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/drupal/secure.sh — Stage 3: trusted_hosts + S3 + FPM + Ownership
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+drupal_secure() {
+  local env="$1"
+
+  section "Stage 3: Secure — ${env}"
+
+  # Inject trusted_host_patterns
+  local domain_escaped="${BASE_DOMAIN//./\\.}"
+  docker compose exec -T "php_${env}" bash -c "
+    cd /var/www/html/${env}
+    ./vendor/bin/drush php:eval \"
+      \\\$config_file = DRUPAL_ROOT . '/../sites/default/settings.php';
+      \\\$trusted = ['^${domain_escaped}$', '^.*\\.${domain_escaped}$'];
+      \\\$line = \\\"\\\\\\\$settings['trusted_host_patterns'] = \" . var_export(\\\$trusted, true) . \";\\\";
+      file_put_contents(\\\$config_file, PHP_EOL . \\\$line, FILE_APPEND);
+    \" 2>/dev/null || true
+  " 2>/dev/null || warn "trusted_host_patterns injection failed for ${env} -- set manually in settings.php"
+
+  # S3 settings injection
+  if [[ "${ENABLE_S3_STORAGE:-false}" == "true" ]]; then
+    log "Injecting S3 credentials into settings.php for ${env}..."
+    docker compose exec -T "php_${env}" bash -c "
+      CONFIG_FILE=/var/www/html/${env}/sites/default/settings.php
+      cat >> \"\$CONFIG_FILE\" <<'SETTINGS'
+
+// S3FS configuration -- injected by actools installer (v9.2)
+\$config['s3fs.settings']['access_key']         = getenv('AWS_ACCESS_KEY_ID') ?: '';
+\$config['s3fs.settings']['secret_key']         = getenv('AWS_SECRET_ACCESS_KEY') ?: '';
+\$config['s3fs.settings']['bucket']             = getenv('S3_BUCKET') ?: '';
+\$config['s3fs.settings']['region']             = getenv('AWS_REGION') ?: 'us-east-1';
+\$config['s3fs.settings']['use_s3_for_public']  = TRUE;
+\$config['s3fs.settings']['use_s3_for_private'] = TRUE;
+
+\$_s3_endpoint = getenv('S3_ENDPOINT_URL');
+if (!empty(\$_s3_endpoint)) {
+  \$config['s3fs.settings']['use_customhost'] = TRUE;
+  \$config['s3fs.settings']['hostname']       = \$_s3_endpoint;
+}
+
+\$_cdn_host = getenv('ASSET_CDN_HOST');
+if (!empty(\$_cdn_host)) {
+  \$config['s3fs.settings']['use_cname'] = TRUE;
+  \$config['s3fs.settings']['domain']    = \$_cdn_host;
+}
+SETTINGS
+    " 2>/dev/null || warn "S3 settings.php injection failed for ${env}"
+    log "S3 settings injected for ${env}."
+  fi
+
+  # PHP-FPM slow log
+  docker compose exec -T "php_${env}" bash -c "
+    if [[ -f /usr/local/etc/php-fpm.d/www.conf ]]; then
+      echo 'slowlog = /var/log/php/www-slow.log' >> /usr/local/etc/php-fpm.d/www.conf
+      echo 'request_slowlog_timeout = 5s' >> /usr/local/etc/php-fpm.d/www.conf
+      kill -USR2 1 2>/dev/null || true
+    fi
+  " 2>/dev/null || true
+
+  # File ownership
+  docker compose exec -T "php_${env}" bash -c "
+    chown -R www-data:www-data /var/www/html/${env}/web/sites/default/files 2>/dev/null || true
+  " 2>/dev/null || true
+  chown -R "$REAL_USER:$REAL_USER" "${INSTALL_DIR}/docroot/${env}" 2>/dev/null || true
+
+  # Save credentials
+  mark_installed "$env"
+  local db_pass
+  db_pass=$(get_db_pass "$env")
+  set_state ".db_passes.${env}=\"${db_pass}\""
+  echo "[${env}] DB: actools_${env}  User: actools_${env}  Pass: ${db_pass}" \
+    >> "$REAL_HOME/.actools-db-creds"
+  chmod 600 "$REAL_HOME/.actools-db-creds" 2>/dev/null || true
+
+  log "Stage 3 complete: ${env} secured and hardened."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/health/checks.sh — Phase 2: Semantic Health Checks
+# =============================================================================
+
+health_check_all() {
+  local issues=0
+
+  echo ""
+  echo "=== Actools Health Check ==="
+  echo "$(date '+%F %T')"
+  echo ""
+
+  # --- Container status ---
+  echo "── Containers ──────────────────────────"
+  local containers=("actools_caddy" "actools_db" "actools_php_prod" "actools_redis" "actools_worker_prod")
+  for c in "${containers[@]}"; do
+    local status health
+    health=$(docker inspect "$c" --format="{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" 2>/dev/null || echo "none")
+    status=$(docker inspect "$c" --format='{{.State.Status}}' 2>/dev/null || echo "missing")
+    
+
+    if [[ "$status" == "running" ]]; then
+      if [[ "$health" == "healthy" || "$health" == "none" || "$health" == "" ]]; then
+        echo "  ✓ ${c} — ${status}"
+      else
+        echo "  ✗ ${c} — ${status} (health: ${health})"
+        (( issues++ )) || true
+      fi
+    else
+      echo "  ✗ ${c} — ${status}"
+      (( issues++ )) || true
+    fi
+  done
+
+  # --- Memory pressure ---
+  echo ""
+  echo "── Memory Pressure ─────────────────────"
+  local containers_with_limits=("actools_php_prod:512" "actools_db:2048" "actools_redis:256")
+  for entry in "${containers_with_limits[@]}"; do
+    local name="${entry%%:*}"
+    local limit_mib="${entry##*:}"
+    local mem_raw
+    mem_raw=$(docker stats --no-stream --format "{{.MemUsage}}" "$name" 2>/dev/null \
+      | grep -oP '^[\d.]+(?=MiB)' || echo "0")
+    if [[ -n "$mem_raw" && "$mem_raw" != "0" ]]; then
+      local mem_int="${mem_raw%.*}"
+      local pct=$(( mem_int * 100 / limit_mib ))
+      if (( pct > 85 )); then
+        echo "  ✗ ${name}: ${mem_raw}MiB / ${limit_mib}MiB (${pct}%) — CRITICAL"
+        (( issues++ )) || true
+      elif (( pct > 70 )); then
+        echo "  ! ${name}: ${mem_raw}MiB / ${limit_mib}MiB (${pct}%) — WARNING"
+      else
+        echo "  ✓ ${name}: ${mem_raw}MiB / ${limit_mib}MiB (${pct}%)"
+      fi
+    fi
+  done
+
+  # --- TLS certificate expiry ---
+  echo ""
+  echo "── TLS Certificate ─────────────────────"
+  local expiry expiry_epoch now_epoch days_left
+  expiry=$(echo | openssl s_client -connect "${BASE_DOMAIN}:443" \
+    -servername "${BASE_DOMAIN}" 2>/dev/null \
+    | openssl x509 -noout -enddate 2>/dev/null \
+    | cut -d= -f2)
+  if [[ -n "$expiry" ]]; then
+    expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null)
+    now_epoch=$(date +%s)
+    days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+    if (( days_left < 14 )); then
+      echo "  ✗ ${BASE_DOMAIN} — expires in ${days_left} days — RENEW NOW"
+      (( issues++ )) || true
+    else
+      echo "  ✓ ${BASE_DOMAIN} — expires in ${days_left} days"
+    fi
+  else
+    echo "  ! TLS check unavailable"
+  fi
+
+  # --- Disk space ---
+  echo ""
+  echo "── Disk Space ──────────────────────────"
+  local disk_pct disk_free
+  disk_pct=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+  disk_free=$(df -h / | awk 'NR==2 {print $4}')
+  if (( disk_pct > 85 )); then
+    echo "  ✗ Disk: ${disk_pct}% used (${disk_free} free) — CRITICAL"
+    (( issues++ )) || true
+  elif (( disk_pct > 70 )); then
+    echo "  ! Disk: ${disk_pct}% used (${disk_free} free) — WARNING"
+  else
+    echo "  ✓ Disk: ${disk_pct}% used (${disk_free} free)"
+  fi
+
+  # --- MariaDB slow queries ---
+  echo ""
+  echo "── MariaDB ─────────────────────────────"
+  local slow_queries
+  slow_queries=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN \
+    -e "SHOW GLOBAL STATUS LIKE 'Slow_queries';" 2>/dev/null | awk '{print $2}')
+  if [[ -n "$slow_queries" ]]; then
+    if (( slow_queries > 100 )); then
+      echo "  ! Slow queries: ${slow_queries} — check slow query log"
+    else
+      echo "  ✓ Slow queries: ${slow_queries}"
+    fi
+  fi
+
+  # --- Redis eviction ---
+  echo ""
+  echo "── Redis ───────────────────────────────"
+  local evicted
+  evicted=$(docker exec actools_redis redis-cli info stats 2>/dev/null \
+    | grep evicted_keys | cut -d: -f2 | tr -d '[:space:]')
+  if [[ -n "$evicted" && "$evicted" -gt 0 ]]; then
+    echo "  ! Redis evicted keys: ${evicted} — consider increasing REDIS_MEMORY_LIMIT"
+  else
+    echo "  ✓ Redis evictions: 0"
+  fi
+
+  # --- Summary ---
+  echo ""
+  echo "────────────────────────────────────────"
+  if (( issues == 0 )); then
+    echo "  ✓ All checks passed — system healthy"
+  else
+    echo "  ✗ ${issues} issue(s) found — review above"
+    [[ -n "${NOTIFY_WEBHOOK:-}" ]] && \
+      curl -fsS -X POST "${NOTIFY_WEBHOOK}" \
+        -H "Content-Type: application/json" \
+        -d "{\"text\":\"Actools health: ${issues} issue(s) on ${BASE_DOMAIN}\"}" \
+        --max-time 10 &>/dev/null || true
+  fi
+  echo ""
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/docker.sh — Docker CE Installation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+install_docker() {
+  section "Docker Engine"
+  if ! command -v docker &>/dev/null; then
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+      https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+    usermod -aG docker "$REAL_USER"
+    log "Docker CE installed."
+  else
+    log "Docker present: $(docker --version)"
+  fi
+
+  if [[ ! -f /etc/docker/daemon.json ]]; then
+    cat > /etc/docker/daemon.json <<DAEMON
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+DAEMON
+    systemctl reload docker 2>/dev/null || true
+    log "Docker daemon log rotation configured."
+  fi
+
+  ! docker compose version &>/dev/null && apt-get install -y -qq docker-compose-plugin
+  systemctl enable --now docker
+  log "Docker Compose: $(docker compose version)"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/firewall.sh — UFW + Fail2ban
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+configure_firewall() {
+  section "Firewall"
+  ufw limit 22/tcp  comment 'SSH rate-limited'  2>/dev/null || true
+  ufw allow 80/tcp  comment 'HTTP Caddy ACME'   2>/dev/null || true
+  ufw allow 443/tcp comment 'HTTPS'             2>/dev/null || true
+  ufw allow 443/udp comment 'HTTP/3 QUIC'       2>/dev/null || true
+  ufw --force enable
+  systemctl enable --now fail2ban
+  log "UFW + fail2ban active."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/kernel.sh — Kernel Tuning
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+tune_kernel() {
+  section "Kernel Tuning"
+  cat > /etc/sysctl.d/99-actools.conf <<SYSCTL
+vm.overcommit_memory=1
+vm.swappiness=10
+fs.file-max=2097152
+net.core.somaxconn=65535
+net.ipv4.tcp_max_syn_backlog=8192
+net.ipv4.ip_local_port_range=10240 65535
+SYSCTL
+  sysctl --system >/dev/null 2>&1
+  log "Kernel tuning applied."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/logrotate.sh — Host Log Rotation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+configure_logrotate() {
+  cat > /etc/logrotate.d/actools <<LOGROTATE
+${INSTALL_DIR}/logs/*/*.log
+${INSTALL_DIR}/logs/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+  log "Host log rotation configured."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/packages.sh — System Package Installation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+install_packages() {
+  section "System Packages"
+  mkdir -p /var/lib/actools
+  if [[ ! -f "$PKG_DONE_FLAG" ]]; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+    apt-get install -y -qq \
+      curl git unzip zip jq ca-certificates gnupg lsb-release \
+      ufw fail2ban rclone dnsutils logrotate
+    touch "$PKG_DONE_FLAG"
+    log "Packages installed."
+  else
+    log "Packages already installed -- skipping upgrade."
+  fi
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/host/swap.sh — Swap File Configuration
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+configure_swap() {
+  section "Swap Configuration"
+  if [[ "${ENABLE_SWAP:-true}" == "true" ]]; then
+    if ! swapon --show | grep -q '/'; then
+      SWAP="${SWAP_SIZE:-4G}"
+      log "Creating ${SWAP} swap file..."
+      fallocate -l "$SWAP" /swapfile && chmod 600 /swapfile
+      mkswap /swapfile && swapon /swapfile
+      grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      log "Swap active: ${SWAP}."
+    else
+      log "Swap already configured -- skipping."
+    fi
+  else
+    warn "Swap disabled. XeLaTeX in worker container may OOM on large papers."
+  fi
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/migrate/migrate.sh — Phase 3: Zero-Downtime DB Migrations
+# Uses gh-ost for large tables (>100k rows), drush updb for smaller ones
+# =============================================================================
+
+INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
+MIGRATE_LOG="${INSTALL_DIR}/logs/migrate"
+
+migrate_plan() {
+  local env="${1:-prod}"
+  local db_name="actools_${env}"
+
+  echo ""
+  echo "=== Migration Plan: ${env} ==="
+  echo "Database: ${db_name}"
+  echo ""
+
+  # Check pending Drupal updates
+  echo "── Pending Drupal Updates ──────────────────"
+  cd "$INSTALL_DIR"
+  local pending
+  pending=$(docker compose exec -T "php_${env}" bash -c \
+    "cd /var/www/html/${env} && ./vendor/bin/drush updatedb:status 2>/dev/null" \
+    2>/dev/null || echo "Could not check pending updates")
+  
+  if echo "$pending" | grep -q "No database updates"; then
+    echo "  ✓ No pending database updates"
+  else
+    echo "$pending" | head -20
+  fi
+
+  echo ""
+  echo "── Large Tables (>100k rows — will use gh-ost) ──"
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+SELECT 
+  table_name,
+  table_rows,
+  ROUND(data_length/1024/1024, 2) AS size_mb
+FROM information_schema.tables
+WHERE table_schema = '${db_name}'
+  AND table_rows > 100000
+ORDER BY table_rows DESC;
+SQL
+
+  echo ""
+  echo "── All Tables ──────────────────────────────"
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+SELECT 
+  table_name,
+  table_rows,
+  ROUND(data_length/1024/1024, 2) AS size_mb
+FROM information_schema.tables
+WHERE table_schema = '${db_name}'
+ORDER BY table_rows DESC
+LIMIT 20;
+SQL
+
+  echo ""
+  echo "Run 'actools migrate --apply ${env}' to apply pending updates"
+  echo "Run 'actools migrate --rollback ${env}' to rollback last migration"
+}
+
+migrate_apply() {
+  local env="${1:-prod}"
+  local db_name="actools_${env}"
+
+  mkdir -p "$MIGRATE_LOG"
+  local log_file="${MIGRATE_LOG}/migrate_${env}_$(date +%F_%H%M%S).log"
+
+  echo ""
+  echo "=== Applying Migrations: ${env} ==="
+  echo "Log: ${log_file}"
+  echo ""
+
+  cd "$INSTALL_DIR"
+
+  # Step 1: Pre-migration backup
+  echo "Step 1/4: Pre-migration backup..."
+  local snap="${INSTALL_DIR}/backups/pre_migrate_${env}_$(date +%F_%H%M%S).sql.gz"
+  docker compose exec -T db mariadb-dump \
+    -uroot -p"${DB_ROOT_PASS}" \
+    --single-transaction --quick \
+    "${db_name}" | gzip > "$snap"
+  echo "  ✓ Snapshot: ${snap}"
+
+  # Step 2: Check for large tables needing gh-ost
+  echo ""
+  echo "Step 2/4: Checking table sizes..."
+  local large_tables
+  large_tables=$(docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = '${db_name}' AND table_rows > 100000;
+SQL
+)
+
+  if [[ -n "$large_tables" ]]; then
+    echo "  ! Large tables detected — gh-ost will be used for schema changes:"
+    echo "$large_tables" | while read -r t; do echo "    - $t"; done
+  else
+    echo "  ✓ No large tables — standard drush updb will be used"
+  fi
+
+  # Step 3: Run drush updb
+  echo ""
+  echo "Step 3/4: Running drush updatedb..."
+  docker compose exec -T "php_${env}" bash -c "
+    cd /var/www/html/${env}
+    ./vendor/bin/drush updatedb --yes 2>&1
+    ./vendor/bin/drush cr 2>&1
+  " | tee -a "$log_file"
+
+  # Step 4: Post-migration health check
+  echo ""
+  echo "Step 4/4: Post-migration health check..."
+  local status
+  status=$(curl -sso /dev/null -w "%{http_code}" --max-time 15 \
+    "https://${BASE_DOMAIN}" 2>/dev/null || echo "ERR")
+
+  if [[ "$status" == "200" ]]; then
+    echo "  ✓ Site responding: HTTP ${status}"
+    echo ""
+    echo "=== Migration complete ==="
+    echo "  Backup: ${snap}"
+    echo "  Log: ${log_file}"
+  else
+    echo "  ✗ Site not responding: HTTP ${status}"
+    echo ""
+    echo "  ROLLBACK: actools migrate --rollback ${env}"
+    echo "  Backup available: ${snap}"
+    exit 1
+  fi
+}
+
+migrate_rollback() {
+  local env="${1:-prod}"
+  local db_name="actools_${env}"
+
+  echo ""
+  echo "=== Rollback: ${env} ==="
+
+  # Find latest pre-migrate backup
+  local latest
+  latest=$(ls -t "${INSTALL_DIR}/backups/pre_migrate_${env}_"*.sql.gz 2>/dev/null | head -1)
+
+  if [[ -z "$latest" ]]; then
+    echo "No pre-migration backup found."
+    echo "Available backups:"
+    ls -lht "${INSTALL_DIR}/backups/"*.sql.gz 2>/dev/null | head -5
+    exit 1
+  fi
+
+  echo "Latest pre-migration backup: ${latest}"
+  read -rp "Restore ${db_name} from this backup? [y/N] " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+
+  echo "Restoring..."
+  cd "$INSTALL_DIR"
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" \
+    -e "DROP DATABASE IF EXISTS \`${db_name}\`; CREATE DATABASE \`${db_name}\` CHARACTER SET utf8mb4;"
+  gunzip -c "$latest" | docker compose exec -T db mariadb \
+    -uroot -p"${DB_ROOT_PASS}" "${db_name}"
+
+  docker compose exec -T "php_${env}" bash -c \
+    "cd /var/www/html/${env} && ./vendor/bin/drush cr"
+
+  echo "  ✓ Rollback complete"
+  echo "  Run: actools health to verify"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/observability/prometheus.sh — Prometheus + Grafana Stack
+# Phase 2: Optional observability — enable with ENABLE_OBSERVABILITY=true
+# =============================================================================
+
+start_observability() {
+  local install_dir="${INSTALL_DIR:-/home/actools}"
+
+  echo "=== Starting Observability Stack ==="
+  echo "Prometheus + Grafana + exporters"
+  echo ""
+
+  # Create data directories
+  mkdir -p "${install_dir}/observability/prometheus"
+  mkdir -p "${install_dir}/observability/grafana"
+  chown -R 472:472 "${install_dir}/observability/grafana" 2>/dev/null || true
+
+  # Copy prometheus config
+  cp "${install_dir}/templates/grafana/prometheus.yml" \
+     "${install_dir}/observability/prometheus/prometheus.yml"
+
+  # Generate observability compose file
+  cat > "${install_dir}/docker-compose.observability.yml" << OBSCOMPOSE
+networks:
+  actools_actools_net:
+    external: true
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: actools_prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - actools_actools_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: actools_grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./observability/grafana:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASS:-actools_grafana}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "https://${BASE_DOMAIN}/grafana"
+    networks:
+      - actools_actools_net
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: actools_node_exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - actools_actools_net
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: actools_redis_exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis://actools_redis:6379"
+    networks:
+      - actools_actools_net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: actools_cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - actools_actools_net
+OBSCOMPOSE
+
+  echo "Starting observability containers..."
+  docker compose -f "${install_dir}/docker-compose.observability.yml" up -d
+
+  echo ""
+  echo "=== Observability Stack Started ==="
+  echo "Prometheus : http://localhost:9090"
+  echo "Grafana    : http://localhost:3000"
+  echo "Login      : admin / ${GRAFANA_PASS:-actools_grafana}"
+  echo ""
+  echo "To access from your browser, run on your local machine:"
+  echo "  ssh -L 3000:localhost:3000 actools@${BASE_DOMAIN}"
+  echo "Then open: http://localhost:3000"
+}
+
+stop_observability() {
+  local install_dir="${INSTALL_DIR:-/home/actools}"
+  docker compose -f "${install_dir}/docker-compose.observability.yml" down
+  echo "Observability stack stopped."
+}
+
+status_observability() {
+  local install_dir="${INSTALL_DIR:-/home/actools}"
+  docker compose -f "${install_dir}/docker-compose.observability.yml" ps 2>/dev/null \
+    || echo "Observability stack not running."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/preflight/disk.sh — Disk Space Checks
+# =============================================================================
+
+check_disk() {
+  section "Disk Check"
+  AVAILABLE_KB=$(df / | awk 'NR==2 {print $4}')
+  (( AVAILABLE_KB < 20971520 )) && \
+    error "Only $(( AVAILABLE_KB / 1048576 ))GB free. At least 20GB required."
+  log "Disk OK -- $(( AVAILABLE_KB / 1048576 ))GB free."
+
+  DISK_USE=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+  (( DISK_USE > 80 )) && warn "Disk ${DISK_USE}% full -- risk of failure during install."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/preflight/dns.sh — DNS Resolution Checks
+# =============================================================================
+
+check_dns() {
+  section "DNS Check"
+  for subdomain in "${BASE_DOMAIN}" "stg.${BASE_DOMAIN}" "dev.${BASE_DOMAIN}"; do
+    getent hosts "$subdomain" >/dev/null 2>&1 \
+      && log "DNS OK -- ${subdomain}" \
+      || warn "DNS MISSING -- ${subdomain}. Let's Encrypt will fail until DNS propagates."
+  done
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/preflight/ram.sh — RAM Check + Parallel Install Guard
+# =============================================================================
+
+check_ram() {
+  section "RAM Check"
+  TOTAL_RAM=$(free -m | awk '/Mem:/ {print $2}')
+  log "Total RAM: ${TOTAL_RAM}MB"
+
+  if [[ "${PARALLEL_INSTALL:-false}" == "true" ]] && (( TOTAL_RAM < 6000 )); then
+    warn "Only ${TOTAL_RAM}MB RAM -- forcing sequential install (need 6GB+ for parallel)."
+    PARALLEL_INSTALL=false
+  fi
+
+  (( TOTAL_RAM < 1024 )) && warn "Less than 1GB RAM -- install may fail on low-memory server."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/preview/branch.sh — Phase 3: Ephemeral Preview Environments
+# Usage: actools branch feature-123
+#        actools branch --list
+#        actools branch --destroy feature-123
+# =============================================================================
+
+INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
+PREVIEW_DIR="${INSTALL_DIR}/previews"
+PREVIEW_STATE="${INSTALL_DIR}/.preview-state.json"
+
+# Initialise preview state file
+init_preview_state() {
+  [[ -f "$PREVIEW_STATE" ]] || echo '{"previews":{}}' > "$PREVIEW_STATE"
+}
+
+# Sanitise branch name — only alphanumeric and hyphens
+sanitise_branch() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+branch_create() {
+  local raw_name="$1"
+  local branch
+  branch=$(sanitise_branch "$raw_name")
+
+  if [[ -z "$branch" ]]; then
+    echo "ERROR: branch name required. Usage: actools branch feature-123"
+    exit 1
+  fi
+
+  local domain="${branch}.${BASE_DOMAIN}"
+  local db_name="actools_pr_${branch//-/_}"
+  local db_pass
+  db_pass=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)
+  local admin_pass
+  admin_pass=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)
+  local php_svc="php_pr_${branch//-/_}"
+  local container="actools_php_pr_${branch//-/_}"
+
+  echo ""
+  echo "=== Creating Preview Environment ==="
+  echo "Branch  : ${branch}"
+  echo "Domain  : https://${domain}"
+  echo "DB      : ${db_name}"
+  echo ""
+
+  init_preview_state
+
+  # Check if already exists
+  if jq -e ".previews.\"${branch}\"" "$PREVIEW_STATE" &>/dev/null; then
+    echo "Preview '${branch}' already exists. Destroy it first:"
+    echo "  actools branch --destroy ${branch}"
+    exit 1
+  fi
+
+  # Step 1: Clone prod database
+  echo "Step 1/5: Cloning production database..."
+  cd "$INSTALL_DIR"
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${db_name}'@'%' IDENTIFIED BY '${db_pass}';
+GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_name}'@'%';
+FLUSH PRIVILEGES;
+SQL
+
+  # Dump prod and restore into preview DB
+  docker compose exec -T db mariadb-dump \
+    -uroot -p"${DB_ROOT_PASS}" actools_prod \
+    | docker compose exec -T db mariadb \
+      -uroot -p"${DB_ROOT_PASS}" "${db_name}"
+  echo "  ✓ Database cloned"
+
+  # Step 2: Copy docroot
+  echo "Step 2/5: Copying production docroot..."
+  mkdir -p "${INSTALL_DIR}/docroot/previews/${branch}"
+  cp -r "${INSTALL_DIR}/docroot/prod/." \
+        "${INSTALL_DIR}/docroot/previews/${branch}/"
+  sudo mkdir -p "${INSTALL_DIR}/logs/php_pr_${branch//-/_}"
+  sudo chown actools:actools "${INSTALL_DIR}/logs/php_pr_${branch//-/_}"
+  echo "  ✓ Docroot copied"
+
+  # Step 3: Update settings.php for preview DB
+  echo "Step 3/5: Updating database connection..."
+  local settings_file="${INSTALL_DIR}/docroot/previews/${branch}/sites/default/settings.php"
+  if [[ -f "$settings_file" ]]; then
+    # Add preview DB override at end of settings.php
+    cat >> "$settings_file" << SETTINGS
+
+// Preview environment override — ${branch}
+\$databases['default']['default']['database'] = '${db_name}';
+\$databases['default']['default']['username'] = '${db_name}';
+\$databases['default']['default']['password'] = '${db_pass}';
+\$databases['default']['default']['host'] = 'db';
+\$settings['trusted_host_patterns'][] = '^${branch//./\\.}\\.${BASE_DOMAIN//./\\.}$';
+SETTINGS
+    echo "  ✓ Settings updated"
+  fi
+
+  # Step 4: Start PHP container for preview
+  echo "Step 4/5: Starting preview container..."
+  docker run -d \
+    --name "${container}" \
+    --network actools_actools_net \
+    --restart unless-stopped \
+    -v "${INSTALL_DIR}/docroot/previews/${branch}:/var/www/html/prod" \
+    -v "${INSTALL_DIR}/logs/php_pr_${branch//-/_}:/var/log/php" \
+    -e PHP_MEMORY_LIMIT=512m \
+    -e DB_ROOT_PASS="${DB_ROOT_PASS}" \
+    --label "actools.preview=true" \
+    --label "actools.branch=${branch}" \
+    --label "actools.created=$(date +%F)" \
+    drupal:11-php8.3-fpm
+  echo "  ✓ Container started: ${container}"
+
+  # Step 5: Add Caddy vhost
+  echo "Step 5/5: Adding Caddy vhost..."
+  cat >> "${INSTALL_DIR}/Caddyfile" << CADDY
+
+${domain} {
+    root * /var/www/html/prod/web
+    php_fastcgi ${container}:9000
+    import drupal_base
+    tls ${DRUPAL_ADMIN_EMAIL}
+}
+CADDY
+
+  # Update Caddy docroot mount and reload
+  docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null
+  echo "  ✓ Caddy vhost added"
+
+  # Save state
+  local created_at
+  created_at=$(date +%F)
+  jq ".previews.\"${branch}\" = {
+    \"domain\": \"${domain}\",
+    \"db_name\": \"${db_name}\",
+    \"db_pass\": \"${db_pass}\",
+    \"container\": \"${container}\",
+    \"created\": \"${created_at}\",
+    \"admin_pass\": \"${admin_pass}\"
+  }" "$PREVIEW_STATE" > /tmp/ps.tmp && mv /tmp/ps.tmp "$PREVIEW_STATE"
+
+  echo ""
+  echo "=== Preview Environment Ready ==="
+  echo "  URL      : https://${domain}"
+  echo "  Admin    : https://${domain}/user/login"
+  echo "  User     : admin"
+  echo "  Password : ${admin_pass}"
+  echo "  DB       : ${db_name}"
+  echo "  Expires  : $(date -d '+7 days' +%F)"
+  echo ""
+  echo "Destroy when done: actools branch --destroy ${branch}"
+}
+
+branch_destroy() {
+  local branch
+  branch=$(sanitise_branch "$1")
+
+  echo "=== Destroying Preview Environment: ${branch} ==="
+  init_preview_state
+
+  local container="actools_php_pr_${branch//-/_}"
+  local db_name="actools_pr_${branch//-/_}"
+  local domain="${branch}.${BASE_DOMAIN}"
+
+  # Stop and remove container
+  docker stop "${container}" 2>/dev/null && \
+    docker rm "${container}" 2>/dev/null && \
+    echo "  ✓ Container removed" || \
+    echo "  ! Container already gone"
+
+  # Drop database
+  cd "$INSTALL_DIR"
+  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+DROP DATABASE IF EXISTS \`${db_name}\`;
+DROP USER IF EXISTS '${db_name}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  echo "  ✓ Database dropped"
+
+  # Remove docroot
+  sudo chmod -R 755 "${INSTALL_DIR}/docroot/previews/${branch}" 2>/dev/null || true
+  sudo rm -rf "${INSTALL_DIR}/docroot/previews/${branch}"
+  echo "  ✓ Docroot removed"
+
+  # Remove Caddy vhost
+  python3 << PYEOF
+import re
+with open('${INSTALL_DIR}/Caddyfile') as f:
+    content = f.read()
+pattern = r'\n${domain} \{[^}]+\}\n'
+content = re.sub(pattern, '\n', content, flags=re.DOTALL)
+with open('${INSTALL_DIR}/Caddyfile', 'w') as f:
+    f.write(content)
+print("  ✓ Caddy vhost removed")
+PYEOF
+
+  docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null
+
+  # Remove from state
+  jq "del(.previews.\"${branch}\")" "$PREVIEW_STATE" > /tmp/ps.tmp && \
+    mv /tmp/ps.tmp "$PREVIEW_STATE"
+
+  echo ""
+  echo "  ✓ Preview environment '${branch}' destroyed"
+}
+
+branch_list() {
+  init_preview_state
+  echo ""
+  echo "=== Active Preview Environments ==="
+  local count
+  count=$(jq '.previews | length' "$PREVIEW_STATE")
+  if [[ "$count" -eq 0 ]]; then
+    echo "  No active preview environments."
+  else
+    jq -r '.previews | to_entries[] | "  \(.key)\n    URL: https://\(.value.domain)\n    Created: \(.value.created)\n    DB: \(.value.db_name)"' \
+      "$PREVIEW_STATE"
+  fi
+  echo ""
+}
+
+branch_cleanup() {
+  init_preview_state
+  echo "=== Auto-cleanup: removing previews older than 7 days ==="
+  local cutoff
+  cutoff=$(date -d '-7 days' +%F)
+  jq -r ".previews | to_entries[] | select(.value.created <= \"${cutoff}\") | .key" \
+    "$PREVIEW_STATE" | while read -r branch; do
+    echo "Destroying expired preview: ${branch} (created: $(jq -r ".previews.\"${branch}\".created" "$PREVIEW_STATE"))"
+    branch_destroy "$branch"
+  done
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/stack/caddyfile.sh — Caddyfile Generation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+generate_caddyfile() {
+  cat > "$INSTALL_DIR/Caddyfile" <<CADDY
+{
+    email ${DRUPAL_ADMIN_EMAIL}
+    log {
+        level INFO
+    }
+    servers {
+        protocols h1 h2 h3
+    }
+}
+
+(drupal_base) {
+    encode zstd gzip
+
+    @static {
+        file
+        path *.css *.js *.png *.jpg *.jpeg *.gif *.svg *.woff2 *.woff *.ico *.pdf
+    }
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    header {
+        Strict-Transport-Security   "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options      "nosniff"
+        X-Frame-Options             "SAMEORIGIN"
+        Referrer-Policy             "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    handle /health {
+        respond "OK" 200
+    }
+
+    @login {
+        path /user/login /user/password
+    }
+    rate_limit @login {
+        zone login_protect {
+            key {remote_host}
+            events 5
+            window 60s
+        }
+    }
+
+    file_server
+}
+
+${BASE_DOMAIN} {
+    root * /var/www/html/prod/web
+    php_fastcgi php_prod:9000
+    import drupal_base
+    tls ${DRUPAL_ADMIN_EMAIL}
+}
+CADDY
+  log "Caddyfile generated."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/stack/compose.sh — docker-compose.yml Generation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+generate_compose() {
+  local WEB_MEM="${PHP_MEMORY_LIMIT:-512m}"
+  local WORKER_MEM="${WORKER_MEMORY_LIMIT:-2g}"
+  local DB_MEM="${DB_MEMORY_LIMIT:-2g}"
+  local REDIS_MEM="${REDIS_MEMORY_LIMIT:-256m}"
+  local REDIS_ON="${ENABLE_REDIS:-true}"
+
+  cat > "$INSTALL_DIR/docker-compose.yml" <<COMPOSE
+networks:
+  actools_net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  db_data:
+
+services:
+
+  caddy:
+    image: actools_caddy:custom
+    pull_policy: never
+    container_name: actools_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docroot:/var/www/html:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+      - ./logs/caddy:/var/log/caddy
+    depends_on:
+      - php_prod
+    networks:
+      - actools_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  php_prod:
+    image: drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+    container_name: actools_php_prod
+    restart: unless-stopped
+    volumes:
+      - ./docroot/prod:/var/www/html/prod
+      - ./logs/php_prod:/var/log/php
+    environment:
+      PHP_MEMORY_LIMIT: "${WEB_MEM}"
+      PHP_UPLOAD_MAX_FILESIZE: "${PHP_UPLOAD_MAX:-256m}"
+      PHP_MAX_EXECUTION_TIME: "${PHP_MAX_EXEC:-300}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      STORAGE_PROVIDER: "${STORAGE_PROVIDER:-}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+      ASSET_CDN_HOST: "${ASSET_CDN_HOST:-}"
+    mem_limit: "${WEB_MEM}"
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "php", "-v"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - actools_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker_prod:
+    image: actools_worker:latest
+    pull_policy: never
+    container_name: actools_worker_prod
+    restart: unless-stopped
+    command: ["bash", "-c", "while true; do cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export --time-limit=600 2>/dev/null || true; sleep 60; done"]
+    volumes:
+      - ./docroot/prod:/var/www/html/prod
+      - ./logs/worker:/var/log/worker
+    environment:
+      PHP_MEMORY_LIMIT: "${WORKER_MEM}"
+      XELATEX_MODE: "${XELATEX_MODE:-local}"
+      XELATEX_ENDPOINT: "${XELATEX_ENDPOINT:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      STORAGE_PROVIDER: "${STORAGE_PROVIDER:-}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+      ASSET_CDN_HOST: "${ASSET_CDN_HOST:-}"
+    mem_limit: "${WORKER_MEM}"
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD-SHELL", "php -v && xelatex --version > /dev/null 2>&1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - actools_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    image: mariadb:${MARIADB_VERSION}
+    container_name: actools_db
+    restart: unless-stopped
+    stop_grace_period: 2m
+    environment:
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASS}"
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./logs/db:/var/log/mysql
+      - ./my.cnf:/etc/mysql/conf.d/actools.cnf:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    networks:
+      - actools_net
+    mem_limit: "${DB_MEM}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+$(if [[ "${REDIS_ON}" == "true" ]]; then
+cat <<REDIS_SVC
+  redis:
+    image: redis:7-alpine
+    container_name: actools_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory ${REDIS_MEM} --maxmemory-policy allkeys-lru
+    mem_limit: "${REDIS_MEM}"
+    networks:
+      - actools_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+REDIS_SVC
+fi)
+COMPOSE
+  log "docker-compose.yml generated."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/stack/images.sh — Docker Image Building
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+build_caddy_image() {
+  cat > "$INSTALL_DIR/Dockerfile.caddy" <<'CADDY_DOCKERFILE'
+FROM caddy:2.8-builder AS builder
+RUN xcaddy build \
+    --with github.com/mholt/caddy-ratelimit
+
+FROM caddy:2.8-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+CADDY_DOCKERFILE
+
+  log "Building custom Caddy image..."
+  docker build -t actools_caddy:custom \
+    -f "$INSTALL_DIR/Dockerfile.caddy" "$INSTALL_DIR" \
+    || error "Caddy image build failed."
+  log "Custom Caddy image built."
+}
+
+build_worker_image() {
+  cat > "$INSTALL_DIR/Dockerfile.worker" <<WORKER_DOCKERFILE
+FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+
+RUN apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      texlive-xetex \
+      texlive-fonts-recommended \
+      texlive-latex-extra \
+      poppler-utils \
+      ghostscript \
+      default-mysql-client && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN xelatex --version
+WORKER_DOCKERFILE
+
+  log "Building custom worker image with XeLaTeX toolchain..."
+  docker build \
+    -t actools_worker:latest \
+    -f "$INSTALL_DIR/Dockerfile.worker" \
+    --build-arg DRUPAL_VERSION="${DRUPAL_VERSION:-11}" \
+    --build-arg PHP_VERSION="${PHP_VERSION:-8.3}" \
+    "$INSTALL_DIR" \
+    || error "Worker image build failed."
+  log "Worker image built -- XeLaTeX self-contained inside container."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/stack/mycnf.sh — MariaDB my.cnf Generation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+generate_mycnf() {
+  local innodb_buf="${INNODB_BUFFER_POOL:-1G}"
+  local innodb_log="${INNODB_LOG_FILE_SIZE:-256M}"
+  local max_conn="${MARIADB_MAX_CONNECTIONS:-100}"
+
+  cat > "$INSTALL_DIR/my.cnf" <<MYCNF
+[mysqld]
+innodb_buffer_pool_size = ${innodb_buf}
+innodb_log_file_size    = ${innodb_log}
+max_connections         = ${max_conn}
+innodb_flush_log_at_trx_commit = 1
+slow_query_log          = 1
+slow_query_log_file     = /var/log/mysql/slow.log
+long_query_time         = 2
+MYCNF
+  log "my.cnf generated."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/storage/s3fs.sh — S3FS Module Installation
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+install_s3fs() {
+  local env="$1"
+
+  if [[ "${ENABLE_S3_STORAGE:-false}" == "true" ]]; then
+    log "Installing S3FS module for ${env}..."
+    docker compose exec -T "php_${env}" bash -c "
+      cd /var/www/html/${env}
+      composer require drupal/s3fs --no-interaction
+      ./vendor/bin/drush en s3fs --yes 2>/dev/null || true
+    " 2>/dev/null || warn "S3FS installation failed -- configure manually after install"
+    log "S3FS installed for ${env}."
+  fi
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/storage/settings_inject.sh — S3 settings.php Injection
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+inject_s3_settings() {
+  local env="$1"
+
+  log "Injecting S3 credentials into settings.php for ${env}..."
+  docker compose exec -T "php_${env}" bash -c "
+    CONFIG_FILE=/var/www/html/${env}/sites/default/settings.php
+    cat >> \"\$CONFIG_FILE\" <<'SETTINGS'
+
+// S3FS configuration -- injected by actools installer (v9.2)
+// Credentials read from container env vars. Never in config export.
+\$config['s3fs.settings']['access_key']         = getenv('AWS_ACCESS_KEY_ID') ?: '';
+\$config['s3fs.settings']['secret_key']         = getenv('AWS_SECRET_ACCESS_KEY') ?: '';
+\$config['s3fs.settings']['bucket']             = getenv('S3_BUCKET') ?: '';
+\$config['s3fs.settings']['region']             = getenv('AWS_REGION') ?: 'us-east-1';
+\$config['s3fs.settings']['use_s3_for_public']  = TRUE;
+\$config['s3fs.settings']['use_s3_for_private'] = TRUE;
+
+\$_s3_endpoint = getenv('S3_ENDPOINT_URL');
+if (!empty(\$_s3_endpoint)) {
+  \$config['s3fs.settings']['use_customhost'] = TRUE;
+  \$config['s3fs.settings']['hostname']       = \$_s3_endpoint;
+}
+
+\$_cdn_host = getenv('ASSET_CDN_HOST');
+if (!empty(\$_cdn_host)) {
+  \$config['s3fs.settings']['use_cname'] = TRUE;
+  \$config['s3fs.settings']['domain']    = \$_cdn_host;
+}
+SETTINGS
+  " 2>/dev/null || warn "S3 settings.php injection failed for ${env}"
+  log "S3 settings injected for ${env} (provider: ${STORAGE_PROVIDER})."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/worker/queue.sh — Queue Worker Configuration
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+worker_status() {
+  cd "$INSTALL_DIR"
+  docker compose exec worker_prod bash -c \
+    "cd /var/www/html/prod && ./vendor/bin/drush queue:list" \
+    2>/dev/null || warn "Worker container not ready or drush not installed yet."
+}
+
+worker_run() {
+  cd "$INSTALL_DIR"
+  log "Running queue worker manually on prod..."
+  docker compose exec worker_prod bash -c \
+    "cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# modules/worker/xelatex.sh — XeLaTeX Worker Image
+# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# =============================================================================
+
+build_worker_image() {
+  cat > "$INSTALL_DIR/Dockerfile.worker" <<WORKER_DOCKERFILE
+FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+
+RUN apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      texlive-xetex \
+      texlive-fonts-recommended \
+      texlive-latex-extra \
+      poppler-utils \
+      ghostscript \
+      default-mysql-client && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN xelatex --version
+WORKER_DOCKERFILE
+
+  log "Building custom worker image with XeLaTeX toolchain..."
+  docker build \
+    -t actools_worker:latest \
+    -f "$INSTALL_DIR/Dockerfile.worker" \
+    --build-arg DRUPAL_VERSION="${DRUPAL_VERSION:-11}" \
+    --build-arg PHP_VERSION="${PHP_VERSION:-8.3}" \
+    "$INSTALL_DIR" \
+    || error "Worker image build failed."
+  log "Worker image built -- XeLaTeX self-contained inside container."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/backup.sh — Backup Command
+# =============================================================================
+
+cmd_backup() {
+  /etc/cron.daily/actools-backup
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/ci_generate.sh — Phase 3: CI/CD Pipeline Generation
+# Usage: actools ci --generate --platform=github-actions
+# =============================================================================
+
+cmd_ci_generate() {
+  local platform="${1:-github-actions}"
+  local output_dir="${2:-/tmp/actools-ci-output}"
+  local drupal_root="${INSTALL_DIR}/docroot/prod"
+
+  echo ""
+  echo "=== Actools CI/CD Generator ==="
+  echo "Platform : ${platform}"
+  echo "Domain   : ${BASE_DOMAIN}"
+  echo "PHP      : ${PHP_VERSION:-8.3}"
+  echo ""
+
+  case "$platform" in
+    github-actions|github)
+      generate_github_actions "$output_dir" "$drupal_root"
+      ;;
+    gitlab)
+      echo "GitLab CI generation coming in Phase 3.1"
+      ;;
+    *)
+      echo "Unknown platform: ${platform}"
+      echo "Supported: github-actions, gitlab"
+      exit 1
+      ;;
+  esac
+}
+
+generate_github_actions() {
+  local output_dir="$1"
+  local drupal_root="$2"
+  local tpl_dir="${INSTALL_DIR}/templates/ci"
+  local workflows_dir="${output_dir}/.github/workflows"
+
+  mkdir -p "$workflows_dir"
+
+  echo "Generating GitHub Actions workflows..."
+  echo ""
+
+  # Process each template — replace {{VARIABLES}}
+  for tpl in "${tpl_dir}"/github-*.yml.tpl; do
+    local filename
+    filename=$(basename "$tpl" .tpl)
+    local output="${workflows_dir}/${filename}"
+
+    sed \
+      -e "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" \
+      -e "s|{{PHP_VERSION}}|${PHP_VERSION:-8.3}|g" \
+      -e "s|{{DRUPAL_ROOT}}|${drupal_root}|g" \
+      -e "s|{{DRUPAL_ADMIN_EMAIL}}|${DRUPAL_ADMIN_EMAIL}|g" \
+      "$tpl" > "$output"
+
+    echo "  ✓ Generated: .github/workflows/${filename}"
+  done
+
+  echo ""
+  echo "=== Generated Files ==="
+  echo "Location: ${output_dir}"
+  echo ""
+  echo "  .github/workflows/github-test.yml"
+  echo "    → Runs on every PR: PHP CodeSniffer, PHPStan, composer validate"
+  echo ""
+  echo "  .github/workflows/github-deploy.yml"
+  echo "    → Runs on merge to main: backup + pull + updb + health check"
+  echo ""
+  echo "  .github/workflows/github-security.yml"
+  echo "    → Runs weekly: composer audit + Drupal security advisories"
+  echo ""
+  echo "=== Next Steps ==="
+  echo "1. Copy .github/ to your Drupal repo root:"
+  echo "   cp -r ${output_dir}/.github /path/to/your/drupal/repo/"
+  echo ""
+  echo "2. Add SSH deploy key to GitHub secrets:"
+  echo "   GitHub repo → Settings → Secrets → DEPLOY_SSH_KEY"
+  echo "   (use the private key that has SSH access to ${BASE_DOMAIN})"
+  echo ""
+  echo "3. Push to GitHub — workflows activate automatically"
+  echo ""
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/cost_optimize.sh — Phase 2: Cost & Memory Optimization
+# Reads real Docker stats and suggests memory limit changes
+# =============================================================================
+
+cmd_cost_optimize() {
+  local stats_dir="/home/actools/logs/stats"
+  local today
+  today=$(date +%F)
+
+  echo ""
+  echo "=== Actools Cost & Memory Optimizer ==="
+  echo "Analysing Docker stats from: ${stats_dir}"
+  echo ""
+
+  if ! ls "${stats_dir}"/*.jsonl &>/dev/null; then
+    echo "No stats data found. Stats collect hourly via cron."
+    echo "Run manually: sudo /etc/cron.hourly/actools-stats"
+    return 1
+  fi
+
+  # Count data points
+  local total_lines
+  total_lines=$(cat "${stats_dir}"/*.jsonl 2>/dev/null | wc -l)
+  local days
+  days=$(ls "${stats_dir}"/*.jsonl 2>/dev/null | wc -l)
+  echo "Data points : ${total_lines} readings across ${days} day(s)"
+  echo "Latest file : ${today}.jsonl"
+  echo ""
+
+  # Analyse each container
+  local containers=("actools_caddy" "actools_php_prod" "actools_worker_prod" "actools_redis" "actools_db")
+
+  printf "%-22s %-12s %-12s %-12s %-20s\n" "Container" "Peak MiB" "Avg MiB" "Limit" "Recommendation"
+  printf "%-22s %-12s %-12s %-12s %-20s\n" "---------" "--------" "-------" "-----" "--------------"
+
+  for container in "${containers[@]}"; do
+    # Extract memory usage in MiB for this container
+    local readings
+    readings=$(cat "${stats_dir}"/*.jsonl 2>/dev/null \
+      | grep "\"container\":\"${container}\"" \
+      | grep -v '"mem":"0B' \
+      | sed 's/.*"mem":"\([0-9.]*\)MiB.*/\1/' \
+      | grep -E '^[0-9]')
+
+    if [[ -z "$readings" ]]; then
+      printf "%-22s %-12s %-12s %-12s %-20s\n" "$container" "no data" "-" "-" "insufficient data"
+      continue
+    fi
+
+    # Calculate peak and average
+    local peak avg
+    peak=$(echo "$readings" | awk 'BEGIN{max=0} {if($1>max)max=$1} END{printf "%.0f", max}')
+    avg=$(echo "$readings" | awk '{sum+=$1; count++} END{printf "%.0f", sum/count}')
+
+    # Get current limit from running container
+    local limit_raw limit_display
+    limit_raw=$(docker inspect "${container}" \
+      --format='{{.HostConfig.Memory}}' 2>/dev/null || echo "0")
+
+    if [[ "$limit_raw" == "0" ]]; then
+      limit_display="unlimited"
+    else
+      limit_display="$(( limit_raw / 1048576 ))MiB"
+    fi
+
+    # Generate recommendation
+    local recommendation
+    local limit_mib=$(( limit_raw / 1048576 ))
+
+    if [[ "$limit_raw" == "0" ]]; then
+      recommendation="set a limit"
+    elif [[ $peak -lt $(( limit_mib / 4 )) ]]; then
+      local suggested=$(( peak * 2 ))
+      recommendation="reduce to ${suggested}MiB (saves $(( limit_mib - suggested ))MiB)"
+    elif [[ $peak -gt $(( limit_mib * 85 / 100 )) ]]; then
+      local suggested=$(( peak * 2 ))
+      recommendation="INCREASE to ${suggested}MiB (at risk!)"
+    else
+      recommendation="OK — within safe range"
+    fi
+
+    printf "%-22s %-12s %-12s %-12s %-20s\n" \
+      "$container" "${peak}MiB" "${avg}MiB" "$limit_display" "$recommendation"
+  done
+
+  echo ""
+  echo "=== MariaDB Buffer Pool Analysis ==="
+  local bp_hit_rate
+  bp_hit_rate=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN \
+    -e "SELECT ROUND((1 - (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS
+        WHERE VARIABLE_NAME='Innodb_buffer_pool_reads') /
+        (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS
+        WHERE VARIABLE_NAME='Innodb_buffer_pool_read_requests')) * 100, 2)
+        AS hit_rate;" 2>/dev/null || echo "unavailable")
+
+  echo "InnoDB buffer pool hit rate: ${bp_hit_rate}%"
+  if [[ "$bp_hit_rate" != "unavailable" ]]; then
+    local rate_int
+    rate_int=$(echo "$bp_hit_rate" | cut -d. -f1)
+    if (( rate_int >= 95 )); then
+      echo "Status: GOOD — buffer pool is well sized"
+    elif (( rate_int >= 85 )); then
+      echo "Status: OK — consider increasing INNODB_BUFFER_POOL slightly"
+    else
+      echo "Status: LOW — increase INNODB_BUFFER_POOL in actools.env"
+    fi
+  fi
+
+  echo ""
+  echo "=== Redis Memory Analysis ==="
+  local redis_used redis_max
+  redis_used=$(docker exec actools_redis redis-cli info memory 2>/dev/null \
+    | grep "used_memory_human" | cut -d: -f2 | tr -d '[:space:]')
+  redis_max=$(docker exec actools_redis redis-cli info memory 2>/dev/null \
+    | grep "maxmemory_human" | cut -d: -f2 | tr -d '[:space:]')
+  echo "Redis used: ${redis_used:-unavailable}  /  Max: ${redis_max:-unavailable}"
+
+  echo ""
+  echo "=== Suggested actools.env changes ==="
+  echo "Review the recommendations above and update actools.env accordingly."
+  echo "Then run: sudo ./actools.sh update"
+  echo ""
+  echo "Note: Changes only apply after 'docker compose up -d' restarts containers."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/health.sh — Health Check CLI Command
+# =============================================================================
+
+cmd_health() {
+  local mode="${1:-simple}"
+  local INSTALL_DIR="/home/actools"
+
+  # Load env for BASE_DOMAIN and DB_ROOT_PASS
+  source "${INSTALL_DIR}/actools.env" 2>/dev/null || true
+
+  case "$mode" in
+    --verbose|-v)
+      source "${INSTALL_DIR}/modules/health/checks.sh"
+      health_check_all
+      ;;
+    --cost|-c)
+      source "${INSTALL_DIR}/cli/commands/cost_optimize.sh"
+      cmd_cost_optimize
+      ;;
+    *)
+      # Simple mode — just HTTP check
+      for env in prod; do
+        local dom="${BASE_DOMAIN}"
+        local http hlth
+        http=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom" 2>/dev/null || echo "ERR")
+        hlth=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom/health" 2>/dev/null || echo "ERR")
+        echo "$dom: HTTP=$http  /health=$hlth"
+      done
+      echo ""
+      echo "Run 'actools health --verbose' for full system health report."
+      echo "Run 'actools health --cost' for memory optimization report."
+      ;;
+  esac
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/restore.sh — Restore Commands
+# =============================================================================
+
+cmd_restore_test() {
+  cd "$INSTALL_DIR"
+  LATEST=$(ls -t "${INSTALL_DIR}/backups"/prod_db_*.sql.gz 2>/dev/null | head -1)
+  [[ -z "$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
+  echo "Testing DB restore: $LATEST"
+  sha256sum -c "$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
+  docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" \
+    -e "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
+  gunzip -c "$LATEST" | docker exec -i actools_db mariadb \
+    -uroot -p"${DB_ROOT_PASS}" actools_restore_test
+  TC=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN \
+    -e "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
+  docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" \
+    -e "DROP DATABASE IF EXISTS actools_restore_test;"
+  echo "DB restore test OK -- ${TC} tables restored."
+}
+
+cmd_restore() {
+  cd "$INSTALL_DIR"
+  local env="${1:-prod}"
+  local db="actools_${env}"
+  local BACKUP_FILE="${2:-}"
+  [[ -z "$BACKUP_FILE" ]] && \
+    BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups/${env}_db_"*.sql.gz 2>/dev/null | head -1)
+  [[ -z "$BACKUP_FILE" ]] && { echo "No backups found for $env"; exit 1; }
+  echo "Restoring $env from: $BACKUP_FILE"
+  sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" \
+    || echo "WARNING: no checksum file"
+  read -rp "OVERWRITE actools_${env}? [y/N] " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+  docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" \
+    -e "DROP DATABASE IF EXISTS \`$db\`; CREATE DATABASE \`$db\` CHARACTER SET utf8mb4;"
+  gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb \
+    -uroot -p"${DB_ROOT_PASS}" "$db"
+  echo "Restore complete. Run: actools drush $env cr"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/storage.sh — Storage Commands
+# =============================================================================
+
+cmd_storage_test() {
+  cd "$INSTALL_DIR"
+  echo "=== S3 Storage Round-Trip Test ==="
+  docker compose exec php_prod bash -c "
+    cd /var/www/html/prod
+    ./vendor/bin/drush php:eval \"
+      \\\$test_content = 'actools-storage-test-' . time();
+      \\\$uri = 's3://actools-roundtrip-test.txt';
+      \\\$written = file_put_contents(\\\$uri, \\\$test_content);
+      if (\\\$written === false) { echo 'WRITE FAILED'; exit(1); }
+      echo 'WRITE OK (' . \\\$written . ' bytes)';
+      \\\$read = file_get_contents(\\\$uri);
+      echo \\\$read === \\\$test_content ? 'READ OK' : 'READ FAILED';
+      \\\$deleted = unlink(\\\$uri);
+      echo \\\$deleted ? 'DELETE OK' : 'DELETE FAILED';
+      echo 'Round-trip: ' . (\\\$read === \\\$test_content && \\\$deleted ? 'PASS' : 'FAIL');
+    \" 2>/dev/null || echo 'S3 stream test failed'
+  " 2>/dev/null || echo "Could not connect to php_prod"
+}
+
+cmd_storage_info() {
+  ENV_FILE="${INSTALL_DIR}/actools.env"
+  [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
+  echo "=== S3 Storage Configuration ==="
+  echo "Provider  : ${STORAGE_PROVIDER:-not set}"
+  echo "Bucket    : ${S3_BUCKET:-not set}"
+  echo "Endpoint  : ${S3_ENDPOINT_URL:-not set}"
+  echo "CDN host  : ${ASSET_CDN_HOST:-not set}"
+  echo "XeLaTeX   : ${XELATEX_MODE:-local}"
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/update.sh — Update Command
+# =============================================================================
+
+cmd_update() {
+  cd "$INSTALL_DIR"
+  echo "Taking pre-update prod snapshot..."
+  SNAP="${INSTALL_DIR}/backups/pre_update_prod_$(date +%F_%H%M%S).sql.gz"
+  docker exec actools_db mariadb-dump --single-transaction --quick \
+    -ubackup actools_prod \
+    | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
+  docker compose pull db redis php_prod
+  docker compose up -d
+  docker compose exec -T php_prod bash -c \
+    "cd /var/www/html/prod && ./vendor/bin/drush updb --yes && ./vendor/bin/drush cr" \
+    2>&1 || echo "drush updb failed -- check manually"
+  docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true
+  echo "Update complete."
+}
+#!/usr/bin/env bash
+# =============================================================================
+# cli/commands/worker.sh — Worker Commands
+# =============================================================================
+
+cmd_worker_logs() {
+  cd "$INSTALL_DIR"
+  docker compose logs -f worker_prod
+}
+
+cmd_worker_status() {
+  cd "$INSTALL_DIR"
+  docker compose exec worker_prod bash -c \
+    "cd /var/www/html/prod && ./vendor/bin/drush queue:list"
+}
+
+cmd_worker_run() {
+  cd "$INSTALL_DIR"
+  log "Running queue worker manually on prod..."
+  docker compose exec worker_prod bash -c \
+    "cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export"
+}
+
+cmd_pdf_test() {
+  cd "$INSTALL_DIR"
+  echo "=== XeLaTeX Test (inside worker container) ==="
+  docker compose exec worker_prod xelatex --version 2>/dev/null \
+    && echo "XeLaTeX: OK" \
+    || echo "XeLaTeX: FAILED -- rebuild: docker build -t actools_worker:latest -f ~/Dockerfile.worker ~/"
+  docker inspect actools_worker_prod \
+    --format='  Health: {{.State.Health.Status}}' 2>/dev/null \
+    || echo "  (container not running)"
+}

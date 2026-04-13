@@ -154,3 +154,8 @@ docker-compose.observability.yml
 .ssh/
 .local/
 certs/mariadb/*-key.pem
+.age-key.txt
+Caddyfile.backup
+docker-compose.yml.backup
+caddy/
+upload/

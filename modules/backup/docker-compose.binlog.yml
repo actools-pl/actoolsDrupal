@@ -1,0 +1,26 @@
+# docker-compose.binlog.yml
+# Phase 4.5 Item 2 — Binlog volume mount override
+#
+# Merge with main compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.binlog.yml up -d
+#
+# OR add the volumes/volume_mounts below directly into your existing
+# db service definition in docker-compose.yml (preferred for this project).
+
+services:
+  db:
+    volumes:
+      # Existing data volume (already present — do not duplicate)
+      # - db_data:/var/lib/mysql
+
+      # Binlog lives in a separate named volume so it is NOT wiped
+      # if you ever recreate the db container from a fresh dump.
+      # PITR depends on binlogs surviving independent of data volume.
+      - mariadb_binlogs:/var/log/mysql
+
+      # Drop the binlog config into the container
+      - ./modules/backup/99-binlog.cnf:/etc/mysql/mariadb.conf.d/99-binlog.cnf:ro
+
+volumes:
+  mariadb_binlogs:
+    driver: local
