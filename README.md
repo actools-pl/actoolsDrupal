@@ -118,6 +118,12 @@ Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
 | [Enterprise hardening](docs/enterprise.md) | PITR, DNA resurrection, GDPR tools |
 | [Privacy & Data Policy](docs/privacy.md) | AI local only, zero phone-home, no telemetry |
 
+## Security
+
+To report a security vulnerability, email **hello@feesix.com** with a description of the issue.
+Do not open a public GitHub issue for security vulnerabilities.
+We aim to respond within 48 hours.
+
 ## Acknowledgements
 
 Development assisted by [Claude](https://claude.ai) (Anthropic).
