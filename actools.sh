@@ -1002,14 +1002,14 @@ SQL
 
   local domain_escaped="${BASE_DOMAIN//./\\.}"
   docker compose exec -T "$php_svc" bash -c "
-    cd /var/www/html/${env}
-    ./vendor/bin/drush php:eval \"
-      \\\$config_file = DRUPAL_ROOT . '/../sites/default/settings.php';
-      \\\$trusted = ['^${domain_escaped}$', '^.*\\.${domain_escaped}$'];
-      \\\$line = \\\"\\\\\\\$settings['trusted_host_patterns'] = \" . var_export(\\\$trusted, true) . \";\\\";
-      file_put_contents(\\\$config_file, PHP_EOL . \\\$line, FILE_APPEND);
-    \" 2>/dev/null || true
-  " 2>/dev/null || warn "trusted_host_patterns injection failed for ${env} -- set manually in settings.php"
+    CONFIG_FILE=/var/www/html/${env}/sites/default/settings.php
+    grep -q trusted_host_patterns \"\$CONFIG_FILE\" 2>/dev/null || \
+    cat >> \"\$CONFIG_FILE\" << TPHP
+
+\$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');
+TPHP
+  " 2>/dev/null && log "trusted_host_patterns set for ${env}" \
+    || warn "trusted_host_patterns injection failed for ${env} -- set manually in settings.php"
 
   if [[ "${ENABLE_S3_STORAGE:-true}" == "true" ]]; then
     log "Injecting S3 credentials into settings.php for ${env}..."
