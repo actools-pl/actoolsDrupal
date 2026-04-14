@@ -5,7 +5,7 @@
 Production-grade Drupal 11 on a €10 Hetzner VPS — monitored, self-healing, enterprise-hardened.  
 One command to install. One CLI to operate everything.
 
-**Live:** [feesix.com](https://feesix.com) &nbsp;·&nbsp; [![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![Security Scan](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg?label=security)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
+**Live:** [feesix.com](https://feesix.com) &nbsp;·&nbsp; [![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![Security Scan](https://img.shields.io/badge/security-trivy-blue)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
 
 ---
 
