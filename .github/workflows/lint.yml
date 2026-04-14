@@ -1,7 +1,5 @@
 name: Lint and Test
-
 on: [push, pull_request]
-
 jobs:
   bats:
     runs-on: ubuntu-latest
@@ -11,7 +9,6 @@ jobs:
         run: sudo apt-get install -y bats
       - name: Run bats tests
         run: bats tests/core/validate_test.bats tests/core/secrets_test.bats
-
   shellcheck:
     runs-on: ubuntu-latest
     steps:
@@ -26,3 +23,16 @@ jobs:
           shellcheck --exclude=SC2034,SC2015,SC2164 modules/preflight/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164,SC1091,SC2043,SC2046 cron/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164,SC2043,SC2012,SC1090,SC1091 cli/commands/*.sh
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
