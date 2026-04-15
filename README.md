@@ -1,6 +1,6 @@
 # Actools
 
-**€10/month. Beats Acquia on features. Full code ownership.**
+**€10/month. Enterprise Drupal on your own server. Full code ownership.**
 
 Production-grade Drupal 11 on a €10 Hetzner VPS — monitored, self-healing, enterprise-hardened.  
 One command to install. One CLI to operate everything.
@@ -18,6 +18,8 @@ Actools solves all of it. One install. Full control.
 ---
 
 ## Quick start
+Note: Actools installs on YOUR server (e.g. Hetzner CX22).
+It is not a hosted service — you own and manage the server.
 
 ```bash
 git clone https://github.com/actools-pl/actoolsDrupal.git
