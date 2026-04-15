@@ -96,6 +96,8 @@ actools ai "how does the queue worker handle timeouts?"
 | 5 | 🔜 Planned | Multi-tenancy — multiple Drupal sites per server |
 | 6 | 🔮 Future | GitHub webhook automation — PR → preview · merge → deploy |
 
+Current scope: Single site per server.
+Multi-site support is planned for Phase 5.
 ---
 
 ## Requirements
