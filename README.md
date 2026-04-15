@@ -103,6 +103,8 @@ Multi-site support is planned for Phase 5.
 ## Requirements
 
 Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
+
+**Current scope:** Single site per server. Multi-site support is planned for Phase 5.
 > **DNS must be configured before install.** Point your A record to the server IP before running.
 > Add a DNS CAA record for extra security: `CAA 0 issue "letsencrypt.org"`
 
