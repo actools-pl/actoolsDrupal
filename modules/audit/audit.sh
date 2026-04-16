@@ -54,7 +54,7 @@ source "${SCRIPT_DIR}/lib/report.sh"
 # ── Deep (Pro) gate ────────────────────────────────────────────────────────────
 if [[ "$MODE" == "deep" ]]; then
   echo -e "${RED}actools audit --deep requires Actools Pro (€49/month)${NC}"
-  echo -e "  → https://feesix.com/pro"
+  echo -e "  → https://actools.feesix.com/pro"
   exit 2
 fi
 

@@ -5,7 +5,7 @@ run_security() {
   local active="${1:-false}"
   section_header "SECURITY"
 
-  local domain="${BASE_DOMAIN:-feesix.com}"
+  local domain="${BASE_DOMAIN:-localhost}"
   local headers
   headers=$(curl -sI --max-time 15 "https://${domain}" 2>/dev/null || echo "")
 

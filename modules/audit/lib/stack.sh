@@ -33,7 +33,7 @@ print(f'{up}/{total}')
   fi
 
   # Site returns 200
-  local domain="${BASE_DOMAIN:-feesix.com}"
+  local domain="${BASE_DOMAIN:-localhost}"
   local http_code
   http_code=$(curl -sso /dev/null -w "%{http_code}" --max-time 15 "https://${domain}" 2>/dev/null || echo "000")
   if [[ "$http_code" == "200" ]]; then
@@ -168,7 +168,7 @@ print(f'{up}/{total}')
 run_performance() {
   section_header "PERFORMANCE"
 
-  local domain="${BASE_DOMAIN:-feesix.com}"
+  local domain="${BASE_DOMAIN:-localhost}"
 
   # TTFB
   local ttfb

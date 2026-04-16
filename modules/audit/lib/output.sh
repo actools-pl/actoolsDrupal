@@ -60,7 +60,7 @@ section_header() {
 }
 
 drush_exec() {
-  cd /home/actools 2>/dev/null || true
+  cd "${ACTOOLS_HOME:-$(pwd)}" 2>/dev/null || true
   docker compose exec -T php_prod bash -c \
     "cd /opt/drupal/web/prod && ./vendor/bin/drush $* 2>/dev/null" 2>/dev/null || true
 }

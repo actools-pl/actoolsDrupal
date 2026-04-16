@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Deploy actools audit to feesix.com
-# Run from: /home/actools/
+# Deploy actools audit to any Actools server
+# Run from: $ACTOOLS_HOME (default: /home/actools)
 # Usage: bash deploy-audit.sh
 
 set -euo pipefail
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 AUDIT_DIR="${ACTOOLS_HOME}/modules/audit"
 
 echo "Deploying actools audit..."
@@ -69,7 +69,7 @@ source "${SCRIPT_DIR}/lib/report.sh"
 
 if [[ "$MODE" == "deep" ]]; then
   echo -e "${RED}actools audit --deep requires Actools Pro (€49/month)${NC}"
-  echo -e "  → https://feesix.com/pro"
+  echo -e "  → https://actools.feesix.com/pro"
   exit 2
 fi
 
@@ -172,10 +172,10 @@ if ! grep -q "audit)" /usr/local/bin/actools; then
 content = open('/usr/local/bin/actools').read()
 audit_block = """  audit)
     shift
-    source /home/actools/modules/audit/lib/output.sh 2>/dev/null || true
-    cd /home/actools
-    set -a; source /home/actools/actools.env 2>/dev/null || true; set +a
-    bash /home/actools/modules/audit/audit.sh "$@"
+    source "${ACTOOLS_HOME}/modules/audit/lib/output.sh" 2>/dev/null || true
+    cd "${ACTOOLS_HOME}"
+    set -a; source "${ACTOOLS_HOME}/actools.env" 2>/dev/null || true; set +a
+    bash "${ACTOOLS_HOME}/modules/audit/audit.sh" "$@"
     ;;
 """
 content = content.replace('  tunnel)', audit_block + '  tunnel)')

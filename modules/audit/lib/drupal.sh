@@ -19,7 +19,7 @@ run_drupal() {
 
   # Cron last run
   local cron_last
-  cron_last=$(cd /home/actools && docker compose exec -T php_prod bash -c "cd /opt/drupal/web/prod && ./vendor/bin/drush state:get system.cron_last 2>/dev/null" 2>/dev/null | tr -d "[:space:]" || echo "0")
+  cron_last=$(cd "${ACTOOLS_HOME:-$(pwd)}" && docker compose exec -T php_prod bash -c "cd /opt/drupal/web/prod && ./vendor/bin/drush state:get system.cron_last 2>/dev/null" 2>/dev/null | tr -d "[:space:]" || echo "0")
   local now
   now=$(date +%s)
   if [[ -z "$cron_last" || "$cron_last" == "0" ]]; then

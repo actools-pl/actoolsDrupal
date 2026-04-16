@@ -43,7 +43,7 @@ run_integration() {
   fi
 
   # HTTP response behavior — Cloudflare aware
-  local domain="${BASE_DOMAIN:-feesix.com}"
+  local domain="${BASE_DOMAIN:-localhost}"
   local http_headers
   http_headers=$(curl -sI --max-time 10 "https://${domain}" 2>/dev/null || echo "")
   # Cloudflare strips Cache-Control and Content-Encoding at edge
