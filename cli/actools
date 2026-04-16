@@ -1,209 +1,233 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Actools CLI v10.0 — Main Dispatcher
-# =============================================================================
-
-INSTALL_DIR="${ACTOOLS_HOME:-/home/actools}"
+# Actools CLI v9.2
+INSTALL_DIR="/home/actools"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
-# Load env
-source "${INSTALL_DIR}/actools.env" 2>/dev/null || true
-
-# Load command modules
-source "${INSTALL_DIR}/cli/commands/health.sh"
-source "${INSTALL_DIR}/cli/commands/backup.sh"
-source "${INSTALL_DIR}/cli/commands/worker.sh"
-source "${INSTALL_DIR}/cli/commands/storage.sh"
-source "${INSTALL_DIR}/cli/commands/restore.sh"
-source "${INSTALL_DIR}/cli/commands/update.sh"
-source "${INSTALL_DIR}/cli/commands/cost_optimize.sh"
-source "${INSTALL_DIR}/modules/health/checks.sh"
-source "${INSTALL_DIR}/modules/preview/branch.sh"
-source "${INSTALL_DIR}/cli/commands/ci_generate.sh"
-source "${INSTALL_DIR}/modules/migrate/migrate.sh"
-source "${INSTALL_DIR}/modules/ai/assistant.sh"
+php_svc() { echo "php_${1:-prod}"; }
 
 case "${1:-help}" in
-  health)       cmd_health "${2:-}" ;;
-  restore-test) cmd_restore_test ;;
-  restore)      cmd_restore "${2:-}" "${3:-}" ;;
-  storage-test) cmd_storage_test ;;
-  storage-info) cmd_storage_info ;;
-  worker-logs)  cmd_worker_logs ;;
-  worker-status)cmd_worker_status ;;
-  worker-run)   cmd_worker_run ;;
-  pdf-test)     cmd_pdf_test ;;
-  cost-optimize)cmd_cost_optimize ;;
-  update)       cmd_update ;;
-
-  status)
-    cd "$INSTALL_DIR" && docker compose ps
-    ;;
   logs)
     shift
-    cd "$INSTALL_DIR" && docker compose logs -f "${@}"
+    [[ $# -gt 0 ]] && docker compose logs -f "$@" || docker compose logs -f
     ;;
-  restart)
-    cd "$INSTALL_DIR" && docker compose restart "${2:-}"
+  restart)    docker compose restart ${2:-} ;;
+  status)     docker compose ps ;;
+  stats)      docker stats --no-trunc ;;
+
+  worker-logs)   docker compose logs -f worker_prod ;;
+  worker-status) docker compose exec worker_prod bash -c "cd /var/www/html/prod && ./vendor/bin/drush queue:list" ;;
+  worker-run)
+    echo "Running queue worker manually on prod..."
+    docker compose exec worker_prod bash -c "cd /var/www/html/prod && ./vendor/bin/drush queue:run actools_document_export"
     ;;
+
+  pdf-test)
+    echo "=== XeLaTeX Test (inside worker container) ==="
+    docker compose exec worker_prod xelatex --version 2>/dev/null       && echo "XeLaTeX: OK"       || echo "XeLaTeX: FAILED -- rebuild: docker build -t actools_worker:latest -f ~/Dockerfile.worker ~/"
+    echo ""
+    docker inspect actools_worker_prod --format='  Health: {{.State.Health.Status}}' 2>/dev/null || echo "  (container not running)"
+    ;;
+
+  storage-test)
+    echo "=== S3 Storage Round-Trip Test ==="
+    docker compose exec php_prod bash -c "
+      cd /var/www/html/prod
+      ./vendor/bin/drush php:eval \"
+        \$test_content = 'actools-storage-test-' . time();
+        \$uri = 's3://actools-roundtrip-test.txt';
+        \$written = file_put_contents(\$uri, \$test_content);
+        if (\$written === false) { echo 'WRITE FAILED'; exit(1); }
+        echo 'WRITE OK (' . \$written . ' bytes)';
+        \$read = file_get_contents(\$uri);
+        echo \$read === \$test_content ? 'READ OK' : 'READ FAILED';
+        \$deleted = unlink(\$uri);
+        echo \$deleted ? 'DELETE OK' : 'DELETE FAILED';
+        echo 'Round-trip: ' . (\$read === \$test_content && \$deleted ? 'PASS' : 'FAIL');
+      \" 2>/dev/null || echo 'S3 stream test failed'
+    " 2>/dev/null || echo "Could not connect to php_prod"
+    ;;
+
+  storage-info)
+    ENV_FILE="/home/actools/actools.env"
+    [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
+    STORAGE_PROVIDER="${STORAGE_PROVIDER:-${S3_PROVIDER:-aws}}"
+    S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-${S3_ENDPOINT:-}}"
+    ASSET_CDN_HOST="${ASSET_CDN_HOST:-${CLOUDFLARE_CDN_DOMAIN:-}}"
+    echo "=== S3 Storage Configuration ==="
+    echo "Provider  : ${STORAGE_PROVIDER:-not set}"
+    echo "Bucket    : ${S3_BUCKET:-not set}"
+    case "${STORAGE_PROVIDER:-aws}" in
+      aws)       echo "Region    : ${AWS_REGION:-not set}" ;;
+      backblaze|wasabi|custom) echo "Endpoint  : ${S3_ENDPOINT_URL:-not set}" ;;
+    esac
+    [[ -n "${ASSET_CDN_HOST:-}" ]] && echo "CDN host  : ${ASSET_CDN_HOST}"
+    echo "XeLaTeX mode: ${XELATEX_MODE:-local}"
+    ;;
+
+  dry-run)
+    echo "=== DRY-RUN: What 'actools update' would do ==="
+    echo "1. Pre-update snapshot of actools_prod"
+    echo "2. docker compose pull"
+    echo "3. docker compose up -d"
+    echo "4. drush updb + cr per environment"
+    echo "5. caddy reload"
+    ;;
+
+  update)
+    echo "Taking pre-update prod snapshot..."
+    SNAP="${INSTALL_DIR}/backups/pre_update_prod_$(date +%F_%H%M%S).sql.gz"
+    docker exec actools_db mariadb-dump --single-transaction --quick       -ubackup -p"2mr7Ao7ZUoCzMj8L0XkEA8" actools_prod       | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
+    docker compose pull db redis php_prod
+    docker compose up -d
+    for env in prod; do
+      svc=$(php_svc "$env")
+      if docker compose ps "$svc" | grep -q "Up"; then
+        echo "drush updb on ${env}..."
+        docker compose exec -T "$svc" bash -c           "cd /var/www/html/${env} && ./vendor/bin/drush updb --yes && ./vendor/bin/drush cr"           2>&1 || echo "drush updb failed for ${env}"
+      fi
+    done
+    docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true
+    echo "Update complete."
+    ;;
+
+  backup)     /etc/cron.daily/actools-backup ;;
+
+  health)
+    for env in prod; do
+      dom="${env}.Feesix.com"
+      [[ "$env" == "prod" ]] && dom="Feesix.com"
+      http=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom" 2>/dev/null || echo "ERR")
+      hlth=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom/health" 2>/dev/null || echo "ERR")
+      echo "$dom: HTTP=$http  /health=$hlth"
+    done
+    ;;
+
   drush)
     env="${2:-prod}"
+    svc=$(php_svc "$env")
     shift 2 2>/dev/null || shift 1 2>/dev/null || true
-    cd "$INSTALL_DIR" && docker compose exec "php_${env}" bash -c \
-      "cd /var/www/html/${env} && ./vendor/bin/drush $*"
+    docker compose exec "$svc" bash -c "cd /var/www/html/${env} && ./vendor/bin/drush $*"
     ;;
-  shell)
-    cd "$INSTALL_DIR" && docker compose exec "${2:-php_prod}" bash
-    ;;
-  redis-info)
-    docker compose exec redis redis-cli info memory
-    ;;
-  slow-log)
+  console)
     env="${2:-prod}"
-    docker compose exec "php_${env}" tail -50 /var/log/php/www-slow.log 2>/dev/null \
-      || echo "No slow log yet"
+    svc=$(php_svc "$env")
+    docker compose exec "$svc" bash -c "cd /var/www/html/${env} && ./vendor/bin/drush php:cli"
     ;;
+  shell)      docker compose exec "${2:-php_prod}" bash ;;
+
+  restore-test)
+    LATEST=$(ls -t "/home/actools/backups"/prod_db_*.sql.gz 2>/dev/null | head -1)
+    [[ -z "$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
+    echo "Testing DB restore: $LATEST"
+    sha256sum -c "$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
+    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e       "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
+    gunzip -c "$LATEST" | docker exec -i actools_db mariadb -uroot -p"anantaarin1411" actools_restore_test
+    TC=$(docker exec actools_db mariadb -uroot -p"anantaarin1411" -sN -e       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
+    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e "DROP DATABASE IF EXISTS actools_restore_test;"
+    echo "DB restore test OK -- ${TC} tables restored."
+    if [[ "false" == "true" ]]; then
+      echo "Running S3 reachability check..."
+      actools storage-test
+    fi
+    ;;
+
+  restore)
+    env="${2:-prod}"
+    db="actools_${env}"
+    BACKUP_FILE="${3:-}"
+    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "/home/actools/backups"/${env}_db_*.sql.gz 2>/dev/null | head -1)
+    [[ -z "$BACKUP_FILE" ]] && { echo "No backups found for $env"; exit 1; }
+    echo "Restoring $env from: $BACKUP_FILE"
+    sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
+    read -rp "OVERWRITE actools_${env}? [y/N] " reply
+    [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e       "DROP DATABASE IF EXISTS `$db`; CREATE DATABASE `$db` CHARACTER SET utf8mb4;"
+    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"anantaarin1411" "$db"
+    echo "Restore complete. Run: actools drush $env cr"
+    ;;
+
   caddy-reload)
     docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile
     ;;
+
   tls-status)
     echo "=== TLS Certificate Status ==="
-    echo | openssl s_client -connect "${BASE_DOMAIN}:443" \
-      -servername "${BASE_DOMAIN}" 2>/dev/null \
-      | openssl x509 -noout -dates 2>/dev/null \
-      || echo "unavailable"
-    ;;
-  stats)
-    docker stats --no-stream
+    for domain in "Feesix.com" "stg.Feesix.com" "dev.Feesix.com"; do
+      echo -n "$domain: "
+      echo | openssl s_client -connect "$domain:443" -servername "$domain" 2>/dev/null         | openssl x509 -noout -dates 2>/dev/null | grep notAfter | cut -d= -f2         || echo "not available yet"
+    done
     ;;
 
-  ai)
-    check_ollama
-    case "${2:-}" in
-      explain)      ai_explain "${3:-}" ;;
-      review)       ai_review "${3:---security}" ;;
-      context)      build_context "${3:-all}" ;;
-      *)            ai_ask "${2:-Tell me about the Actools codebase}" ;;
-    esac
+  slow-log)
+    env="${2:-prod}"
+    svc=$(php_svc "$env")
+    echo "=== PHP-FPM slow log for $env ==="
+    docker compose exec "$svc" tail -50 /var/log/php/www-slow.log 2>/dev/null       || echo "No slow log yet"
+    ;;
+
+  redis-info) docker compose exec redis redis-cli info memory 2>/dev/null || echo "Redis not running" ;;
+  oom)
+    echo "=== Recent OOM Events ==="
+    dmesg | grep -i "oom\|out of memory\|killed process" | tail -20 || echo "No OOM events"
     ;;
 
   migrate)
-    case "${2:-}" in
-      --plan|-p)     migrate_plan "${3:-prod}" ;;
-      --apply|-a)    migrate_apply "${3:-prod}" ;;
-      --rollback|-r) migrate_rollback "${3:-prod}" ;;
-      --point-in-time) shift; source /home/actools/modules/backup/cli-pitr.sh; pitr_cli "$@" ;;
-      *)             migrate_plan "${2:-prod}" ;;
-    esac
-    ;;
-  backup)
-    shift
-    source /home/actools/modules/backup/cli-pitr.sh
-    backup_cli "$@"
+    echo "=== XeLaTeX Migration Guide ==="
+    echo "Current mode: local"
+    echo ""
+    echo "1. Deploy XeLaTeX HTTP service on target server"
+    echo "2. Set XELATEX_MODE=remote and XELATEX_ENDPOINT=http://<host>:8081 in actools.env"
+    echo "3. Update PdfService.php to use HTTP when XELATEX_MODE=remote"
+    echo "4. Rebuild worker image without texlive packages"
+    echo "5. Verify: actools pdf-test"
     ;;
 
-  ci)
-    shift
-    platform="github-actions"
-    output="/tmp/actools-ci-output"
-    for arg in "$@"; do
-      case "$arg" in
-        --platform=*) platform="${arg#--platform=}" ;;
-        --output=*)   output="${arg#--output=}" ;;
-      esac
-    done
-    cmd_ci_generate "$platform" "$output"
+  log-dir)
+    echo "=== Install Log Directory ==="
+    LOG_DIR="/home/actools/logs/install"
+    echo "Location: $LOG_DIR"
+    ls -lht "$LOG_DIR" 2>/dev/null | head -20 || echo "No install logs found."
+    echo "Main log: /home/actools/actools-install.log"
+    LATEST=$(ls -t "$LOG_DIR"/*.log 2>/dev/null | head -1)
+    [[ -n "$LATEST" ]] && echo "Latest run: tail -f $LATEST" || true
     ;;
 
-  branch)
-    case "${2:-}" in
-      --list|-l)    branch_list ;;
-      --destroy|-d) branch_destroy "${3:-}" ;;
-      --cleanup)    branch_cleanup ;;
-      *)            branch_create "${2:-}" ;;
+  tunnel)
+    case "${2:-status}" in
+      status)  systemctl status cloudflared --no-pager ;;
+      restart) sudo systemctl restart cloudflared && echo "cloudflared restarted" ;;
+      logs)    journalctl -u cloudflared -n 50 --no-pager ;;
+      *)       echo "Usage: actools tunnel [status|restart|logs]" ;;
     esac
-    ;;
-
-  gdpr)
-    shift
-    source /home/actools/modules/compliance/gdpr.sh
-    case "${1:-report}" in
-      export) gdpr_export "${2:-}" ;;
-      delete) gdpr_delete "${2:-}" ;;
-      audit)  gdpr_audit  "${2:-}" ;;
-      report) gdpr_report ;;
-      *) echo "Usage: actools gdpr [export|delete|audit|report] [email]" ;;
-    esac
-    ;;
-  immortalize)
-    /home/actools/modules/dr/immortalize.sh "${2:-}"
-    ;;
-  resurrect)
-    shift
-    /home/actools/modules/dr/resurrect.sh "$@"
     ;;
   help|*)
+    echo "Usage: actools <command> [args]"
     echo ""
-    echo "Actools CLI v10.0 — feesix.com"
-    echo ""
-    echo "  health                  HTTP check (simple)"
-    echo "  health --verbose        Full system health report"
-    echo "  health --cost           Memory optimization report"
-    echo "  cost-optimize           Detailed cost analysis"
-    echo "  status                  Container status"
-    echo "  logs [svc]              Stream logs"
-    echo "  restart [svc]           Restart a service"
-    echo "  stats                   Live Docker resource usage"
-    echo "  update                  Pre-snapshot + pull + drush updb"
-    echo "  backup                  Run backup now"
-    echo "  restore-test            Verify latest backup"
-    echo "  restore [env] [file]    Restore with confirmation"
-    echo "  drush [env] [cmd]       Run drush command"
-    echo "  shell [svc]             Bash in container"
-    echo "  worker-logs             Stream worker logs"
-    echo "  worker-status           Drupal queue status"
-    echo "  worker-run              Run queue worker manually"
-    echo "  pdf-test                Test XeLaTeX in worker"
-    echo "  storage-test            S3 round-trip test"
-    echo "  storage-info            Storage configuration"
-    echo "  redis-info              Redis memory usage"
-    echo "  slow-log [env]          PHP-FPM slow request log"
-    echo "  caddy-reload            Zero-downtime Caddy reload"
-    echo "  tls-status              TLS certificate expiry"
-  echo "  ai <question>           Ask AI about your codebase"
-  echo "  ai explain <file>       Explain a specific module"
-  echo "  ai review --security    Security review of codebase"
-  echo "  ai review --performance Performance review"
-  echo "  ai context              Rebuild AI codebase index"
-  echo "  migrate [env]           Show pending DB migrations"
-  echo "  migrate --apply [env]   Apply migrations (with pre-backup)"
-  echo "  migrate --rollback [env] Rollback to pre-migration backup"
-  echo "  ci --generate           Generate GitHub Actions CI/CD pipeline"
-  echo "  ci --generate --platform=gitlab  Generate GitLab CI pipeline"
-  echo "  branch <name>           Create preview environment"
-  echo "  branch --list           List active previews"
-  echo "  branch --destroy <name> Destroy preview environment"
-  echo "  branch --cleanup        Remove previews older than 7 days"
-  echo "  backup db               Run full database backup now"
-  echo "  backup binlogs          Rotate and archive binary logs"
-  echo "  backup status           Show backup status and binlog position"
-  echo "  migrate --point-in-time \"YYYY-MM-DD HH:MM:SS\"  PITR restore"
-  echo "  gdpr export <email>      Export all data for a user (GDPR Art.15)"
-  echo "  gdpr delete <email>      Delete user + content (GDPR Art.17)"
-  echo "  gdpr audit  <email>      Show audit trail for a user"
-  echo "  gdpr report              Full compliance status report"
-  echo "  immortalize              Snapshot complete server state to DNA"
-  echo "  resurrect --dna <file> --key <key>  Restore on fresh server"
-  echo "  backup db               Run full database backup now"
-  echo "  backup binlogs          Rotate and archive binary logs"
-  echo "  backup status           Show backup status and binlog position"
-  echo "  migrate --point-in-time \"YYYY-MM-DD HH:MM:SS\"  PITR restore"
-    echo ""
+    echo "  logs [svc]          Stream logs"
+    echo "  restart [svc]       Restart a service"
+    echo "  status              Container health"
+    echo "  stats               Live Docker resource usage"
+    echo "  dry-run             Show what update would do"
+    echo "  update              Pre-snapshot + pull + drush updb + caddy reload"
+    echo "  backup              Run backup now"
+    echo "  restore-test        Verify latest prod backup"
+    echo "  restore <env> [f]   Restore with confirmation"
+    echo "  health              HTTP + /health status"
+    echo "  tls-status          TLS cert expiry"
+    echo "  drush <env> <cmd>   Run drush"
+    echo "  console <env>       Drush PHP console"
+    echo "  shell [svc]         Bash in container"
+    echo "  worker-logs         Worker container logs"
+    echo "  worker-status       Drupal queue status"
+    echo "  worker-run          Run queue worker manually"
+    echo "  pdf-test            Test XeLaTeX in worker"
+    echo "  storage-test        S3 round-trip test"
+    echo "  storage-info        Storage + XeLaTeX config"
+    echo "  migrate             XeLaTeX remote migration guide"
+    echo "  caddy-reload        Zero-downtime Caddy reload"
+    echo "  slow-log [env]      PHP-FPM slow request log"
+    echo "  redis-info          Redis memory usage"
+    echo "  oom                 Recent OOM events"
+    echo "  log-dir             Install log directory"
     ;;
 esac
-
-# Load preview module
-source "${INSTALL_DIR}/modules/preview/branch.sh"
-source "${INSTALL_DIR}/cli/commands/ci_generate.sh"
-source "${INSTALL_DIR}/modules/migrate/migrate.sh"
-source "${INSTALL_DIR}/modules/ai/assistant.sh"

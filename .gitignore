@@ -159,3 +159,7 @@ Caddyfile.backup
 docker-compose.yml.backup
 caddy/
 upload/
+
+# Cloudflare tunnel credentials
+.cloudflared/*.json
+.cloudflared/cert.pem
