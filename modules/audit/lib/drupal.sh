@@ -19,21 +19,22 @@ run_drupal() {
 
   # Cron last run
   local cron_last
-  cron_last=$(drush_exec "ev 'return \\Drupal::state()->get(\"system.cron_last\");'" 2>/dev/null | tr -d '[:space:]' || echo "0")
+  cron_last=$(cd /home/actools && docker compose exec -T php_prod bash -c "cd /opt/drupal/web/prod && ./vendor/bin/drush state:get system.cron_last 2>/dev/null" 2>/dev/null | tr -d "[:space:]" || echo "0")
   local now
   now=$(date +%s)
-  local cron_age=$(( now - cron_last ))
-  if (( cron_age > 7200 )); then
-    local cron_hours=$(( cron_age / 3600 ))
-    record_finding "WARN" "MEDIUM" \
-      "Cron last run: ${cron_hours}h ago" \
-      "Scheduled tasks (queue, cache rebuild, updates) may be delayed" \
-      "drush cron" \
-      "ACT-CRON-01"
+  if [[ -z "$cron_last" || "$cron_last" == "0" ]]; then
+    record_finding "WARN" "MEDIUM" "Cron: last run time unavailable" "Cron may never have run" "drush cron" "ACT-CRON-01"
   else
-    record_finding "PASS" "LOW" "Cron: ran within last 2 hours" "" "" ""
+    local cron_age=$(( now - cron_last ))
+    if (( cron_age < 0 )); then cron_age=0; fi
+    if (( cron_age > 7200 )); then
+      local cron_hours=$(( cron_age / 3600 ))
+      record_finding "WARN" "MEDIUM" "Cron last run: ${cron_hours}h ago" "Scheduled tasks may be delayed" "drush cron" "ACT-CRON-01"
+    else
+      local cron_mins=$(( cron_age / 60 ))
+      record_finding "PASS" "LOW" "Cron: ran ${cron_mins} minutes ago" "" "" ""
+    fi
   fi
-
   # Config drift
   local drift_count
   drift_count=$(drush_exec "config:status --format=list 2>/dev/null" | grep -c "." || echo "0")
