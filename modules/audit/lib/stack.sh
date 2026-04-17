@@ -118,7 +118,7 @@ print(f'{up}/{total}')
     record_finding "FAIL" "HIGH" \
       "No backup found" \
       "No database backup exists — data loss risk if server fails" \
-      "actools backup — verify cron: crontab -l | grep backup" \
+      "actools backup — verify cron: crontab -l" \
       "ACT-BKUP-01"
   else
     local backup_age_hours

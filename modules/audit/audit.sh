@@ -9,7 +9,15 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/sysadmin/actoolsDrupal}"
+# Re-exec with docker group if docker not accessible
+if ! docker info >/dev/null 2>&1; then
+  if id -nG "$USER" 2>/dev/null | grep -qw docker; then
+    exec sg docker -c "bash $0 $*"
+  else
+    echo "[WARN] Docker not accessible — some checks will fail. Add user to docker group."
+  fi
+fi
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 MODE="default"     # default | complete | security | json | ci | deep
