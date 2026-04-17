@@ -103,6 +103,7 @@ set +a
 
 [[ -z "${BASE_DOMAIN:-}" ]]        && error "BASE_DOMAIN is not set in $ENV_FILE"
 [[ -z "${DRUPAL_ADMIN_EMAIL:-}" ]] && error "DRUPAL_ADMIN_EMAIL is not set in $ENV_FILE"
+  [[ "${DRUPAL_ADMIN_EMAIL}" =~ ^[^@]+@[^@]+.[^@]+$ ]] || error "DRUPAL_ADMIN_EMAIL is not a valid email address: ${DRUPAL_ADMIN_EMAIL}"
 [[ "${BASE_DOMAIN}" == *"example.com"* ]] &&   warn "BASE_DOMAIN looks like a placeholder. DNS must resolve before TLS works."
 
 # DNS preflight — check domain resolves to this server
