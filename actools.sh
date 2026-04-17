@@ -1362,13 +1362,13 @@ case "\${1:-help}" in
 
 
   audit)
-    AUDIT_SCRIPT="${INSTALL_DIR}/modules/audit/audit.sh"
-    [[ ! -f "$AUDIT_SCRIPT" ]] && { echo "audit module not found at $AUDIT_SCRIPT"; exit 1; }
-    export ACTOOLS_HOME="${INSTALL_DIR}"
-    source "${INSTALL_DIR}/modules/audit/lib/output.sh" 2>/dev/null || true
-    cd "${INSTALL_DIR}"
-    set -a; source "${INSTALL_DIR}/actools.env" 2>/dev/null || true; set +a
-    bash "$AUDIT_SCRIPT" "${@:2}"
+    AUDIT_SCRIPT="\${INSTALL_DIR}/modules/audit/audit.sh"
+    [[ ! -f "\$AUDIT_SCRIPT" ]] && { echo "audit module not found at \$AUDIT_SCRIPT"; exit 1; }
+    export ACTOOLS_HOME="\${INSTALL_DIR}"
+    source "\${INSTALL_DIR}/modules/audit/lib/output.sh" 2>/dev/null || true
+    cd "\${INSTALL_DIR}"
+    set -a; source "\${INSTALL_DIR}/actools.env" 2>/dev/null || true; set +a
+    bash "\$AUDIT_SCRIPT" "\${@:2}"
     ;;
 
   help|*)
