@@ -37,6 +37,11 @@ run_drupal() {
   fi
   # Config drift
   local drift_count
+  local sync_file_count
+  sync_file_count=$(docker compose exec -T php_prod bash -c "find /opt/drupal/web/prod/web/sites/default/files -name '*.yml' -path '*/sync/*' 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]' || echo "0")
+  if [[ "$sync_file_count" == "0" ]]; then
+    record_finding "INFO" "LOW" "Config: sync directory empty — run drush config:export after initial setup" "" "" ""
+  else
   drift_count=$(drush_exec "config:status --format=list 2>/dev/null" | grep -c "." || echo "0")
   drift_count=$(echo "$drift_count" | tr -d '[:space:]')
   if (( drift_count > 0 )); then
@@ -54,6 +59,7 @@ run_drupal() {
       "ACT-CFG-01"
   else
     record_finding "PASS" "LOW" "Config: no drift" "" "" ""
+  fi
   fi
 
   # Trusted host patterns — config check (behavioral test in integration.sh)
