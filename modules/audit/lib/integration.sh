@@ -98,7 +98,7 @@ run_integration() {
 
   # Private files path exists and writable
   local private_path
-  private_path=$(drush_exec "ev 'echo \\Drupal::config(\"system.file\")->get(\"path.private\");'" \
+  private_path=$(drush_exec "ev 'echo \\Drupal::service(\"file_system\")->realpath(\"private://\");'" \
     2>/dev/null | tr -d '[:space:]' || echo "")
   if [[ -z "$private_path" ]]; then
     record_finding "FAIL" "CRITICAL" \
