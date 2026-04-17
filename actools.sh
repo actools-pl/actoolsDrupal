@@ -1001,12 +1001,7 @@ SQL
   "
 
   local domain_escaped="${BASE_DOMAIN//./\\.}"
-  docker compose exec -T "$php_svc" bash -c "
-    CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
-    grep -q \"^\$settings\['trusted_host_patterns'\]\" \"\$CONFIG_FILE\" 2>/dev/null || \
-    printf "\$settings['trusted_host_patterns'] = array('^${domain_escaped}$', '^.*\\.${domain_escaped}$');\n" >> "$CONFIG_FILE"
-  " 2>/dev/null && log "trusted_host_patterns set for ${env}" \
-    || warn "trusted_host_patterns injection failed for ${env} -- set manually in settings.php"
+  docker compose exec -T "$php_svc" bash -c "CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php; grep -q trusted_host_patterns_active \"\$CONFIG_FILE\" 2>/dev/null || { echo \"\$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');\n// trusted_host_patterns_active\" >> \"\$CONFIG_FILE\"; }" 2>/dev/null && log "trusted_host_patterns set for ${env}" || warn "trusted_host_patterns injection failed for ${env}"
   docker compose exec -T "$php_svc" bash -c "
     CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
     grep -q \"^\$settings\['file_private_path'\]\" \"\$CONFIG_FILE\" 2>/dev/null || \
