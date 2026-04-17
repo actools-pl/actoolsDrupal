@@ -1001,11 +1001,20 @@ SQL
   "
 
   local domain_escaped="${BASE_DOMAIN//./\\.}"
-  docker compose exec -T "$php_svc" bash -c "CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php; grep -q trusted_host_patterns_active \"\$CONFIG_FILE\" 2>/dev/null || { echo \"\$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');\n// trusted_host_patterns_active\" >> \"\$CONFIG_FILE\"; }" 2>/dev/null && log "trusted_host_patterns set for ${env}" || warn "trusted_host_patterns injection failed for ${env}"
+  docker compose exec -T "$php_svc" bash -c "cat > /tmp/php_inject.php << 'PHPEOF'
+\$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');
+// trusted_host_patterns_active
+PHPEOF
+grep -q trusted_host_patterns_active /opt/drupal/web/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject.php >> /opt/drupal/web/${env}/web/sites/default/settings.php
+rm -f /tmp/php_inject.php" 2>/dev/null && log "trusted_host_patterns set for ${env}" || warn "trusted_host_patterns injection failed for ${env}"
   docker compose exec -T "$php_svc" bash -c "
     CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
     grep -q \"^\$settings\['file_private_path'\]\" \"\$CONFIG_FILE\" 2>/dev/null || \
-    printf \"\\\$settings['file_private_path'] = '/opt/drupal/web/${env}/private';\\n\" >> \"\$CONFIG_FILE\"
+  docker compose exec -T "$php_svc" bash -c "cat > /tmp/php_inject2.php << 'PHPEOF'
+\$settings['file_private_path'] = '/opt/drupal/web/${env}/private';
+PHPEOF
+grep -q file_private_path /opt/drupal/web/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject2.php >> /opt/drupal/web/${env}/web/sites/default/settings.php
+rm -f /tmp/php_inject2.php" 2>/dev/null && log "file_private_path set for ${env}" || warn "file_private_path injection failed for ${env}"
   " 2>/dev/null && log "file_private_path set for ${env}"     || warn "file_private_path injection failed for ${env} -- set manually in settings.php"
   docker compose exec -T "$php_svc" mkdir -p /opt/drupal/web/${env}/private 2>/dev/null || true
 
