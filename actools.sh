@@ -1015,6 +1015,7 @@ PHPEOF
 grep -q file_private_path_active /opt/drupal/web/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject2.php >> /opt/drupal/web/${env}/web/sites/default/settings.php
 rm -f /tmp/php_inject2.php" 2>/dev/null && log "file_private_path set for ${env}" || warn "file_private_path injection failed for ${env}"
   docker compose exec -T "$php_svc" mkdir -p /opt/drupal/web/${env}/private 2>/dev/null || true
+  docker compose exec -T "$php_svc" bash -c "cd /opt/drupal/web/${env} && ./vendor/bin/drush cr" 2>/dev/null && log "Cache rebuilt after settings injection for ${env}" || true
 
   if [[ "${ENABLE_S3_STORAGE:-true}" == "true" ]]; then
     log "Injecting S3 credentials into settings.php for ${env}..."
