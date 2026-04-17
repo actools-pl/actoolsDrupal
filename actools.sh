@@ -1003,7 +1003,7 @@ SQL
   local domain_escaped="${BASE_DOMAIN//./\\.}"
   docker compose exec -T "$php_svc" bash -c "
     CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
-    grep -q trusted_host_patterns \"\$CONFIG_FILE\" 2>/dev/null || \
+    grep -q \"^\$settings\['trusted_host_patterns'\]\" \"\$CONFIG_FILE\" 2>/dev/null || \
     cat >> \"\$CONFIG_FILE\" << TPHP
 
 \$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');
@@ -1012,7 +1012,7 @@ TPHP
     || warn "trusted_host_patterns injection failed for ${env} -- set manually in settings.php"
   docker compose exec -T "$php_svc" bash -c "
     CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
-    grep -q file_private_path \"\$CONFIG_FILE\" 2>/dev/null ||     cat >> \"\$CONFIG_FILE\" << TPRIV
+    grep -q \"^\$settings\['file_private_path'\]\" \"\$CONFIG_FILE\" 2>/dev/null ||     cat >> \"\$CONFIG_FILE\" << TPRIV
 \$settings['file_private_path'] = '/opt/drupal/web/${env}/private';
 TPRIV
   " 2>/dev/null && log "file_private_path set for ${env}"     || warn "file_private_path injection failed for ${env} -- set manually in settings.php"
