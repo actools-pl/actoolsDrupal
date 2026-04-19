@@ -384,6 +384,7 @@ if ! command -v docker &>/dev/null; then
     docker-buildx-plugin docker-compose-plugin
   usermod -aG docker "$REAL_USER"
   log "Docker CE installed."
+  log "NOTE: $REAL_USER added to docker group. Run: newgrp docker — or log out and back in for group to take effect."
 else
   log "Docker present: $(docker --version)"
 fi
@@ -1231,7 +1232,7 @@ case "\${1:-help}" in
     ;;
 
   storage-info)
-    ENV_FILE="${REAL_HOME}/actools.env"
+    ENV_FILE="${INSTALL_DIR}/actools.env"
     [[ -f "\$ENV_FILE" ]] && { set -a; source "\$ENV_FILE"; set +a; }
     STORAGE_PROVIDER="\${STORAGE_PROVIDER:-\${S3_PROVIDER:-aws}}"
     S3_ENDPOINT_URL="\${S3_ENDPOINT_URL:-\${S3_ENDPOINT:-}}"
