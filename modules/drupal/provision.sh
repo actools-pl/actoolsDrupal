@@ -67,6 +67,7 @@ drupal_provision() {
   "
   # Inject settings from host — avoids heredoc-in-heredoc conflict
   local settings_file="${INSTALL_DIR}/docroot/${env}/web/sites/default/settings.php"
+  chmod 644 "$settings_file" 2>/dev/null || true
   cat >> "$settings_file" << 'ENDSETTINGS'
 
 // Redis cache backend - injected by actools installer

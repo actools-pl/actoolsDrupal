@@ -56,6 +56,7 @@ if ! id -nG 2>/dev/null | grep -qw docker; then
 fi
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export INSTALL_DIR
 ENV_FILE="$INSTALL_DIR/actools.env"
 STATE_FILE="$INSTALL_DIR/.actools-state.json"
 LOCK_FILE="/tmp/actools.lock"
