@@ -48,6 +48,12 @@ MODE="${1:-fresh}"
 
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo "~$REAL_USER")"
+# Re-exec with docker group if not already active — eliminates need for newgrp
+if ! id -nG 2>/dev/null | grep -qw docker; then
+  if id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
+    exec sg docker -c "bash $0 $*"
+  fi
+fi
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$INSTALL_DIR/actools.env"
@@ -382,11 +388,14 @@ if ! command -v docker &>/dev/null; then
   apt-get update -qq
   apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
     docker-buildx-plugin docker-compose-plugin
-  usermod -aG docker "$REAL_USER"
   log "Docker CE installed."
-  log "NOTE: $REAL_USER added to docker group. Run: newgrp docker — or log out and back in for group to take effect."
 else
   log "Docker present: $(docker --version)"
+fi
+# Always ensure REAL_USER is in docker group
+if ! id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
+  usermod -aG docker "$REAL_USER"
+  log "$REAL_USER added to docker group."
 fi
 
 if [[ ! -f /etc/docker/daemon.json ]]; then
