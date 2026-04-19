@@ -83,8 +83,15 @@ dryrun() { "$DRY_RUN" && { echo -e "${Y}[DRY-RUN]${NC} Would run: $*"; return 0;
 
 log "Actools v${ACTOOLS_VERSION} started (mode=${MODE})"
 
+# Lock file — remove stale lock from previous sudo/non-sudo run
+if [[ -f "$LOCK_FILE" ]]; then
+  if ! flock -n "$LOCK_FILE" true 2>/dev/null; then
+    error "Another actools installation is already running."
+  fi
+  rm -f "$LOCK_FILE"
+fi
 touch "$LOCK_FILE" 2>/dev/null || true
-chown "$REAL_USER:$REAL_USER" "$LOCK_FILE" 2>/dev/null || true
+chmod 666 "$LOCK_FILE" 2>/dev/null || true
 exec 200>"$LOCK_FILE"
 flock -n 200 || error "Another actools installation is already running."
 
