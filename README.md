@@ -17,6 +17,36 @@ Actools solves all of it. One install. Full control.
 
 ---
 
+
+---
+
+## Prerequisites
+
+Before running the installer you need a sudo user on the server. Root login is disabled after setup.
+
+**Step 1 — Create a sudo user (run once as root)**
+
+On a fresh Hetzner server, SSH in as root and create `setup_user.sh` and `install.env` with your username, password and SSH public key. Then run:
+
+```bash
+bash setup_user.sh install.env
+```
+
+This creates your sudo user, installs your SSH key, disables root login and password authentication. The `install.env` file is shredded after it runs.
+
+**Step 2 — SSH in as your new user and clone the installer**
+
+```bash
+ssh sysadmin@<your-server-ip>
+git clone https://github.com/actools-pl/actoolsDrupal.git
+cd actoolsDrupal
+cp actools.env.example actools.env
+nano actools.env   # set BASE_DOMAIN and DRUPAL_ADMIN_EMAIL
+sudo ./actools.sh fresh
+```
+
+> DNS must point to the server before running. Caddy cannot obtain TLS certificates without it.
+
 ## Quick start
 Note: Actools installs on YOUR server (e.g. Hetzner CX22).
 It is not a hosted service — you own and manage the server.
@@ -108,6 +138,66 @@ Ubuntu 24.04 · 2GB RAM minimum · DNS A records pointing to server
 > Add a DNS CAA record for extra security: `CAA 0 issue "letsencrypt.org"`
 
 ---
+
+
+---
+
+## Audit
+
+`actools audit` is a deterministic, operator-readable health check. It does not just report problems — it gives you the exact command to fix each one.
+
+```bash
+actools audit                  # full audit
+actools audit --security       # security layer only
+actools audit --complete       # include performance checks
+actools audit --ci             # machine-readable exit codes for CI pipelines
+actools audit --json           # JSON output
+actools audit --deep           # Pro only — active security scanning
+```
+
+**What it checks:**
+
+| Layer | Check | Code |
+|---|---|---|
+| Drupal | Security advisories | ACT-SEC-05 |
+| Drupal | Cron last run | ACT-CRON-01 |
+| Drupal | Config drift | ACT-CFG-01 |
+| Drupal | trusted_host_patterns configured | ACT-SEC-04 |
+| Drupal | Error display hidden in production | ACT-CFG-02 |
+| Drupal | Session cookie secure flag | ACT-CFG-02 |
+| Drupal | Queue backlog | ACT-WORK-01 |
+| Integration | Redis write/read/TTL cycle | ACT-REDIS-02 |
+| Integration | Redis as Drupal cache backend | ACT-REDIS-01 |
+| Integration | HTTP response headers | ACT-HTTP-01 |
+| Integration | Trusted host spoof rejection | ACT-SEC-04 |
+| Integration | Queue worker enqueue test | ACT-WORK-02 |
+| Integration | Private file path configured and writable | ACT-PRIV-01 |
+| Stack | All containers running | ACT-STACK-01 |
+| Stack | Site returns HTTP 200 | ACT-STACK-02 |
+| Stack | TLS certificate valid and days remaining | ACT-TLS-01 |
+| Stack | Disk usage | ACT-DISK-01 |
+| Stack | Available memory | ACT-MEM-01 |
+| Stack | Backup freshness | ACT-BKUP-01 |
+| Stack | MariaDB reachable | ACT-STACK-03 |
+| Stack | Worker container health | ACT-WORK-01 |
+| Security | HTTPS enforced | ACT-SEC-01 |
+| Security | HSTS header | ACT-SEC-01 |
+| Security | X-Frame-Options header | ACT-SEC-02 |
+| Security | X-Content-Type-Options header | ACT-SEC-02 |
+| Security | Server header hidden | ACT-SEC-03 |
+| Security | Referrer-Policy header | ACT-SEC-02 |
+| Security | Docker images pinned (no :latest) | ACT-SEC-03 |
+
+**CI exit codes:**
+
+| Code | Meaning |
+|---|---|
+| 0 | All clear |
+| 1 | Warnings found |
+| 2 | Failures found |
+| 3 | Critical issues found |
+
+**Fresh install score:** 6/10 · 0 CRITICAL · 22 PASS. The score reflects real-world hardening gaps — no backup yet, no S3, no observability stack. Not bugs. Each gap has an exact fix command.
 
 ## Documentation
 
