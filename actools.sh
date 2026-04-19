@@ -1099,6 +1099,30 @@ SETTINGS
     chown -R www-data:www-data "$INSTALL_DIR/docroot/${env}/web/sites/default/files" 2>/dev/null || true
   fi
 
+  # Inject Redis cache and session settings using same pattern as trusted_host
+  docker compose exec -T "$php_svc" bash -c "
+    CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
+    if ! grep -q redis_cache_active \"\$CONFIG_FILE\" 2>/dev/null; then
+      cd /opt/drupal/web/${env} && ./vendor/bin/drush en redis --yes 2>/dev/null || true
+      cat >> \"\$CONFIG_FILE\" << 'PHPEOF'
+
+// Redis cache backend - injected by actools installer
+// redis_cache_active
+\$settings['redis.connection']['interface'] = 'PhpRedis';
+\$settings['redis.connection']['host'] = 'redis';
+\$settings['redis.connection']['port'] = 6379;
+\$settings['cache']['default'] = 'cache.backend.redis';
+\$settings['cache']['bins']['bootstrap'] = 'cache.backend.chainedfast';
+\$settings['cache']['bins']['discovery'] = 'cache.backend.chainedfast';
+\$settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
+// Session cookie security - injected by actools installer
+ini_set('session.cookie_secure', TRUE);
+\$settings['session_write_interval'] = 180;
+PHPEOF
+      ./vendor/bin/drush cr 2>/dev/null || true
+    fi
+  " 2>/dev/null && log "Redis cache and session settings injected for ${env}" || warn "Redis injection failed for ${env}"
+
   mark_installed "$env"
   set_state ".db_passes.${env}=\"${db_pass}\""
   echo "[${env}] DB: ${db_name}  User: ${db_name}  Pass: ${db_pass}" \
