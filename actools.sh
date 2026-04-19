@@ -1001,6 +1001,7 @@ SQL
     if [[ ! -f composer.json ]]; then
       composer create-project drupal/recommended-project:${DRUPAL_CONSTRAINT} . --no-interaction
       composer require drush/drush --no-interaction
+      composer require drupal/redis --no-interaction
     fi
 
     EXTRA='${EXTRA_PACKAGES:-}'
