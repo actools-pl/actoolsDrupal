@@ -51,6 +51,16 @@ drupal_provision() {
       --site-name='AcTools ${env^}' \
       --yes
     ./vendor/bin/drush cr
+
+    # File system permissions
+    chown -R www-data:www-data web/sites/default/files
+    chmod 775 web/sites/default/files
+    mkdir -p private
+    chown -R www-data:www-data private
+    chmod 775 private
+    ./vendor/bin/drush php:eval "\Drupal::service('config.factory')->getEditable('system.file')->set('path.private', '/var/www/html/${env}/private')->save();"
+    ./vendor/bin/drush php:eval "\Drupal\user\Entity\Role::load('administrator')->set('is_admin', TRUE)->save();"
+    ./vendor/bin/drush cr
   "
 
   log "Stage 2 complete: Drupal provisioned for ${env}."
