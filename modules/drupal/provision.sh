@@ -36,6 +36,7 @@ drupal_provision() {
 
     EXTRA='${EXTRA_PACKAGES:-}'
     [[ -n \"\$EXTRA\" ]] && composer require \$EXTRA --no-interaction || true
+    composer require drupal/redis --no-interaction
   "
 
   # Drush site install
@@ -58,8 +59,27 @@ drupal_provision() {
     mkdir -p private
     chown -R www-data:www-data private
     chmod 775 private
+    ./vendor/bin/drush en redis -y
     ./vendor/bin/drush php:eval "\Drupal::service('config.factory')->getEditable('system.file')->set('path.private', '/var/www/html/${env}/private')->save();"
     ./vendor/bin/drush php:eval "\Drupal\user\Entity\Role::load('administrator')->set('is_admin', TRUE)->save();"
+
+    # Inject Redis cache backend into settings.php
+    cat >> web/sites/default/settings.php << 'SETTINGS'
+
+// Redis cache backend — injected by actools installer
+$settings['redis.connection']['interface'] = 'PhpRedis';
+$settings['redis.connection']['host'] = 'redis';
+$settings['redis.connection']['port'] = 6379;
+$settings['cache']['default'] = 'cache.backend.redis';
+$settings['cache']['bins']['bootstrap'] = 'cache.backend.chainedfast';
+$settings['cache']['bins']['discovery'] = 'cache.backend.chainedfast';
+$settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
+
+// Session cookie security — injected by actools installer
+ini_set('session.cookie_secure', TRUE);
+$settings['session_write_interval'] = 180;
+SETTINGS
+
     ./vendor/bin/drush cr
   "
 

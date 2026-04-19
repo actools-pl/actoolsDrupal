@@ -477,6 +477,14 @@ CADDY_DOCKERFILE
     || error "Caddy image build failed. Check Docker build output above."
   log "Custom Caddy image built."
 
+  # ── Dockerfile.php ─────────────────────────────────────────────────────────
+  cat > "$INSTALL_DIR/Dockerfile.php" <<PHP_DOCKERFILE
+FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+RUN pecl install redis && docker-php-ext-enable redis
+PHP_DOCKERFILE
+  docker build -t actools_php:custom     -f "$INSTALL_DIR/Dockerfile.php"     "$INSTALL_DIR"     2>&1 | tail -5 || warn "PHP image build failed"
+  log "PHP image with phpredis built."
+
   # ── Dockerfile.worker ───────────────────────────────────────────────────────
   cat > "$INSTALL_DIR/Dockerfile.worker" <<WORKER_DOCKERFILE
 FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
@@ -677,7 +685,7 @@ services:
         max-file: "3"
 
   php_prod:
-    image: drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+    image: actools_php:custom
     container_name: actools_php_prod
     restart: unless-stopped
     volumes:
@@ -737,7 +745,7 @@ services:
 $(if [[ "$ENVIRONMENT_MODE" == "all-in-one" ]]; then
 cat <<ALLINONE_SVC
   php_dev:
-    image: drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+    image: actools_php:custom
     container_name: actools_php_dev
     restart: unless-stopped
     volumes:
@@ -763,7 +771,7 @@ cat <<ALLINONE_SVC
         max-file: "3"
 
   php_stg:
-    image: drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+    image: actools_php:custom
     container_name: actools_php_stg
     restart: unless-stopped
     volumes:
