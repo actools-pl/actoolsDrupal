@@ -60,7 +60,12 @@ PKG_DONE_FLAG="/var/lib/actools/.packages_done"
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true
+touch "$LOG_FILE" 2>/dev/null || true
+chown "$REAL_USER:$REAL_USER" "$LOG_FILE" 2>/dev/null || true
+chown "$REAL_USER:$REAL_USER" "$LOG_DIR" 2>/dev/null || true
 RUN_LOG="$LOG_DIR/actools-$(date +%F_%H%M%S).log"
+touch "$RUN_LOG" 2>/dev/null || true
+chown "$REAL_USER:$REAL_USER" "$RUN_LOG" 2>/dev/null || true
 exec > >(tee -a "$LOG_FILE" | tee -a "$RUN_LOG") 2>&1
 
 log()     { echo -e "${G}[INFO ]${NC} $(date '+%F %T') $*"; }
@@ -79,6 +84,7 @@ dryrun() { "$DRY_RUN" && { echo -e "${Y}[DRY-RUN]${NC} Would run: $*"; return 0;
 log "Actools v${ACTOOLS_VERSION} started (mode=${MODE})"
 
 touch "$LOCK_FILE" 2>/dev/null || true
+chown "$REAL_USER:$REAL_USER" "$LOCK_FILE" 2>/dev/null || true
 exec 200>"$LOCK_FILE"
 flock -n 200 || error "Another actools installation is already running."
 
@@ -424,6 +430,7 @@ setup_stack() {
 
   # [v9.2 fix6] Pre-create DB log dir with correct ownership (UID 999 = mysql in container)
   # and pre-touch slow.log so MariaDB can open it without permission errors.
+  chown -R "$REAL_USER:$REAL_USER" "$INSTALL_DIR" 2>/dev/null || true
   chown -R 999:999 "$INSTALL_DIR/logs/db" 2>/dev/null || true
   touch "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
   chown 999:999 "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
