@@ -63,10 +63,13 @@ drupal_provision() {
     ./vendor/bin/drush php:eval "\Drupal::service('config.factory')->getEditable('system.file')->set('path.private', '/var/www/html/${env}/private')->save();"
     ./vendor/bin/drush php:eval "\Drupal\user\Entity\Role::load('administrator')->set('is_admin', TRUE)->save();"
 
-    # Inject Redis cache backend into settings.php
-    cat >> web/sites/default/settings.php << 'SETTINGS'
+    ./vendor/bin/drush cr
+  "
+  # Inject settings from host — avoids heredoc-in-heredoc conflict
+  local settings_file="${INSTALL_DIR}/docroot/${env}/web/sites/default/settings.php"
+  cat >> "$settings_file" << 'ENDSETTINGS'
 
-// Redis cache backend — injected by actools installer
+// Redis cache backend - injected by actools installer
 $settings['redis.connection']['interface'] = 'PhpRedis';
 $settings['redis.connection']['host'] = 'redis';
 $settings['redis.connection']['port'] = 6379;
@@ -74,14 +77,10 @@ $settings['cache']['default'] = 'cache.backend.redis';
 $settings['cache']['bins']['bootstrap'] = 'cache.backend.chainedfast';
 $settings['cache']['bins']['discovery'] = 'cache.backend.chainedfast';
 $settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
-
-// Session cookie security — injected by actools installer
+// Session cookie security - injected by actools installer
 ini_set('session.cookie_secure', TRUE);
 $settings['session_write_interval'] = 180;
-SETTINGS
-
-    ./vendor/bin/drush cr
-  "
-
+ENDSETTINGS
+  docker compose exec -T "php_${env}" bash -c "cd /var/www/html/${env} && ./vendor/bin/drush cr"
   log "Stage 2 complete: Drupal provisioned for ${env}."
 }
