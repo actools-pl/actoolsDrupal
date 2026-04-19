@@ -1098,6 +1098,7 @@ SETTINGS
   chown -R "$REAL_USER:$REAL_USER" "$INSTALL_DIR/docroot/${env}" 2>/dev/null || true
   if id www-data &>/dev/null; then
     chown -R www-data:www-data "$INSTALL_DIR/docroot/${env}/web/sites/default/files" 2>/dev/null || true
+    chown -R www-data:www-data "$INSTALL_DIR/docroot/${env}/private" 2>/dev/null || true
   fi
 
   # Inject Redis cache and session settings using same pattern as trusted_host

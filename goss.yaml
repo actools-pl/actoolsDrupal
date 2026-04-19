@@ -1,0 +1,38 @@
+file:
+  /home/sysadmin/actoolsDrupal:
+    exists: true
+    owner: sysadmin
+    group: sysadmin
+    filetype: directory
+  /home/sysadmin/actoolsDrupal/actools.sh:
+    exists: true
+    owner: sysadmin
+    group: sysadmin
+    mode: "0775"
+    filetype: file
+  /home/sysadmin/actoolsDrupal/docroot/prod/web/sites/default/settings.php:
+    exists: true
+    owner: sysadmin
+    group: sysadmin
+    filetype: file
+  /home/sysadmin/actoolsDrupal/docroot/prod/web/sites/default/files:
+    exists: true
+    owner: www-data
+    group: www-data
+    filetype: directory
+  /home/sysadmin/actoolsDrupal/docroot/prod/private:
+    exists: true
+    owner: www-data
+    group: www-data
+    filetype: directory
+command:
+  "docker ps -q":
+    exit-status: 0
+  "docker compose -f /home/sysadmin/actoolsDrupal/docker-compose.yml ps --services":
+    exit-status: 0
+    stdout:
+      - caddy
+      - db
+      - redis
+      - php_prod
+      - worker_prod
