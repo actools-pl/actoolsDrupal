@@ -866,7 +866,7 @@ COMPOSE
   PULL_OK=0
   # [v9.2 fix2] Pull only registry images -- skip locally-built caddy and worker.
   for attempt in 1 2 3; do
-    if docker compose -f "$INSTALL_DIR/docker-compose.yml" pull db redis php_prod; then
+    if docker compose -f "$INSTALL_DIR/docker-compose.yml" pull db redis; then
       PULL_OK=1; break
     fi
     warn "Pull failed (attempt ${attempt}/3). Retrying in 5s..."
@@ -1271,7 +1271,7 @@ case "\${1:-help}" in
     docker exec actools_db mariadb-dump --single-transaction --quick \
       -ubackup -p"\${BACKUP_PASS}" actools_prod \
       | gzip > "\$SNAP" && echo "Snapshot: \$SNAP" || echo "Snapshot failed (non-fatal)"
-    docker compose pull db redis php_prod
+    docker compose pull db redis
     docker compose up -d
     for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
       svc=\$(php_svc "\$env")
@@ -1552,7 +1552,7 @@ main() {
       docker exec actools_db mariadb-dump --single-transaction --quick \
         -ubackup -p"${BACKUP_PASS}" actools_prod \
         | gzip > "$SNAP" && log "Snapshot: $SNAP" || warn "Snapshot failed (non-fatal)"
-      docker compose pull db redis php_prod
+      docker compose pull db redis
       docker compose up -d
       IFS=',' read -ra ENVS <<< "$ENVIRONMENTS"
       for env in "${ENVS[@]}"; do
