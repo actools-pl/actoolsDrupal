@@ -1172,6 +1172,11 @@ setup_cli() {
 INSTALL_DIR="${INSTALL_DIR}"
 cd "\$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at \$INSTALL_DIR"; exit 1; }
 
+# Load credentials at runtime from env and state
+set -a; source "\${INSTALL_DIR}/actools.env" 2>/dev/null || true; set +a
+DB_ROOT_PASS="\${DB_ROOT_PASS:-}"
+BACKUP_PASS=\$(jq -r '.backup_user_pass // empty' "\${INSTALL_DIR}/.actools-state.json" 2>/dev/null || echo "")
+
 php_svc() { echo "php_\${1:-prod}"; }
 
 case "\${1:-help}" in
@@ -1248,7 +1253,7 @@ case "\${1:-help}" in
     echo "Taking pre-update prod snapshot..."
     SNAP="\${INSTALL_DIR}/backups/pre_update_prod_\$(date +%F_%H%M%S).sql.gz"
     docker exec actools_db mariadb-dump --single-transaction --quick \
-      -ubackup -p"${backup_pass}" actools_prod \
+      -ubackup -p"\${BACKUP_PASS}" actools_prod \
       | gzip > "\$SNAP" && echo "Snapshot: \$SNAP" || echo "Snapshot failed (non-fatal)"
     docker compose pull db redis php_prod
     docker compose up -d
