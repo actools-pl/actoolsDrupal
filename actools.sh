@@ -400,6 +400,18 @@ fi
 if ! id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
   usermod -aG docker "$REAL_USER"
   log "$REAL_USER added to docker group."
+  # Write docker group activation to .bashrc so every new session picks it up
+  bashrc="/home/${REAL_USER}/.bashrc"
+  if [[ -f "$bashrc" ]] && ! grep -q "actools docker group" "$bashrc" 2>/dev/null; then
+    cat >> "$bashrc" << 'BASHRC'
+
+# actools docker group — activate docker group without re-login
+if id -nG "$USER" 2>/dev/null | grep -qw docker && ! id -nG 2>/dev/null | grep -qw docker; then
+  exec sg docker -c "bash --login"
+fi
+BASHRC
+    log "Docker group activation added to ${bashrc}"
+  fi
 fi
 
 if [[ ! -f /etc/docker/daemon.json ]]; then
