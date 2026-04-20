@@ -503,10 +503,14 @@ CADDY_DOCKERFILE
   log "Custom Caddy image built."
 
   # ── Dockerfile.php ─────────────────────────────────────────────────────────
+  # Dockerfile.php — use repo version if available, otherwise generate
+  if [[ ! -f "$INSTALL_DIR/Dockerfile.php" ]]; then
   cat > "$INSTALL_DIR/Dockerfile.php" <<PHP_DOCKERFILE
 FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
+RUN apt-get update -qq && apt-get install -y -qq git unzip && rm -rf /var/lib/apt/lists/*
 RUN pecl install redis && docker-php-ext-enable redis
 PHP_DOCKERFILE
+  fi
   docker build -t actools_php:custom     -f "$INSTALL_DIR/Dockerfile.php"     "$INSTALL_DIR"     2>&1 | tail -5 || warn "PHP image build failed"
   log "PHP image with phpredis built."
 
