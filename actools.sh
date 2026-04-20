@@ -978,6 +978,11 @@ install_env() {
       ./vendor/bin/drush updb --yes 2>&1 || true
       ./vendor/bin/drush cr 2>&1 || true
     " 2>&1 || warn "drush updates failed for ${env}"
+    # Re-apply www-data ownership — second run resets via chown -R REAL_USER
+    if id www-data &>/dev/null; then
+      chown -R www-data:www-data "$INSTALL_DIR/docroot/${env}/web/sites/default/files" 2>/dev/null || true
+      chown -R www-data:www-data "$INSTALL_DIR/docroot/${env}/private" 2>/dev/null || true
+    fi
     return
   fi
 
