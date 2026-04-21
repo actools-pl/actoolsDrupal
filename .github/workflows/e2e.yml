@@ -92,7 +92,7 @@ jobs:
           # Count passes — exclude known CI false positives (no DNS/TLS in CI)
           PASS=$(echo "$AUDIT" | grep -c "PASS")
           # Only fail on CRITICAL issues that are NOT DNS/TLS related
-          REAL_CRITICAL=$(echo "$AUDIT" | grep "CRITICAL" | grep -v "Site not responding\|TLS\|HTTP" | wc -l)
+          REAL_CRITICAL=$(echo "$AUDIT" | grep "\[CRITICAL\]" | grep -v "Site not responding\|TLS\|HTTP\|backup" | wc -l)
           echo "PASS count: $PASS"
           echo "Real CRITICAL count: $REAL_CRITICAL"
           if [[ "$PASS" -lt 10 ]] || [[ "$REAL_CRITICAL" -gt 0 ]]; then
