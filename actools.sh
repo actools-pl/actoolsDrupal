@@ -49,7 +49,8 @@ MODE="${1:-fresh}"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo "~$REAL_USER")"
 # Re-exec with docker group if not already active — eliminates need for newgrp
-if ! id -nG 2>/dev/null | grep -qw docker; then
+# Skip re-exec if running as root (CI environment)
+if [[ "$EUID" -ne 0 ]] && ! id -nG 2>/dev/null | grep -qw docker; then
   if id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
     exec sg docker -c "bash $0 $*"
   fi
