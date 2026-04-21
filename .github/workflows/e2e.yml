@@ -78,7 +78,7 @@ jobs:
             ./ root@$IP:/root/actoolsDrupal/
 
           # Create env file
-          $SSH "printf 'DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\n' > /root/actoolsDrupal/actools.env"
+          $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\n' > /root/actoolsDrupal/actools.env"
 
           # Run installer
           $SSH "cd /root/actoolsDrupal && sudo ./actools.sh fresh" 2>&1 | tee install.log
@@ -87,9 +87,10 @@ jobs:
         run: |
           IP="${{ steps.server.outputs.server_ip }}"
           SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
-          SCORE=$($SSH "actools audit 2>&1 | grep 'Audit score' | grep -o '[0-9]*' | head -1")
+          SCORE=$($SSH "actools audit 2>&1 | grep 'Audit score' | grep -o '[0-9]*' | head -1" || echo "0")
+          SCORE="${SCORE:-0}"
           echo "Audit score: $SCORE/10"
-          if [ "$SCORE" -lt 8 ]; then
+          if [[ -z "$SCORE" || "$SCORE" -lt 8 ]]; then
             echo "FAIL: Audit score $SCORE is below threshold of 8"
             exit 1
           fi
