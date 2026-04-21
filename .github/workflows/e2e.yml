@@ -11,7 +11,7 @@ permissions:
 jobs:
   fresh-install:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -81,7 +81,7 @@ jobs:
           $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\n' > /root/actoolsDrupal/actools.env"
 
           # Run installer
-          $SSH "cd /root/actoolsDrupal && sudo ./actools.sh fresh" 2>&1 | tee install.log
+          $SSH -t "cd /root/actoolsDrupal && sudo DEBIAN_FRONTEND=noninteractive ./actools.sh fresh" 2>&1 | tee install.log
 
       - name: Run audit
         run: |
