@@ -1426,7 +1426,13 @@ main() {
       echo -e "  XeLaTeX mode     : ${C}${XELATEX_MODE:-local}${NC}"
       echo -e "  Redis            : ${C}${ENABLE_REDIS:-true}${NC}"
       echo ""
-      read -rp "  Proceed? [y/N] " reply; echo
+      # Auto-confirm in CI or when running as root
+      if [[ "${CI:-false}" == "true" || "$EUID" -eq 0 ]]; then
+        reply="y"
+        echo "  Auto-confirmed (CI/root mode)"
+      else
+        read -rp "  Proceed? [y/N] " reply; echo
+      fi
       [[ "$reply" =~ ^[Yy]$ ]] || { log "Aborted."; exit 0; }
 
       setup_stack
