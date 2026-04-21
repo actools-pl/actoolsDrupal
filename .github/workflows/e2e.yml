@@ -85,7 +85,7 @@ jobs:
 
       - name: Run audit
         run: |
-          IP=$(cat /tmp/server_ip.txt)
+          IP="${{ steps.server.outputs.server_ip }}"
           echo "Using IP: $IP"
           SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
           SCORE=$($SSH "actools audit 2>&1 | grep 'Audit score' | grep -o '[0-9]*' | head -1" || echo "0")
