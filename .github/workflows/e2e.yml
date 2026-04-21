@@ -87,7 +87,7 @@ jobs:
         run: |
           IP="${{ steps.server.outputs.server_ip }}"
           SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
-          AUDIT=$($SSH "/usr/local/bin/actools audit 2>&1" || echo "audit failed")
+          AUDIT=$($SSH "/usr/local/bin/actools audit ci 2>&1" || echo "audit failed")
           echo "$AUDIT"
           PASS=$(echo "$AUDIT" | grep -c "  PASS")
           CRITICAL=$(echo "$AUDIT" | grep -c "CRITICAL")
