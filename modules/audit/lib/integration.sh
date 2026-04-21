@@ -48,7 +48,8 @@ run_integration() {
   # Skip HTTP checks in CI mode — fake domain has no DNS/TLS
   if [[ "${CI_MODE:-false}" == "true" ]]; then
     record_finding "PASS" "INFO" "HTTP checks: skipped in CI mode" "" "" ""
-  else
+    return
+  fi
   http_headers=$(curl -sI --max-time 10 "https://${domain}" 2>/dev/null || echo "")
   # Cloudflare strips Cache-Control and Content-Encoding at edge
   # Check for Cloudflare presence and skip these checks if tunnel active
