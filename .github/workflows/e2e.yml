@@ -86,17 +86,18 @@ jobs:
       - name: Run audit
         run: |
           IP="${{ steps.server.outputs.server_ip }}"
-          echo "Using IP: $IP"
           SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
-          SCORE=$($SSH "actools audit 2>&1 | grep 'Audit score' | grep -o '[0-9]*' | head -1" || echo "0")
-          SCORE="${SCORE:-0}"
-          echo "Audit score: $SCORE/10"
-          if [[ -z "$SCORE" || "$SCORE" -lt 8 ]]; then
-            echo "FAIL: Audit score $SCORE is below threshold of 8"
+          AUDIT=$($SSH "/usr/local/bin/actools audit 2>&1" || echo "audit failed")
+          echo "$AUDIT"
+          PASS=$(echo "$AUDIT" | grep -c "  PASS")
+          CRITICAL=$(echo "$AUDIT" | grep -c "CRITICAL")
+          echo "PASS count: $PASS"
+          echo "CRITICAL count: $CRITICAL"
+          if [[ "$PASS" -lt 15 ]] || [[ "$CRITICAL" -gt 0 ]]; then
+            echo "FAIL: Too few passes ($PASS) or CRITICAL failures ($CRITICAL)"
             exit 1
           fi
-          echo "PASS: Audit score $SCORE >= 8"
-
+          echo "PASS: CI audit check passed — $PASS checks green, 0 CRITICAL"
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
