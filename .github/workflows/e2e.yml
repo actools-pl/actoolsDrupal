@@ -45,7 +45,14 @@ jobs:
             --output json | jq -r '.server.id')
           echo "server_id=$SERVER_ID" >> $GITHUB_OUTPUT
           echo "server_name=$SERVER_NAME" >> $GITHUB_OUTPUT
-          IP=$(hcloud server describe "$SERVER_ID" --output json | jq -r '.public_net.ipv4.ip')
+          # Wait for IP to be assigned
+          for i in $(seq 1 12); do
+            IP=$(hcloud server describe "$SERVER_ID" --output json | jq -r '.public_net.ipv4.ip')
+            [[ -n "$IP" && "$IP" != "null" ]] && break
+            echo "Waiting for IP... attempt $i"
+            sleep 5
+          done
+          [[ -z "$IP" || "$IP" == "null" ]] && echo "ERROR: IP never assigned" && exit 1
           echo "server_ip=$IP" >> $GITHUB_OUTPUT
           echo "Server: $SERVER_NAME ($IP)"
         env:
