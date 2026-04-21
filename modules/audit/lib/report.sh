@@ -27,11 +27,15 @@ generate_report() {
   fi
 
   # Score out of 10
-  local total=$(( PASS + WARN + FAIL ))
+  local total=$(( PASS + WARN + FAIL + CRITICAL ))
   local score=10
   if (( total > 0 )); then
-    # CRITICAL = -3, FAIL = -2, WARN = -0.5 (approximated as -1 per 2 warns)
-    local deduction=$(( CRITICAL * 3 + FAIL * 2 + WARN / 2 ))
+    # CRITICAL = -4, FAIL(HIGH) = -2, FAIL(non-backup) = -1, WARN = -0 (informational only)
+    # A clean fresh install with no backup (expected) should score 8/10
+    local deduction=$(( CRITICAL * 4 + FAIL * 2 ))
+    # Reduce WARN penalty — WARNs are informational, not failures
+    local warn_deduction=$(( WARN / 4 ))
+    deduction=$(( deduction + warn_deduction ))
     score=$(( 10 - deduction ))
     (( score < 0 )) && score=0
   fi
@@ -113,8 +117,10 @@ _generate_json_report() {
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local total=$(( PASS + WARN + FAIL ))
   local score=10
-  if (( total > 0 )); then
-    local deduction=$(( CRITICAL * 3 + FAIL * 2 + WARN / 2 ))
+  local total=$(( PASS + WARN + FAIL + CRITICAL ))
+    local deduction=$(( CRITICAL * 4 + FAIL * 2 ))
+    local warn_deduction=$(( WARN / 4 ))
+    deduction=$(( deduction + warn_deduction ))
     score=$(( 10 - deduction ))
     (( score < 0 )) && score=0
   fi
