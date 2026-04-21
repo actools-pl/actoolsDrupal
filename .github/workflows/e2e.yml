@@ -38,7 +38,7 @@ jobs:
           SERVER_NAME="actools-e2e-${{ github.run_id }}"
           SERVER_ID=$(hcloud server create \
             --name "$SERVER_NAME" \
-            --type cx22 \
+            --type cpx22 \
             --image ubuntu-24.04 \
             --ssh-key "ci-key-${{ github.run_id }}" \
             --location nbg1 \
