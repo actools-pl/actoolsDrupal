@@ -1,0 +1,111 @@
+name: E2E Fresh Install
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  fresh-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz hcloud
+          sudo mv hcloud /usr/local/bin/hcloud
+          hcloud version
+
+      - name: Create SSH key
+        run: |
+          ssh-keygen -t ed25519 -f /tmp/ci_key -N ""
+          hcloud ssh-key create --name "ci-key-${{ github.run_id }}" \
+            --public-key-from-file /tmp/ci_key.pub
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      - name: Provision server
+        id: server
+        run: |
+          SERVER_NAME="actools-e2e-${{ github.run_id }}"
+          SERVER_ID=$(hcloud server create \
+            --name "$SERVER_NAME" \
+            --type cx22 \
+            --image ubuntu-24.04 \
+            --ssh-key "ci-key-${{ github.run_id }}" \
+            --location nbg1 \
+            --output json | jq -r '.server.id')
+          echo "server_id=$SERVER_ID" >> $GITHUB_OUTPUT
+          echo "server_name=$SERVER_NAME" >> $GITHUB_OUTPUT
+          IP=$(hcloud server describe "$SERVER_ID" --output json | jq -r '.public_net.ipv4.ip')
+          echo "server_ip=$IP" >> $GITHUB_OUTPUT
+          echo "Server: $SERVER_NAME ($IP)"
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      - name: Wait for SSH
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          echo "Waiting for SSH on $IP..."
+          for i in $(seq 1 30); do
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+              -i /tmp/ci_key root@"$IP" "echo ok" 2>/dev/null && break
+            sleep 10
+          done
+
+      - name: Deploy and install
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+
+          # Copy repo
+          rsync -az --exclude='.git' -e "ssh -o StrictHostKeyChecking=no -i /tmp/ci_key" \
+            ./ root@$IP:/root/actoolsDrupal/
+
+          # Create env file
+          $SSH "cat > /root/actoolsDrupal/actools.env << 'ENVEOF'
+DOMAIN=e2e-${{ github.run_id }}.example.com
+EMAIL=ci@example.com
+DRUPAL_VERSION=11
+PHP_VERSION=8.3
+DB_ROOT_PASS=CiTestPass123
+DRUPAL_ADMIN_PASS=CiAdmin123
+DRUPAL_ADMIN_USER=admin
+DRUPAL_ADMIN_EMAIL=admin@example.com
+ENABLE_S3_STORAGE=false
+ENVEOF"
+
+          # Run installer
+          $SSH "cd /root/actoolsDrupal && sudo ./actools.sh fresh" 2>&1 | tee install.log
+
+      - name: Run audit
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+          SCORE=$($SSH "actools audit 2>&1 | grep 'Audit score' | grep -o '[0-9]*' | head -1")
+          echo "Audit score: $SCORE/10"
+          if [ "$SCORE" -lt 8 ]; then
+            echo "FAIL: Audit score $SCORE is below threshold of 8"
+            exit 1
+          fi
+          echo "PASS: Audit score $SCORE >= 8"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-${{ github.run_id }}
+          path: install.log
+
+      - name: Cleanup server
+        if: always()
+        run: |
+          hcloud server delete "${{ steps.server.outputs.server_id }}" || true
+          hcloud ssh-key delete "ci-key-${{ github.run_id }}" || true
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
