@@ -115,9 +115,9 @@ generate_report() {
 _generate_json_report() {
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  local total=$(( PASS + WARN + FAIL ))
   local score=10
   local total=$(( PASS + WARN + FAIL + CRITICAL ))
+  if (( total > 0 )); then
     local deduction=$(( CRITICAL * 4 + FAIL * 2 ))
     local warn_deduction=$(( WARN / 4 ))
     deduction=$(( deduction + warn_deduction ))
