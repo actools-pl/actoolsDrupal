@@ -4,7 +4,7 @@ A guided single-server Drupal installer and operator CLI for Ubuntu 24.04.
 
 Install Drupal 11, Caddy, MariaDB, Redis, PHP-FPM, and a worker container on one VPS in five staged commands. Get a small operator CLI for the daily tasks. Run as much or as little of the advanced surface as you want — none of it is required.
 
-**Live example:** [feesix.com](https://feesix.com) · [![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml)
+**Live example:** [feesix.com](https://feesix.com) &nbsp;·&nbsp; [![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![Security Scan](https://img.shields.io/badge/security-trivy-green)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![CodeQL](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql)
 
 ---
 
@@ -51,7 +51,7 @@ actools update       # pull + drush updb + caddy reload
 
 ## Advanced features
 
-The installer also ships PITR backups, DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit`.
+The installer also ships PITR backups, DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit` (with `--deep` available in Actools Pro).
 
 See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a working site.
 
@@ -59,17 +59,19 @@ See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a work
 
 | Doc | What it covers |
 |---|---|
-| [`docs/quick-start.md`](docs/quick-start.md) | Full install walkthrough |
+| [`docs/quick-start.md`](docs/quick-start.md) | Full install walkthrough with screenshots-in-prose |
 | [`docs/operator-handbook.md`](docs/operator-handbook.md) | Daily operations: backups, updates, restores |
 | [`docs/command-reference.md`](docs/command-reference.md) | Every command, every flag |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | DNS, TLS, Docker, DB, disk, restore |
-| [`docs/advanced.md`](docs/advanced.md) | PITR, DNA, GDPR, AI, previews, tunnels |
+| [`docs/advanced.md`](docs/advanced.md) | PITR, DNA, GDPR, AI, preview environments, tunnels |
 | [`docs/architecture.md`](docs/architecture.md) | How it's built — modules, state, profiles |
 | [`docs/privacy.md`](docs/privacy.md) | What stays local, what doesn't |
 
 ## What this is and isn't
 
 This is a single-server Drupal installer and operator kit. It is not a managed hosting platform, multi-tenant SaaS, or compliance certification. The advanced features are useful, but the community claim is intentionally narrow: install and operate Drupal on one VPS, calmly.
+
+A hardened single-tenant platform with optional governance — DrupalFortress — is being developed separately. It reuses this installer's operator UX but ships independently.
 
 ## Security
 
