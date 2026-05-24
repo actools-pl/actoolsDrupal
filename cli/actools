@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Actools CLI v9.2
+# Actools CLI v14.0
 INSTALL_DIR="/home/actools"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
 php_svc() { echo "php_${1:-prod}"; }
 
 case "${1:-help}" in
+  doctor)
+    shift
+    # shellcheck source=/dev/null
+    source "${INSTALL_DIR}/cli/commands/doctor.sh"
+    run_doctor "$@"
+    exit $?
+    ;;
+
   logs)
     shift
     [[ $# -gt 0 ]] && docker compose logs -f "$@" || docker compose logs -f
@@ -201,33 +209,71 @@ case "${1:-help}" in
     esac
     ;;
   help|*)
-    echo "Usage: actools <command> [args]"
-    echo ""
-    echo "  logs [svc]          Stream logs"
-    echo "  restart [svc]       Restart a service"
-    echo "  status              Container health"
-    echo "  stats               Live Docker resource usage"
-    echo "  dry-run             Show what update would do"
-    echo "  update              Pre-snapshot + pull + drush updb + caddy reload"
-    echo "  backup              Run backup now"
-    echo "  restore-test        Verify latest prod backup"
-    echo "  restore <env> [f]   Restore with confirmation"
-    echo "  health              HTTP + /health status"
-    echo "  tls-status          TLS cert expiry"
-    echo "  drush <env> <cmd>   Run drush"
-    echo "  console <env>       Drush PHP console"
-    echo "  shell [svc]         Bash in container"
-    echo "  worker-logs         Worker container logs"
-    echo "  worker-status       Drupal queue status"
-    echo "  worker-run          Run queue worker manually"
-    echo "  pdf-test            Test XeLaTeX in worker"
-    echo "  storage-test        S3 round-trip test"
-    echo "  storage-info        Storage + XeLaTeX config"
-    echo "  migrate             XeLaTeX remote migration guide"
-    echo "  caddy-reload        Zero-downtime Caddy reload"
-    echo "  slow-log [env]      PHP-FPM slow request log"
-    echo "  redis-info          Redis memory usage"
-    echo "  oom                 Recent OOM events"
-    echo "  log-dir             Install log directory"
+    if [[ "${2:-}" == "advanced" || "${2:-}" == "all" ]]; then
+      cat <<'EOF'
+Actools Drupal Community — Full Command Reference
+
+Common
+  doctor              Daily health check (site, TLS, DB, Redis, disk, backups)
+  doctor --deep       Performance trends, drift, forecasting (Pro €49/mo)
+  status              Container status
+  logs [svc]          Stream logs
+  backup              Run a backup now
+  update              Pull + drush updb + caddy reload
+  restart [svc]       Restart a service
+  drush <env> <cmd>   Run drush in a container
+
+Support
+  restore <env> [f]   Restore with confirmation
+  restore-test        Verify latest backup
+  tls-status          TLS certificate expiry
+  worker-status       Drupal queue status
+  worker-logs         Worker container logs
+  worker-run          Run queue worker manually
+  pdf-test            XeLaTeX test inside worker
+  slow-log [env]      PHP-FPM slow request log
+  redis-info          Redis memory usage
+
+Advanced
+  migrate             XeLaTeX remote migration guide
+  storage-test        S3 round-trip test
+  storage-info        Storage + XeLaTeX config
+  tunnel [sub]        Cloudflare tunnel (status|restart|logs)
+  stats               Live Docker resource usage
+  shell [svc]         Bash in container
+  console <env>       Drush PHP console
+  caddy-reload        Zero-downtime Caddy reload
+  oom                 Recent OOM events
+  log-dir             Install log directory
+  dry-run             What 'update' would do
+  health              HTTP + /health status (legacy; prefer 'doctor')
+
+See:  docs/command-reference.md
+EOF
+    else
+      cat <<'EOF'
+Actools Drupal Community
+
+Common commands:
+  actools doctor       Daily health check
+  actools status       Container status
+  actools logs         Stream logs
+  actools backup       Run a backup
+  actools update       Update stack and run Drupal updates
+  actools restart      Restart services
+  actools drush        Run a Drush command
+
+Support commands:
+  actools restore-test
+  actools restore
+  actools tls-status
+  actools worker-status
+
+Advanced commands:
+  actools help advanced
+
+Daily docs:  docs/operator-handbook.md
+EOF
+    fi
     ;;
 esac
