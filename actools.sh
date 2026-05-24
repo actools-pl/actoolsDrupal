@@ -46,6 +46,41 @@ trap 'error "Script failed at line ${LINENO} -- command: ${BASH_COMMAND}"' ERR
 ACTOOLS_VERSION="14.0"
 MODE="${1:-fresh}"
 
+# 'install' is the new operator-facing name; 'fresh' is the legacy alias.
+# Fresh still works — soft deprecation only, no exit on use.
+if [[ "$MODE" == "fresh" ]]; then
+  echo "Note: 'fresh' still works; 'install' is the new name. They run the same flow." >&2
+fi
+[[ "$MODE" == "install" ]] && MODE="fresh"
+
+# 'help' / '--help' / '-h' / '--version' need no env file, lock, or sudo.
+case "$MODE" in
+  help|--help|-h)
+    cat <<EOF
+Actools Drupal Community v${ACTOOLS_VERSION}
+
+Usage:
+  sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"]
+  sudo ./actools.sh preflight
+  sudo ./actools.sh install
+  sudo ./actools.sh update
+  sudo ./actools.sh handoff
+  sudo ./actools.sh dry-run
+
+After install:
+  actools doctor   — daily health check
+  actools help     — full CLI reference
+
+Docs: docs/quick-start.md
+EOF
+    exit 0
+    ;;
+  --version|version)
+    echo "actools v${ACTOOLS_VERSION}"
+    exit 0
+    ;;
+esac
+
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo "~$REAL_USER")"
 # Re-exec with docker group if not already active — eliminates need for newgrp
@@ -110,11 +145,26 @@ section "Pre-flight Checks"
 
 [[ "$(id -u)" -eq 0 ]]    || error "Run with sudo: sudo $0"
 [[ -n "${SUDO_USER:-}" ]]  || error "Use 'sudo ./actools.sh', not running as root directly"
+
+# 'init' mode runs before actools.env exists — it CREATES the env file.
+# Shifts off MODE so positional args reach run_init unchanged.
+if [[ "$MODE" == "init" ]]; then
+  shift  # drop "init"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/output.sh"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/init.sh"
+  # Disable strict-mode ERR trap — these handlers manage their own exit codes.
+  trap - ERR
+  set +e
+  run_init "$@"
+  exit $?
+fi
+
 [[ -f "$ENV_FILE" ]] || {
   error "Missing actools.env — run this first:
-  cp actools.env.example actools.env
-  nano actools.env   # set BASE_DOMAIN and DRUPAL_ADMIN_EMAIL
-Then re-run: sudo ./actools.sh"
+  sudo ./actools.sh init --domain <your-domain> --email <admin-email>
+Then re-run: sudo ./actools.sh preflight"
 }
 
 set -a
@@ -165,6 +215,33 @@ if [[ -z "$STORAGE_PROVIDER" && -n "$S3_ENDPOINT_URL" ]]; then
   fi
 elif [[ -z "$STORAGE_PROVIDER" ]]; then
   STORAGE_PROVIDER="aws"
+fi
+
+# ── New staged-journey modes (Doc 1 §5) ────────────────────────────────────
+# 'preflight' and 'handoff' run after env is loaded but before any install
+# work. They exit immediately after their own output. The strict-mode ERR
+# trap is disabled inside these blocks because preflight legitimately
+# returns 1 (failures) or 2 (warnings) — these are not "errors".
+if [[ "$MODE" == "preflight" ]]; then
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/output.sh"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/preflight.sh"
+  trap - ERR
+  set +e
+  run_preflight
+  exit $?
+fi
+
+if [[ "$MODE" == "handoff" ]]; then
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/output.sh"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/handoff.sh"
+  trap - ERR
+  set +e
+  run_handoff
+  exit 0
 fi
 
 validate_env() {
@@ -1495,7 +1572,7 @@ main() {
       ;;
 
     *)
-      error "Unknown mode: $MODE. Use: fresh | update | env <dev|stg|prod> | dry-run"
+      error "Unknown mode: $MODE. Use: init | preflight | install | update | env <dev|stg|prod> | handoff | dry-run | help"
       ;;
   esac
 
@@ -1505,37 +1582,16 @@ main() {
 
   send_webhook
 
-  section "Installation Complete"
-  echo
-  echo -e "${G}╔══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${G}║       Actools v14.0 -- Drupal 11 + XeLaTeX in Container  ║${NC}"
-  echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
-  echo -e "${G}║${NC}  Production : ${C}https://${BASE_DOMAIN}${NC}"
-  [[ "$ENVIRONMENT_MODE" == "all-in-one" ]] && {
-    echo -e "${G}║${NC}  Staging    : ${C}https://stg.${BASE_DOMAIN}${NC}"
-    echo -e "${G}║${NC}  Dev        : ${C}https://dev.${BASE_DOMAIN}${NC}"
-  }
-  echo -e "${G}║${NC}  Admin user : ${C}${DRUPAL_ADMIN_USER:-admin}${NC}"
-  echo -e "${G}║${NC}  Admin pass : ${Y}${DRUPAL_ADMIN_PASS}${NC}   <-- SAVE THIS"
-  echo -e "${G}║${NC}  Worker RAM : ${C}${WORKER_MEMORY_LIMIT:-2g}${NC} (XeLaTeX inside actools_worker:latest)"
-  echo -e "${G}║${NC}  Storage    : ${C}${STORAGE_PROVIDER}${NC} bucket=${S3_BUCKET:-local}"
-  echo -e "${G}║${NC}  XeLaTeX    : ${C}${XELATEX_MODE:-local}${NC}"
-  echo -e "${G}║${NC}  DB creds   : ${C}${REAL_HOME}/.actools-db-creds${NC}"
-  echo -e "${G}║${NC}  Log        : ${C}${LOG_FILE}${NC}"
-  echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
-  echo -e "${G}║${NC}  actools status          actools worker-status"
-  echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
-  echo -e "${G}╠══════════════════════════════════════════════════════════╣${NC}"
-  echo -e "${G}║${NC}  ${Y}IMPORTANT — Log out and log back in (or run: newgrp docker)${NC}"
-  echo -e "${G}║${NC}  ${Y}This activates Docker access for your user session.${NC}"
-  echo -e "${G}║${NC}  ${Y}If actools command not found, run:${NC}"
-  echo -e "${G}║${NC}    ${C}source ~/.bashrc${NC}  (or reconnect SSH)"
-  echo -e "${G}║${NC}  actools pdf-test        actools storage-test"
-  echo -e "${G}║${NC}  actools storage-info    actools health"
-  echo -e "${G}║${NC}  actools slow-log prod   actools redis-info"
-  echo -e "${G}║${NC}  actools drush prod cr   actools backup"
-  echo -e "${G}╚══════════════════════════════════════════════════════════╝${NC}"
-  echo
+  # Write the install-complete marker (used by doctor and external tooling)
+  touch "${INSTALL_DIR}/.actools-install-complete" 2>/dev/null || true
+  chown "$REAL_USER:$REAL_USER" "${INSTALL_DIR}/.actools-install-complete" 2>/dev/null || true
+
+  # Hand off to the operator with a clean summary (Doc 1 §5.5)
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/output.sh"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/handoff.sh"
+  run_handoff
 }
 
 main "$@"
