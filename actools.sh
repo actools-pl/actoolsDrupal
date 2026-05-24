@@ -1172,7 +1172,7 @@ setup_cli() {
 
   cat > /usr/local/bin/actools <<HELPER
 #!/usr/bin/env bash
-# Actools CLI v9.2
+# Actools CLI v14.0
 INSTALL_DIR="${INSTALL_DIR}"
 cd "\$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at \$INSTALL_DIR"; exit 1; }
 
@@ -1184,6 +1184,14 @@ BACKUP_PASS=\$(jq -r '.backup_user_pass // empty' "\${INSTALL_DIR}/.actools-stat
 php_svc() { echo "php_\${1:-prod}"; }
 
 case "\${1:-help}" in
+  doctor)
+    shift
+    # shellcheck source=/dev/null
+    source "\${INSTALL_DIR}/cli/commands/doctor.sh"
+    run_doctor "\$@"
+    exit \$?
+    ;;
+
   logs)
     shift
     [[ \$# -gt 0 ]] && docker compose logs -f "\$@" || docker compose logs -f
