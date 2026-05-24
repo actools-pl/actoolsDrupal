@@ -4,6 +4,55 @@ All notable changes to Actools are documented here.
 
 ---
 
+## [v14.1.0] — 2026-05-24 — Staged Operator Journey
+
+### Added — staged installer modes
+- `actools.sh init` — guided actools.env creation from CLI flags (`--domain`, `--email`, `--site-name`, `--force`). Refuses to overwrite without `--force`. `SITE_NAME` is quoted on write so values with spaces source cleanly.
+- `actools.sh preflight` — eight readiness checks (OS, env, RAM, disk, ports, DNS, install state) with `OK / WARN / FAIL` rendering and a `Fix:` line on anything actionable. Exit codes `0` ready, `1` failures, `2` warnings only.
+- `actools.sh install` — friendly alias for `fresh`. `fresh` still works and prints a soft deprecation hint to stderr.
+- `actools.sh handoff` — clean four-block post-install summary (site / admin / commands / log). Replaces the verbose terminal banner. Can be re-printed anytime.
+- `actools.sh help` / `--version` — run without sudo, env file, or lock.
+- `actools doctor` — daily one-page health check with nine surface-level checks (site, TLS, containers, DB, Redis, disk, backups, restore-test recency, Drupal bootstrap). Exit codes `0/1/2`.
+- `actools doctor --deep` — gated to Actools Pro (€49/month), parity with `actools audit --deep`. Exit code `2` on the gate.
+
+### Added — profile contract (the hinge)
+- `installer/output.sh` — shared `print_ok`, `print_warn`, `print_fail`, `print_skip`, `print_fix`, `print_next`, `print_summary` helpers used by all staged-journey scripts. Plain-text fallback on non-TTY or `ACTOOLS_PLAIN=1`.
+- `installer/profile.sh` — profile loader. Active profile read from `ACTOOLS_PROFILE` (default `community`).
+- `profiles/community.profile` — the default and only profile shipping in the community installer.
+- `profiles/README.md` — the profile contract. Other profiles (DrupalFortress Standard, Institutional) live in separate products and inherit via this contract.
+
+### Added — tests
+- `tests/installer/init_test.bats` — 11 tests covering input validation, env-file writing, overwrite protection, and SITE_NAME quoting.
+- `tests/installer/preflight_test.bats` — 6 tests covering control-flow paths and missing/invalid env vars.
+- `tests/installer/doctor_test.bats` — 5 tests covering the Pro gate, exit code, and gate output.
+
+### Added — documentation
+- `README.md` — rewritten per Doc 1 §11. Honest, narrow, operator-focused. No "enterprise-grade" claim as the lede.
+- `docs/quick-start.md` — full staged-journey walkthrough.
+- `docs/operator-handbook.md` — the five commands you actually use day-to-day.
+- `docs/command-reference.md` — every command, grouped by frequency of use.
+- `docs/troubleshooting.md` — symptom-first problem fixes.
+- `docs/advanced.md` — disclosure layer for PITR, DNA, GDPR, AI, previews, tunnels, audit, observability, storage.
+
+### Changed
+- `cli/actools` header: `v9.2` → `v14.0` (cosmetic alignment).
+- `cli/actools help` output redesigned into common / support / advanced groupings (Doc 1 §8.3). Full surface available via `actools help advanced`.
+- `actools.sh` `main()` no longer prints the multi-line banner; it now sources `installer/handoff.sh` and calls `run_handoff`. `${INSTALL_DIR}/.actools-install-complete` marker is written on success.
+- `docs/cli-reference.md` replaced with a one-line redirect to `command-reference.md` so existing inbound links don't 404.
+- `docs/README.md` (docs index) restructured around the new doc layout.
+- `.github/workflows/lint.yml` — shellcheck now scans `installer/*.sh` with the same exclusion set as `cli/commands/*.sh`. bats job extended with the three new test files.
+- `.github/workflows/e2e.yml` — uses `install` instead of `fresh` (CI exercises the new name). Adds a doctor + doctor-deep-gate smoke step after audit.
+
+### Backward compatibility
+- `actools.sh fresh` continues to work with a soft deprecation hint to stderr — existing 633+ clones and any automation calling `fresh` keep functioning.
+- `actools.sh env <dev|stg|prod>`, `update`, and `dry-run` are unchanged.
+- All existing `actools <command>` CLI verbs are unchanged. `actools health` is preserved as a legacy alias next to `actools doctor`.
+
+### Rationale
+The two intent documents (Community UX Architecture and DrupalFortress Community-Aligned Architecture) called for one structural move: replace the four-line copy-and-edit env onboarding with a five-stage operator journey (`init → preflight → install → handoff → doctor`), and make the underlying installer profile-ready so a future hardened-platform product can inherit the same journey without forking. The profile abstraction ships, but only the `community` profile is bundled. Hardened-platform profiles (`standard`, `institutional`) belong to a separate downstream product. The `doctor --deep` Pro gate matches the `audit --deep` gate pattern for monetisation parity.
+
+---
+
 ## [v10.0.2] — 2026-03-26
 
 ### Fixed
