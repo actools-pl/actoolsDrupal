@@ -163,3 +163,8 @@ upload/
 # Cloudflare tunnel credentials
 .cloudflared/*.json
 .cloudflared/cert.pem
+
+# Server-specific files (not part of installer)
+Caddyfile
+Caddyfile.backup*
+.cloudflared/
