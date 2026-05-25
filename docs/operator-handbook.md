@@ -41,7 +41,7 @@ ACTOOLS DOCTOR
 
 Exit codes: `0` all green, `2` warnings only, `1` one or more critical failures. CI-safe.
 
-`actools doctor --deep` is Actools Pro (€49/month) — it adds 30-day trend regression, configuration drift detection, capacity forecasting, and anomaly detection on slow.log and FPM access patterns. The free `doctor` covers everyday operational health.
+`actools doctor --deep` is in development — when it ships, it will add 30-day trend regression, configuration drift detection, capacity forecasting, and anomaly detection on slow.log and FPM access patterns. `actools doctor` (no flag) covers everyday operational health.
 
 ---
 

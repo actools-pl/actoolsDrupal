@@ -68,8 +68,8 @@ source "${SCRIPT_DIR}/lib/security.sh"
 source "${SCRIPT_DIR}/lib/report.sh"
 
 if [[ "$MODE" == "deep" ]]; then
-  echo -e "${RED}actools audit --deep requires Actools Pro (€49/month)${NC}"
-  echo -e "  → https://actools.feesix.com/pro"
+  echo -e "${RED}actools audit --deep is not available in this edition.${NC}"
+  echo -e "  Deep mode is in development."
   exit 2
 fi
 

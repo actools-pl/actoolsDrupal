@@ -16,7 +16,7 @@ actools audit --security       # security layer only
 actools audit --complete       # include performance checks
 actools audit --ci             # machine-readable exit codes for CI
 actools audit --json           # JSON output
-actools audit --deep           # Pro only — active security scanning
+actools audit --deep           # in development — active security scanning
 ```
 
 CI exit codes: `0` clear, `1` warnings, `2` failures, `3` critical.
@@ -25,7 +25,7 @@ Fresh-install score is typically 6/10 — the score reflects real hardening gaps
 
 See `modules/audit/docs/fix_catalog.md` for the full check catalogue.
 
-`actools audit --deep` is gated to Actools Pro (€49/month). It runs OWASP ZAP, SSLyze, Nmap, and the Drupal Security Review module against your live site. The community audit is comprehensive on its own — `--deep` is for compliance reviews and pentest-style checks.
+`actools audit --deep` is in development — it is not available in this edition. When it ships, it will run OWASP ZAP, SSLyze, Nmap, and the Drupal Security Review module against your live site. The community audit is comprehensive on its own — `--deep` is for compliance reviews and pentest-style checks.
 
 ---
 

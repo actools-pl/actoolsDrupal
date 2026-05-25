@@ -32,7 +32,7 @@ Exit codes for `preflight`: `0` ready, `1` failures, `2` warnings only.
 | Command | What it does | Exit |
 |---|---|---|
 | `actools doctor` | Nine surface-level checks: site, TLS, containers, DB, Redis, disk, backups, restore-test recency, Drupal bootstrap. | 0 OK / 1 fail / 2 warn |
-| `actools doctor --deep` | Pro (€49/mo) — trend regression, drift detection, forecasting, anomaly detection. | 2 (Pro-required notice) |
+| `actools doctor --deep` | In development — will add trend regression, drift detection, forecasting, anomaly detection. | 2 (gate notice) |
 
 ---
 

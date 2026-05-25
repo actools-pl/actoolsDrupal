@@ -215,7 +215,7 @@ Actools Drupal Community — Full Command Reference
 
 Common
   doctor              Daily health check (site, TLS, DB, Redis, disk, backups)
-  doctor --deep       Performance trends, drift, forecasting (Pro €49/mo)
+  doctor --deep       Performance trends, drift, forecasting (in development)
   status              Container status
   logs [svc]          Stream logs
   backup              Run a backup now

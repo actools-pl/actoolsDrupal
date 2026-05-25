@@ -10,7 +10,8 @@
 #   2  warnings only
 #
 # Flags:
-#   --deep   Gated to Actools Pro (€49/month). Delegates to doctor_deep.sh.
+#   --deep   Not available in this edition. Deep mode is in development.
+#            Delegates to doctor_deep.sh which prints the gate message.
 #
 # Sourced from cli/actools. Required globals:
 #   INSTALL_DIR  — repository / installation root

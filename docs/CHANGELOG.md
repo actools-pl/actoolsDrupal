@@ -13,18 +13,18 @@ All notable changes to Actools are documented here.
 - `actools.sh handoff` — clean four-block post-install summary (site / admin / commands / log). Replaces the verbose terminal banner. Can be re-printed anytime.
 - `actools.sh help` / `--version` — run without sudo, env file, or lock.
 - `actools doctor` — daily one-page health check with nine surface-level checks (site, TLS, containers, DB, Redis, disk, backups, restore-test recency, Drupal bootstrap). Exit codes `0/1/2`.
-- `actools doctor --deep` — gated to Actools Pro (€49/month), parity with `actools audit --deep`. Exit code `2` on the gate.
+- `actools doctor --deep` — gate stub for deep mode (in development), parity with `actools audit --deep`. Exit code `2` on the gate.
 
 ### Added — profile contract (the hinge)
 - `installer/output.sh` — shared `print_ok`, `print_warn`, `print_fail`, `print_skip`, `print_fix`, `print_next`, `print_summary` helpers used by all staged-journey scripts. Plain-text fallback on non-TTY or `ACTOOLS_PLAIN=1`.
 - `installer/profile.sh` — profile loader. Active profile read from `ACTOOLS_PROFILE` (default `community`).
 - `profiles/community.profile` — the default and only profile shipping in the community installer.
-- `profiles/README.md` — the profile contract. Other profiles (DrupalFortress Standard, Institutional) live in separate products and inherit via this contract.
+- `profiles/README.md` — the profile contract. Profiles for hardened or institutional deployments live in separate products and inherit via this contract.
 
 ### Added — tests
 - `tests/installer/init_test.bats` — 11 tests covering input validation, env-file writing, overwrite protection, and SITE_NAME quoting.
 - `tests/installer/preflight_test.bats` — 6 tests covering control-flow paths and missing/invalid env vars.
-- `tests/installer/doctor_test.bats` — 5 tests covering the Pro gate, exit code, and gate output.
+- `tests/installer/doctor_test.bats` — 5 tests covering the gate, exit code, and gate output.
 
 ### Added — documentation
 - `README.md` — rewritten per Doc 1 §11. Honest, narrow, operator-focused. No "enterprise-grade" claim as the lede.
@@ -49,7 +49,7 @@ All notable changes to Actools are documented here.
 - All existing `actools <command>` CLI verbs are unchanged. `actools health` is preserved as a legacy alias next to `actools doctor`.
 
 ### Rationale
-The two intent documents (Community UX Architecture and DrupalFortress Community-Aligned Architecture) called for one structural move: replace the four-line copy-and-edit env onboarding with a five-stage operator journey (`init → preflight → install → handoff → doctor`), and make the underlying installer profile-ready so a future hardened-platform product can inherit the same journey without forking. The profile abstraction ships, but only the `community` profile is bundled. Hardened-platform profiles (`standard`, `institutional`) belong to a separate downstream product. The `doctor --deep` Pro gate matches the `audit --deep` gate pattern for monetisation parity.
+The two intent documents (Community UX Architecture and DrupalFortress Community-Aligned Architecture) called for one structural move: replace the four-line copy-and-edit env onboarding with a five-stage operator journey (`init → preflight → install → handoff → doctor`), and make the underlying installer profile-ready so a future hardened-platform product can inherit the same journey without forking. The profile abstraction ships, but only the `community` profile is bundled. Profiles for hardened or institutional deployments live in separate downstream products. The `doctor --deep` gate matches the `audit --deep` gate pattern for consistency.
 
 ---
 
