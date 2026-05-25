@@ -51,7 +51,7 @@ actools update       # pull + drush updb + caddy reload
 
 ## Advanced features
 
-The installer also ships PITR backups, DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit` (with `--deep` available in Actools Pro).
+The installer also ships PITR backups, DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit`.
 
 See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a working site.
 
@@ -70,8 +70,6 @@ See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a work
 ## What this is and isn't
 
 This is a single-server Drupal installer and operator kit. It is not a managed hosting platform, multi-tenant SaaS, or compliance certification. The advanced features are useful, but the community claim is intentionally narrow: install and operate Drupal on one VPS, calmly.
-
-A hardened single-tenant platform with optional governance — DrupalFortress — is being developed separately. It reuses this installer's operator UX but ships independently.
 
 ## Security
 
