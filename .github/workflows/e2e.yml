@@ -112,10 +112,12 @@ jobs:
             echo "FAIL: doctor did not produce the expected header"
             exit 1
           fi
-          # Pro gate must still be present
+          # Deep gate must still be present (now prints in-development notice, not Pro)
           DEEP=$($SSH "/usr/local/bin/actools doctor --deep 2>&1" || true)
-          if ! echo "$DEEP" | grep -q "Actools Pro"; then
-            echo "FAIL: doctor --deep did not gate to Pro"
+          if ! echo "$DEEP" | grep -q "not available in this edition"; then
+            echo "FAIL: doctor --deep did not print the in-development gate"
+            echo "--- gate output captured ---"
+            echo "$DEEP"
             exit 1
           fi
           echo "PASS: doctor + doctor --deep gate are working"
