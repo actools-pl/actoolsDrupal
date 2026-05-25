@@ -5,7 +5,7 @@
 # `actools doctor` calls real docker, curl, and database commands — full
 # happy-path testing requires a running stack and lives in the e2e
 # workflow. These tests cover deterministic behaviour:
-#   - The --deep gate returns the Pro-required notice
+#   - The --deep gate returns the in-development notice
 #   - The deep gate exits with code 2 (parity with audit --deep)
 #   - The output helpers render correctly without colour
 # =============================================================================
@@ -30,18 +30,20 @@ teardown() {
   rm -rf "$INSTALL_DIR"
 }
 
-@test "doctor --deep returns Pro-required notice" {
+@test "doctor --deep returns in-development gate notice" {
   source "${INSTALL_DIR}/cli/commands/doctor.sh"
   run run_doctor --deep
   [ "$status" -eq 2 ]
-  [[ "$output" == *"requires Actools Pro"* ]]
-  [[ "$output" == *"€49"* ]]
+  [[ "$output" == *"not available in this edition"* ]]
+  [[ "$output" == *"in development"* ]]
 }
 
-@test "doctor --deep mentions the upgrade URL" {
+@test "doctor --deep does not advertise prices or URLs" {
   source "${INSTALL_DIR}/cli/commands/doctor.sh"
   run run_doctor --deep
-  [[ "$output" == *"actools.feesix.com/pro"* ]]
+  [[ "$output" != *"€49"* ]]
+  [[ "$output" != *"Actools Pro"* ]]
+  [[ "$output" != *"actools.feesix.com/pro"* ]]
 }
 
 @test "doctor --deep names the free coverage" {
