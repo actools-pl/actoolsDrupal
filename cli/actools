@@ -3,6 +3,74 @@
 INSTALL_DIR="/home/actools"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
+# =============================================================================
+# D.0 — Profile resolution
+#
+# Strip --profile / --profile=VALUE from $@ before the main case statement.
+# Read ACTOOLS_PROFILE from actools.env if present, resolve via dispatch.sh.
+#
+# Note on sibling-files discipline (brief Section 2, D.0-3):
+#   cli/actools is a static installed file. There is no setup_cli.sh heredoc
+#   generator in this codebase — the H.7.1-7 risk was audited and does not
+#   apply here. This comment is the explicit record of that audit.
+# =============================================================================
+
+_actools_cli_profile=""
+_actools_cli_remaining_args=()
+
+# Strip --profile=VALUE or --profile VALUE from $@
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile=*)
+            _actools_cli_profile="${1#*=}"
+            shift
+            ;;
+        --profile)
+            _actools_cli_profile="${2:-}"
+            shift 2
+            ;;
+        *)
+            _actools_cli_remaining_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Reconstruct positional args without --profile
+set -- "${_actools_cli_remaining_args[@]+"${_actools_cli_remaining_args[@]}"}"
+
+# Read ACTOOLS_PROFILE from actools.env if present.
+_actools_env_profile=""
+_actools_profile_source="default"
+if [[ -f "${INSTALL_DIR}/actools.env" ]]; then
+    # shellcheck disable=SC1091
+    _actools_env_profile="$(
+        set -a
+        source "${INSTALL_DIR}/actools.env" 2>/dev/null
+        echo "${ACTOOLS_PROFILE:-}"
+    )"
+fi
+
+# Source dispatch.sh (provides resolver functions and actools::cli::resolve_profile).
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
+
+# Resolve profile with fail-closed conflict handling (Decision 2).
+if declare -f actools::cli::resolve_profile >/dev/null 2>&1; then
+    if ! ACTOOLS_PROFILE="$(actools::cli::resolve_profile "$_actools_cli_profile" "$_actools_env_profile")"; then
+        exit $?
+    fi
+    export ACTOOLS_PROFILE
+
+    # Record how the profile was determined for doctor reporting.
+    if [[ -n "$_actools_cli_profile" ]]; then
+        _actools_profile_source="cli"
+    elif [[ -n "$_actools_env_profile" ]]; then
+        _actools_profile_source="env-file"
+    fi
+    export _actools_profile_source
+fi
+
 php_svc() { echo "php_${1:-prod}"; }
 
 case "${1:-help}" in

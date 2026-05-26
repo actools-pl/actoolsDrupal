@@ -14,18 +14,31 @@
 #   - Do not install anything
 #   - Print exactly one next command
 #
+# D.0 additions:
+#   - Accept --profile flag; validate against allowed list; write to actools.env
+#   - Source installer/dispatch.sh for profile validation
+#
 # Required globals (set by actools.sh before sourcing):
 #   INSTALL_DIR, ENV_FILE, REAL_USER, REAL_HOME
 # =============================================================================
 
 run_init() {
-  local domain="" email="" site_name="" force=false unknown=""
+  local domain="" email="" site_name="" force=false profile="" unknown=""
+
+  # Source dispatch.sh for profile validation.
+  # DISPATCH_EXEMPT: init creates the env file; dispatch.sh is sourced here
+  # for actools::dispatch::profile_is_valid only. ACTOOLS_PROFILE is not set
+  # from an env file at this point — validation uses the --profile flag value.
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --domain)    domain="${2:-}"; shift 2 ;;
       --email)     email="${2:-}"; shift 2 ;;
       --site-name) site_name="${2:-}"; shift 2 ;;
+      --profile)   profile="${2:-}"; shift 2 ;;
+      --profile=*) profile="${1#*=}"; shift ;;
       --force)     force=true; shift ;;
       --help|-h)
         _init_usage
@@ -43,6 +56,15 @@ run_init() {
   if [[ -n "$unknown" ]]; then
     print_warn "flags" "ignored: $unknown"
   fi
+
+  # Profile validation — must be a known profile or empty (defaults to community).
+  if [[ -n "$profile" ]] && ! actools::dispatch::profile_is_valid "$profile" 2>/dev/null; then
+    print_fail "--profile" "unknown profile '${profile}'"
+    echo "  Allowed profiles: ${_ACTOOLS_ALLOWED_PROFILES[*]:-community community-plus test}" >&2
+    return 3
+  fi
+  # Default to community if not specified.
+  [[ -z "$profile" ]] && profile="community"
 
   # Required-field validation
   local missing=0
@@ -92,6 +114,13 @@ run_init() {
     -e "s|^SITE_NAME=.*|SITE_NAME=\"${site_name}\"|" \
     "$ENV_FILE"
 
+  # Write ACTOOLS_PROFILE to env file — always explicit after init.
+  {
+    echo ""
+    echo "# -- Profile (set by actools init; do not edit directly) ---------------"
+    echo "ACTOOLS_PROFILE=${profile}"
+  } >> "$ENV_FILE"
+
   # Ownership and permissions — env contains secrets after install fills them
   chown "$REAL_USER:$REAL_USER" "$ENV_FILE" 2>/dev/null || true
   chmod 600 "$ENV_FILE"
@@ -100,6 +129,7 @@ run_init() {
   print_ok "Domain" "$domain"
   print_ok "Admin email" "$email"
   print_ok "Site name" "$site_name"
+  print_ok "Profile" "$profile"
   print_ok "Secrets" "will auto-generate during install"
 
   print_next "sudo ./actools.sh preflight"
@@ -108,12 +138,14 @@ run_init() {
 _init_usage() {
   cat <<'USAGE'
 Usage:
-  sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"] [--force]
+  sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"] [--profile <p>] [--force]
 
 Flags:
   --domain      Required. Base domain, e.g. example.com
   --email       Required. Drupal admin email address.
   --site-name   Optional. Drupal site name. Defaults to the domain.
+  --profile     Optional. Deployment profile. Defaults to 'community'.
+                Allowed: community, community-plus
   --force       Overwrite an existing actools.env.
 
 Example:
@@ -121,5 +153,10 @@ Example:
     --domain example.com \
     --email admin@example.com \
     --site-name "Example Site"
+
+  sudo ./actools.sh init \
+    --domain example.com \
+    --email admin@example.com \
+    --profile community-plus
 USAGE
 }

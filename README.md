@@ -71,6 +71,23 @@ See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a work
 
 This is a single-server Drupal installer and operator kit. It is not a managed hosting platform, multi-tenant SaaS, or compliance certification. The advanced features are useful, but the community claim is intentionally narrow: install and operate Drupal on one VPS, calmly.
 
+## Deployment profiles
+
+Actools supports deployment profiles via the `--profile` flag on `init`.
+
+The default `community` profile is suitable for all standard installs. A `community-plus` profile — designed for schools, universities, and regulated organisations that need evidence generation and governance gates — arrives in later phases.
+
+```bash
+# Default — community profile (no flag needed)
+sudo ./actools.sh init --domain example.com --email admin@example.com
+
+# Community-plus (arriving in later phases)
+sudo ./actools.sh init --domain example.com --email admin@example.com \
+  --profile community-plus
+```
+
+The active profile is shown in `actools doctor`. Once set at init time the profile is pinned in `actools.env` for the lifetime of the deployment.
+
 ## Security
 
 To report a security vulnerability, email **hello@feesix.com**. We aim to respond within 48 hours. Do not open a public GitHub issue for security issues.
