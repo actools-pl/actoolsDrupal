@@ -14,6 +14,9 @@
 # =============================================================================
 
 : "${ACTOOLS_PROFILE:=community}"
+# DISPATCH_EXEMPT: profile.sh SETS ACTOOLS_PROFILE (the identity decision) and loads
+# the profile contract. It is not a dispatch call site. dispatch.sh is sourced by
+# callers AFTER profile.sh has run, so resolvers have ACTOOLS_PROFILE available.
 
 _PROFILE_FILE="${INSTALL_DIR}/profiles/${ACTOOLS_PROFILE}.profile"
 

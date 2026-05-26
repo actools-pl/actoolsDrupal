@@ -144,6 +144,10 @@ run_preflight() {
   if [[ -f "${INSTALL_DIR}/installer/profile.sh" ]]; then
     # shellcheck source=/dev/null
     source "${INSTALL_DIR}/installer/profile.sh"
+    # D.0: Source dispatch.sh after profile.sh has set ACTOOLS_PROFILE.
+    # Resolvers are available for D.1+ preflight-check dispatch; not called in D.0.
+    # shellcheck source=/dev/null
+    source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
     local extra
     while IFS= read -r extra; do
       [[ -z "$extra" ]] && continue
@@ -169,3 +173,6 @@ run_preflight() {
     return 1
   fi
 }
+
+# D.0: Source dispatch.sh after profile.sh has set ACTOOLS_PROFILE.
+# Resolvers are available for D.1+ preflight-check dispatch; not called in D.0.

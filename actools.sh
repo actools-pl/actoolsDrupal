@@ -100,6 +100,12 @@ LOG_FILE="$INSTALL_DIR/actools-install.log"
 LOG_DIR="$INSTALL_DIR/logs/install"
 PKG_DONE_FLAG="/var/lib/actools/.packages_done"
 
+# D.0: Source dispatch.sh early — provides resolver functions for all modes.
+# Sourced here (after INSTALL_DIR is known) so init/preflight/handoff modes
+# all have access. init.sh also sources it internally for independence.
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
+
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true

@@ -43,7 +43,16 @@ run_doctor() {
     set +a
   fi
 
+  # D.0: Source dispatch.sh after env file has made ACTOOLS_PROFILE available.
+  # Resolvers are available for D.1+ doctor-check dispatch; not called in D.0.
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
+
   print_title "ACTOOLS DOCTOR"
+
+  # Report active profile — doctrine claim: active profile is always operator-visible.
+  echo "Active profile: ${ACTOOLS_PROFILE:-community} (source: ${_actools_profile_source:-default})"
+  echo
 
   local fails=0 warns=0
 
