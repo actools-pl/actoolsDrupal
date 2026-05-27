@@ -13,7 +13,7 @@ jobs:
       - name: Install bats
         run: sudo apt-get install -y bats
       - name: Run bats tests
-        run: bats tests/core/validate_test.bats tests/core/secrets_test.bats tests/installer/init_test.bats tests/installer/preflight_test.bats tests/installer/doctor_test.bats
+        run: bats tests/core/validate_test.bats tests/core/secrets_test.bats tests/installer/init_test.bats tests/installer/preflight_test.bats tests/installer/doctor_test.bats tests/test_d0_dispatch.bats
   shellcheck:
     runs-on: ubuntu-latest
     steps:
