@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Actools CLI v14.0
-INSTALL_DIR="/home/actools"
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
 # =============================================================================
@@ -192,7 +192,7 @@ case "${1:-help}" in
   shell)      docker compose exec "${2:-php_prod}" bash ;;
 
   restore-test)
-    LATEST=$(ls -t "/home/actools/backups"/prod_db_*.sql.gz 2>/dev/null | head -1)
+    LATEST=$(ls -t "${INSTALL_DIR}/backups"/prod_db_*.sql.gz 2>/dev/null | head -1)
     [[ -z "$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
     echo "Testing DB restore: $LATEST"
     sha256sum -c "$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
@@ -211,7 +211,7 @@ case "${1:-help}" in
     env="${2:-prod}"
     db="actools_${env}"
     BACKUP_FILE="${3:-}"
-    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "/home/actools/backups"/${env}_db_*.sql.gz 2>/dev/null | head -1)
+    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups"/${env}_db_*.sql.gz 2>/dev/null | head -1)
     [[ -z "$BACKUP_FILE" ]] && { echo "No backups found for $env"; exit 1; }
     echo "Restoring $env from: $BACKUP_FILE"
     sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
