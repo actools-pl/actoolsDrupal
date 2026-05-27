@@ -14,7 +14,8 @@ cd "${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found" >&2; exit 1; }
 
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/actools.env"
-BACKUP_PASS="2mr7Ao7ZUoCzMj8L0XkEA8"
+BACKUP_PASS=$(jq -r '.backup_user_pass // empty' "${INSTALL_DIR}/.actools-state.json" 2>/dev/null || echo "")
+[[ -z "${BACKUP_PASS}" ]] && { echo "ERROR: backup_user_pass missing from .actools-state.json — cron backup cannot proceed" >&2; exit 1; }
 
 ENVIRONMENTS="prod"
 for env in $ENVIRONMENTS; do
