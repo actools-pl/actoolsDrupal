@@ -83,7 +83,7 @@ Actools tracks installation state in `.actools-state.json`:
 {
   "version": "11.2.0",
   "installed_at": "2026-03-25T18:00:00Z",
-  "domain": "feesix.com",
+  "domain": "example.com",
   "phases_complete": ["host", "stack", "db", "drupal", "storage", "worker"],
   "preview_environments": {}
 }

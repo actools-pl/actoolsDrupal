@@ -8,7 +8,7 @@ Install Drupal 11 on a fresh Ubuntu 24.04 VPS in five staged commands.
 
 ## Step 1 — Provision the server
 
-Any Ubuntu 24.04 VPS with 2 GB RAM, 20 GB disk, and a sudo user. Hetzner CX22 (€4.50/month) is what feesix.com runs on. 4 GB RAM is recommended if you plan to use XeLaTeX or Grafana.
+Any Ubuntu 24.04 VPS with 2 GB RAM, 20 GB disk, and a sudo user. A Hetzner CAX21 (4 vCPU ARM, 8 GB RAM, ~€8.49/month) or CPX21 (3 vCPU AMD, 4 GB RAM, ~€12.49/month) gives comfortable headroom for XeLaTeX or Grafana.
 
 If you're starting from root only, create a sudo user first (the repo includes a `setup_user.sh` helper for this; root SSH is disabled after it runs).
 

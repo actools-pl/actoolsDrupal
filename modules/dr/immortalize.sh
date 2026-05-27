@@ -12,7 +12,10 @@ AGE_KEY_FILE="${ACTOOLS_HOME}/.age-public-key"
 DNA_DIR="${ACTOOLS_HOME}/backups/dna"
 LOG_FILE="${ACTOOLS_HOME}/logs/immortalize.log"
 
-source "${ENV_FILE}"
+set -a
+# shellcheck disable=SC1091
+source "${ENV_FILE}" 2>/dev/null || true
+set +a
 
 log() { echo "$(date -u +%FT%TZ) [immortalize] $*" | tee -a "${LOG_FILE}"; }
 
@@ -118,7 +121,7 @@ dna = {
             "-noout -enddate 2>/dev/null || echo 'unknown'"
         ),
         "caddy_cert_expiry": run(
-            "echo | openssl s_client -connect localhost:443 -servername feesix.com 2>/dev/null "
+            f"echo | openssl s_client -connect localhost:443 -servername {os.environ.get('BASE_DOMAIN', 'localhost')} 2>/dev/null "
             "| openssl x509 -noout -enddate 2>/dev/null || echo 'check manually'"
         ),
     },

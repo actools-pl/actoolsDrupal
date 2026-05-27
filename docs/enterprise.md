@@ -133,7 +133,7 @@ actools migrate --point-in-time "2026-03-26 13:45:00" --dry-run
 # 3. Restore
 actools migrate --point-in-time "2026-03-26 13:45:00"
 # 4. Verify
-actools health --verbose && curl https://feesix.com/health
+actools health --verbose && curl https://your-domain.com/health
 ```
 
 ### Server is dead — rebuild from scratch

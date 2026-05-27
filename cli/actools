@@ -39,16 +39,16 @@ done
 # Reconstruct positional args without --profile
 set -- "${_actools_cli_remaining_args[@]+"${_actools_cli_remaining_args[@]}"}"
 
-# Read ACTOOLS_PROFILE from actools.env if present.
+# Source actools.env if present — full source matches actools.sh pattern.
+# Provides BASE_DOMAIN, DB_*, and other operational config to all commands.
 _actools_env_profile=""
 _actools_profile_source="default"
 if [[ -f "${INSTALL_DIR}/actools.env" ]]; then
+    set -a
     # shellcheck disable=SC1091
-    _actools_env_profile="$(
-        set -a
-        source "${INSTALL_DIR}/actools.env" 2>/dev/null
-        echo "${ACTOOLS_PROFILE:-}"
-    )"
+    source "${INSTALL_DIR}/actools.env" 2>/dev/null || true
+    set +a
+    _actools_env_profile="${ACTOOLS_PROFILE:-}"
 fi
 
 # Source dispatch.sh (provides resolver functions and actools::cli::resolve_profile).
@@ -170,8 +170,8 @@ case "${1:-help}" in
 
   health)
     for env in prod; do
-      dom="${env}.Feesix.com"
-      [[ "$env" == "prod" ]] && dom="Feesix.com"
+      dom="${env}.${BASE_DOMAIN}"
+      [[ "$env" == "prod" ]] && dom="${BASE_DOMAIN}"
       http=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom" 2>/dev/null || echo "ERR")
       hlth=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom/health" 2>/dev/null || echo "ERR")
       echo "$dom: HTTP=$http  /health=$hlth"
@@ -228,7 +228,7 @@ case "${1:-help}" in
 
   tls-status)
     echo "=== TLS Certificate Status ==="
-    for domain in "Feesix.com" "stg.Feesix.com" "dev.Feesix.com"; do
+    for domain in "${BASE_DOMAIN}" "stg.${BASE_DOMAIN}" "dev.${BASE_DOMAIN}"; do
       echo -n "$domain: "
       echo | openssl s_client -connect "$domain:443" -servername "$domain" 2>/dev/null         | openssl x509 -noout -dates 2>/dev/null | grep notAfter | cut -d= -f2         || echo "not available yet"
     done

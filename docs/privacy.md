@@ -19,14 +19,14 @@ The `actools.sh` installer script:
 
 - Makes outbound calls only to: GitHub, packages.drupal.org, hub.docker.com
   (standard package downloads during install)
-- Does not send server configuration, credentials, or site data to feesix.com
+- Does not send server configuration, credentials, or site data to any maintainer or external server
 - Does not install any monitoring agents or callbacks
 - Is fully open source — every line readable at github.com/actools-pl/actoolsDrupal
 
 ## Summary
 
-Your server → feesix.com     NEVER
-Your code   → external API   NEVER
-Your data   → anywhere       NEVER
+Your server → external servers   NEVER
+Your code   → external API       NEVER
+Your data   → anywhere           NEVER
 
-Questions: hello@feesix.com
+Questions: open an issue at https://github.com/actools-pl/actoolsDrupal/issues

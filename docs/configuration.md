@@ -10,7 +10,7 @@
 ### Required
 
 ```bash
-BASE_DOMAIN=feesix.com            # primary domain — no https://, no trailing slash
+BASE_DOMAIN=example.com           # primary domain — no https://, no trailing slash
 DRUPAL_ADMIN_EMAIL=you@example.com
 DRUPAL_ADMIN_PASS=changeme
 DB_ROOT_PASS=strongpassword

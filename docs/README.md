@@ -31,10 +31,6 @@ This is a **single-server Drupal installer**. It is not a managed hosting platfo
 
 A hardened single-tenant platform with optional governance — DrupalFortress — is being developed separately. It reuses this installer's staged operator UX via the profile contract documented in [`../profiles/README.md`](../profiles/README.md).
 
-## Live example
-
-[feesix.com](https://feesix.com) — running this exact installer on a €4.50/month Hetzner CX22.
-
 ## Acknowledgements
 
 Development assisted by [Claude](https://claude.ai) (Anthropic). MIT licensed.
