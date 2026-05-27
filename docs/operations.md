@@ -104,7 +104,7 @@ Full report covers: container status, memory pressure per container, TLS certifi
   ✓ actools_php_prod: 120MiB / 512MiB (23%)
   ✓ actools_db: 125MiB / 2048MiB (6%)
 ── TLS Certificate ─────────────────────
-  ✓ feesix.com — expires in 88 days
+  ✓ your-domain.com — expires in 88 days
 ── Disk Space ──────────────────────────
   ✓ /: 8.2G used of 38G (22%)
 ```
@@ -219,7 +219,7 @@ docker compose up -d worker_prod
 
 ## Resource Usage — Real World Numbers
 
-Measured on feesix.com (Hetzner CX22 — 2 vCPU, 4GB RAM) under normal load:
+Measured on a Hetzner CX22 (2 vCPU, 4GB RAM) production deployment under normal load:
 
 | Container | CPU | Memory | Limit |
 |---|---|---|---|
@@ -232,4 +232,4 @@ Measured on feesix.com (Hetzner CX22 — 2 vCPU, 4GB RAM) under normal load:
 A €10 Hetzner CX22 (4GB RAM) runs the full stack using under 400MB RAM at idle.
 Leaves 3.6GB headroom for traffic spikes, XeLaTeX PDF generation, and growth.
 
-*Measured April 13, 2026 — production feesix.com*
+*Measured April 13, 2026 — production deployment*

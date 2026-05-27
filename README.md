@@ -4,7 +4,7 @@ A guided single-server Drupal installer and operator CLI for Ubuntu 24.04.
 
 Install Drupal 11, Caddy, MariaDB, Redis, PHP-FPM, and a worker container on one VPS in five staged commands. Get a small operator CLI for the daily tasks. Run as much or as little of the advanced surface as you want — none of it is required.
 
-**Live example:** [feesix.com](https://feesix.com) &nbsp;·&nbsp; [![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![Security Scan](https://img.shields.io/badge/security-trivy-green)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![CodeQL](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql)
+[![CI](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![Security Scan](https://img.shields.io/badge/security-trivy-green)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/lint.yml) [![CodeQL](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/actools-pl/actoolsDrupal/actions/workflows/github-code-scanning/codeql)
 
 ---
 

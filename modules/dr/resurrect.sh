@@ -181,6 +181,16 @@ if [[ "${DRY_RUN}" == "false" ]]; then
   actools health 2>/dev/null && ok "Health check passed" || warn "Health check failed — check logs"
 fi
 
+# Source actools.env for BASE_DOMAIN and other operational config.
+# ACTOOLS_HOME is set by the caller (actools.sh) or fallback below.
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
+if [[ -f "${ACTOOLS_HOME}/actools.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${ACTOOLS_HOME}/actools.env" 2>/dev/null || true
+    set +a
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 END_TIME=$(date +%s)
 ELAPSED=$(( END_TIME - START_TIME ))
@@ -194,5 +204,5 @@ echo "════════════════════════�
 echo ""
 echo "  Next steps:"
 echo "  1. actools health --verbose"
-echo "  2. curl https://feesix.com/health"
+echo "  2. curl https://${BASE_DOMAIN}/health"
 echo "  3. Update DNS if IP changed"

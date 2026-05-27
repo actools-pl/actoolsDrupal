@@ -61,8 +61,8 @@ $databases['default']['default']['pdo'] = [
 ```php
 // Already injected by Actools — verify it's present
 $settings['trusted_host_patterns'] = [
-  '^feesix\.com$',
-  '^.*\.feesix\.com$',   // covers all preview environments
+  '^example\.com$',
+  '^.*\.example\.com$',   // covers all preview environments
 ];
 ```
 
