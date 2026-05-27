@@ -51,6 +51,10 @@ if [[ -f "${INSTALL_DIR}/actools.env" ]]; then
     _actools_env_profile="${ACTOOLS_PROFILE:-}"
 fi
 
+# Read backup user password from state.json (canonical source — actools.sh writes it at install).
+# Matches the pattern at actools.sh:1188.
+BACKUP_PASS=$(jq -r '.backup_user_pass // empty' "${INSTALL_DIR}/.actools-state.json" 2>/dev/null || echo "")
+
 # Source dispatch.sh (provides resolver functions and actools::cli::resolve_profile).
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
@@ -152,7 +156,8 @@ case "${1:-help}" in
   update)
     echo "Taking pre-update prod snapshot..."
     SNAP="${INSTALL_DIR}/backups/pre_update_prod_$(date +%F_%H%M%S).sql.gz"
-    docker exec actools_db mariadb-dump --single-transaction --quick       -ubackup -p"2mr7Ao7ZUoCzMj8L0XkEA8" actools_prod       | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
+    [[ -z "$BACKUP_PASS" ]] && { echo "ERROR: backup_user_pass missing from .actools-state.json — reinstall or restore state to regenerate"; exit 1; }
+    docker exec actools_db mariadb-dump --single-transaction --quick       -ubackup -p"${BACKUP_PASS}" actools_prod       | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
     docker compose pull db redis php_prod
     docker compose up -d
     for env in prod; do
@@ -196,10 +201,11 @@ case "${1:-help}" in
     [[ -z "$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
     echo "Testing DB restore: $LATEST"
     sha256sum -c "$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
-    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e       "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
-    gunzip -c "$LATEST" | docker exec -i actools_db mariadb -uroot -p"anantaarin1411" actools_restore_test
-    TC=$(docker exec actools_db mariadb -uroot -p"anantaarin1411" -sN -e       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
-    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e "DROP DATABASE IF EXISTS actools_restore_test;"
+    [[ -z "$DB_ROOT_PASS" ]] && { echo "ERROR: DB_ROOT_PASS missing from actools.env — run init or set the value"; exit 1; }
+    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
+    gunzip -c "$LATEST" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" actools_restore_test
+    TC=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN -e       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
+    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e "DROP DATABASE IF EXISTS actools_restore_test;"
     echo "DB restore test OK -- ${TC} tables restored."
     if [[ "false" == "true" ]]; then
       echo "Running S3 reachability check..."
@@ -217,8 +223,9 @@ case "${1:-help}" in
     sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
     read -rp "OVERWRITE actools_${env}? [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
-    docker exec actools_db mariadb -uroot -p"anantaarin1411" -e       "DROP DATABASE IF EXISTS `$db`; CREATE DATABASE `$db` CHARACTER SET utf8mb4;"
-    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"anantaarin1411" "$db"
+    [[ -z "$DB_ROOT_PASS" ]] && { echo "ERROR: DB_ROOT_PASS missing from actools.env — run init or set the value"; exit 1; }
+    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "DROP DATABASE IF EXISTS `$db`; CREATE DATABASE `$db` CHARACTER SET utf8mb4;"
+    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" "$db"
     echo "Restore complete. Run: actools drush $env cr"
     ;;
 
