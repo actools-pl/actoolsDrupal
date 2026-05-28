@@ -18,7 +18,8 @@ execute commands, or access credentials.
 The `actools.sh` installer script:
 
 - Makes outbound calls only to: GitHub, packages.drupal.org, hub.docker.com
-  (standard package downloads during install)
+  (standard package downloads during install), and ifconfig.me
+  (one-time public-IP lookup for DNS preflight check)
 - Does not send server configuration, credentials, or site data to any maintainer or external server
 - Does not install any monitoring agents or callbacks
 - Is fully open source — every line readable at github.com/actools-pl/actoolsDrupal
