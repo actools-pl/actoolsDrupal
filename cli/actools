@@ -207,6 +207,7 @@ case "${1:-help}" in
     TC=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN -e       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
     docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e "DROP DATABASE IF EXISTS actools_restore_test;"
     echo "DB restore test OK -- ${TC} tables restored."
+    date -Iseconds > "${INSTALL_DIR}/backups/.restore-test-last"
     if [[ "false" == "true" ]]; then
       echo "Running S3 reachability check..."
       actools storage-test
