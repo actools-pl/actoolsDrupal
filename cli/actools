@@ -187,12 +187,16 @@ case "${1:-help}" in
     env="${2:-prod}"
     svc=$(php_svc "$env")
     shift 2 2>/dev/null || shift 1 2>/dev/null || true
-    docker compose exec "$svc" bash -c "cd /var/www/html/${env} && ./vendor/bin/drush $*"
+    docker compose exec "$svc" bash -c \
+      'cd "$1" && ./vendor/bin/drush "${@:2}"' \
+      _ "/var/www/html/${env}" "$@"
     ;;
   console)
     env="${2:-prod}"
     svc=$(php_svc "$env")
-    docker compose exec "$svc" bash -c "cd /var/www/html/${env} && ./vendor/bin/drush php:cli"
+    docker compose exec "$svc" bash -c \
+      'cd "$1" && ./vendor/bin/drush php:cli' \
+      _ "/var/www/html/${env}"
     ;;
   shell)      docker compose exec "${2:-php_prod}" bash ;;
 

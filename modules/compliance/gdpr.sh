@@ -20,7 +20,8 @@ sql() {
 
 drush() {
   docker compose -f "${COMPOSE_FILE}" exec -T php_prod \
-    bash -c "cd /var/www/html/prod && ./vendor/bin/drush $*" 2>/dev/null
+    bash -c 'cd "$1" && ./vendor/bin/drush "${@:2}"' \
+    _ "/var/www/html/prod" "$@" 2>/dev/null
 }
 
 # ── Export ────────────────────────────────────────────────────────────────────
