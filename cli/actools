@@ -229,7 +229,7 @@ case "${1:-help}" in
     read -rp "OVERWRITE actools_${env}? [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     [[ -z "$DB_ROOT_PASS" ]] && { echo "ERROR: DB_ROOT_PASS missing from actools.env — run init or set the value"; exit 1; }
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "DROP DATABASE IF EXISTS `$db`; CREATE DATABASE `$db` CHARACTER SET utf8mb4;"
+    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "DROP DATABASE IF EXISTS \`${db}\`; CREATE DATABASE \`${db}\` CHARACTER SET utf8mb4;"
     gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" "$db"
     echo "Restore complete. Run: actools drush $env cr"
     ;;
