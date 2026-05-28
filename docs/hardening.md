@@ -189,6 +189,8 @@ Log: `/home/actools/logs/audit.log`
 
 The audit wrapper (`/usr/local/bin/actools-audit`) is the symlink target of `/usr/local/bin/actools`. It appends to the log then calls `/usr/local/bin/actools-real`.
 
+**Scope of this log.** This is best-effort append logging suitable for after-the-fact operator visibility: who ran which command, when. The wrapper tolerates write failures (`|| true`) and the log file has no cryptographic integrity protection — entries can be silently modified, deleted, or lost without detection. This audit trail is appropriate for operational review and incident investigation; it is not suitable for compliance attestation, non-repudiation, or any context requiring tamper-evidence. Strengthening this to a tamper-resistant audit surface (signed entries, integrity files, append-only enforcement) is a future hardening item.
+
 ---
 
 ## Firewall
