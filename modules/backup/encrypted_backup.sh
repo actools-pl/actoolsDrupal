@@ -95,6 +95,7 @@ backup_decrypt() {
 backup_list_encrypted() {
   echo ""
   echo "=== Encrypted Backups ==="
+  # shellcheck disable=SC2012  # human-readable listing of our own backup files
   ls -lht "${BACKUP_DIR}"/*.age 2>/dev/null \
     | awk '{print "  " $NF " (" $5 ")"}'  \
     || echo "  No encrypted backups found."
