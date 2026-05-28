@@ -86,8 +86,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+$(if [[ "${REDIS_ON}" == "true" ]]; then
+cat <<REDIS_DEP
       redis:
         condition: service_started
+REDIS_DEP
+fi)
     networks:
       - actools_net
     logging:
@@ -136,8 +140,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+$(if [[ "${REDIS_ON}" == "true" ]]; then
+cat <<REDIS_DEP
       redis:
         condition: service_started
+REDIS_DEP
+fi)
     networks:
       - actools_net
     logging:
