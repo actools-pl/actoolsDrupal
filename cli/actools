@@ -90,7 +90,7 @@ case "${1:-help}" in
     shift
     [[ $# -gt 0 ]] && docker compose logs -f "$@" || docker compose logs -f
     ;;
-  restart)    docker compose restart ${2:-} ;;
+  restart)    docker compose restart "${2:-}" ;;
   status)     docker compose ps ;;
   stats)      docker stats --no-trunc ;;
 
@@ -212,17 +212,13 @@ case "${1:-help}" in
     docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e "DROP DATABASE IF EXISTS actools_restore_test;"
     echo "DB restore test OK -- ${TC} tables restored."
     date -Iseconds > "${INSTALL_DIR}/backups/.restore-test-last"
-    if [[ "false" == "true" ]]; then
-      echo "Running S3 reachability check..."
-      actools storage-test
-    fi
     ;;
 
   restore)
     env="${2:-prod}"
     db="actools_${env}"
     BACKUP_FILE="${3:-}"
-    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups"/${env}_db_*.sql.gz 2>/dev/null | head -1)
+    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups"/"${env}"_db_*.sql.gz 2>/dev/null | head -1)
     [[ -z "$BACKUP_FILE" ]] && { echo "No backups found for $env"; exit 1; }
     echo "Restoring $env from: $BACKUP_FILE"
     sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"

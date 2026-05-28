@@ -102,7 +102,7 @@ DUMP_FILE=$(find "${DUMP_DIR}" -name "full-dump-*.sql.gz.age" | sort | tail -1)
 log "Using dump: ${DUMP_FILE}"
 
 MANIFEST="${DUMP_DIR}/manifest.txt"
-[[ -f "${MANIFEST}" ]] && log "Manifest:" && cat "${MANIFEST}" | tee -a "${LOG_FILE}"
+[[ -f "${MANIFEST}" ]] && log "Manifest:" && tee -a "${LOG_FILE}" < "${MANIFEST}"
 
 # ── 3. Find binlog archives to replay ─────────────────────────────────────────
 DUMP_DATE_STR=$(basename "${DUMP_DIR}")

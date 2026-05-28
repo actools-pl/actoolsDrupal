@@ -42,7 +42,8 @@ gdpr_export() {
   gdpr_log "action=export email=${email}"
   mkdir -p "${EXPORT_DIR}"
 
-  local outfile="${EXPORT_DIR}/gdpr-export-$(echo "${email}" | tr '@.' '--')-$(date +%F).json"
+  local outfile
+  outfile="${EXPORT_DIR}/gdpr-export-$(echo "${email}" | tr '@.' '--')-$(date +%F).json"
 
   echo "Exporting data for: ${email}"
 

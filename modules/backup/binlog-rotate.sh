@@ -11,6 +11,7 @@ AGE_KEY_FILE="${ACTOOLS_HOME}/.age-public-key"
 LOG_FILE="${ACTOOLS_HOME}/logs/binlog-rotate.log"
 ARCHIVE_DIR="${ACTOOLS_HOME}/backups/binlogs"
 
+# shellcheck source=/dev/null
 source "${ENV_FILE}"
 
 log() { echo "$(date -u +%FT%TZ) [binlog-rotate] $*" | tee -a "${LOG_FILE}"; }

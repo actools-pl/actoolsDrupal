@@ -81,6 +81,7 @@ sleep 10
 
 # ── 5. Verify binary logging is active ───────────────────────────────────────
 echo "▶ Verifying binary logging..."
+# shellcheck source=/dev/null
 source "${ACTOOLS_HOME}/actools.env"
 
 BINLOG_STATUS=$(docker compose exec -T db \
