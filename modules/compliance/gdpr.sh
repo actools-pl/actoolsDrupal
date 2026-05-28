@@ -24,10 +24,20 @@ drush() {
     _ "/var/www/html/prod" "$@" 2>/dev/null
 }
 
+validate_email() {
+  local email="$1"
+  if ! [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+    echo "ERROR: invalid email format: $email" >&2
+    return 1
+  fi
+  return 0
+}
+
 # ── Export ────────────────────────────────────────────────────────────────────
 gdpr_export() {
   local email="${1:-}"
   [[ -z "${email}" ]] && { echo "Usage: actools gdpr export <email>"; exit 1; }
+  validate_email "${email}" || exit 1
 
   gdpr_log "action=export email=${email}"
   mkdir -p "${EXPORT_DIR}"
@@ -36,17 +46,25 @@ gdpr_export() {
 
   echo "Exporting data for: ${email}"
 
-  # Get user record
-  local uid name status created last_login
-  uid=$(sql -e "SELECT uid FROM users_field_data WHERE mail='${email}' LIMIT 1;")
-  [[ -z "${uid}" ]] && { echo "ERROR: User not found: ${email}"; gdpr_log "action=export email=${email} result=not_found"; exit 1; }
+  # Get user record via drush (argv-safe; no SQL interpolation of operator input)
+  local user_json
+  user_json=$(drush user:information "${email}" --format=json 2>/dev/null)
+  [[ -z "${user_json}" || "${user_json}" == "[]" || "${user_json}" == "{}" ]] && {
+    echo "ERROR: User not found: ${email}"
+    gdpr_log "action=export email=${email} result=not_found"
+    exit 1
+  }
+  local uid
+  uid=$(echo "${user_json}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(list(d.values())[0]["uid"] if d else "")')
+  [[ "${uid}" =~ ^[0-9]+$ ]] || { echo "ERROR: invalid uid extracted: ${uid}"; exit 1; }
 
+  local name status created last_login
   name=$(sql -e "SELECT name FROM users_field_data WHERE uid=${uid};")
   status=$(sql -e "SELECT status FROM users_field_data WHERE uid=${uid};")
   created=$(sql -e "SELECT FROM_UNIXTIME(created) FROM users_field_data WHERE uid=${uid};")
   last_login=$(sql -e "SELECT FROM_UNIXTIME(login) FROM users_field_data WHERE uid=${uid};")
 
-  # Get authored nodes
+  # Get authored nodes (pre-existing: nodes variable computed but not in output — preserved as-is)
   local nodes
   nodes=$(sql -e "SELECT nid, type, title, FROM_UNIXTIME(created), status FROM node_field_data WHERE uid=${uid} LIMIT 100;" \
     | awk 'BEGIN{print "["} {printf "{\"nid\":\"%s\",\"type\":\"%s\",\"title\":\"%s\",\"created\":\"%s\",\"status\":\"%s\"},\n",$1,$2,$3,$4,$5} END{print "]"}')
@@ -60,31 +78,41 @@ gdpr_export() {
   roles=$(sql -e "SELECT roles_target_id FROM user__roles WHERE entity_id=${uid};" \
     | tr '\n' ',' | sed 's/,$//')
 
-  # Build JSON
-  python3 -c "
-import json, sys
+  # Build JSON — single-quoted heredoc: shell does NOT expand $var inside body;
+  # DB-sourced values pass through env vars; Python reads via os.environ.get().
+  NAME="${name}" EMAIL="${email}" UID_VAL="${uid}" STATUS="${status}" \
+  CREATED="${created}" LAST_LOGIN="${last_login}" ROLES="${roles}" \
+  NODE_COUNT="${node_count}" \
+  EXPORT_DATE="$(date -u +%FT%TZ)" REQUESTED_BY="$(whoami)" \
+  AUDIT_LOG_PATH="${AUDIT_LOG}" \
+  python3 <<'PYEOF' > "${outfile}"
+import json, os
+audit_path = os.environ.get('AUDIT_LOG_PATH', '')
+email = os.environ.get('EMAIL', '')
 data = {
-  'export_date': '$(date -u +%FT%TZ)',
-  'requested_by': '$(whoami)',
+  'export_date': os.environ.get('EXPORT_DATE', ''),
+  'requested_by': os.environ.get('REQUESTED_BY', ''),
   'gdpr_basis': 'Art. 15 GDPR — Right of Access',
   'profile': {
-    'uid': '${uid}',
-    'name': '${name}',
-    'email': '${email}',
-    'status': 'active' if '${status}' == '1' else 'blocked',
-    'created': '${created}',
-    'last_login': '${last_login}',
-    'roles': [r for r in '${roles}'.split(',') if r],
+    'uid': os.environ.get('UID_VAL', ''),
+    'name': os.environ.get('NAME', ''),
+    'email': email,
+    'status': 'active' if os.environ.get('STATUS', '') == '1' else 'blocked',
+    'created': os.environ.get('CREATED', ''),
+    'last_login': os.environ.get('LAST_LOGIN', ''),
+    'roles': [r for r in os.environ.get('ROLES', '').split(',') if r],
   },
   'content': {
-    'total_nodes': '${node_count}',
+    'total_nodes': os.environ.get('NODE_COUNT', ''),
     'note': 'First 100 nodes shown',
   },
-  'audit_entries': [l.strip() for l in open('${AUDIT_LOG}') if '${email}' in l]
-    if __import__('os').path.exists('${AUDIT_LOG}') else [],
+  'audit_entries': [
+    l.strip() for l in open(audit_path)
+    if email in l
+  ] if os.path.exists(audit_path) else [],
 }
 print(json.dumps(data, indent=2))
-" > "${outfile}"
+PYEOF
 
   local size
   size=$(du -sh "${outfile}" | cut -f1)
@@ -97,10 +125,18 @@ print(json.dumps(data, indent=2))
 gdpr_delete() {
   local email="${1:-}"
   [[ -z "${email}" ]] && { echo "Usage: actools gdpr delete <email>"; exit 1; }
+  validate_email "${email}" || exit 1
 
+  # Get user record via drush (argv-safe; no SQL interpolation of operator input)
+  local user_json
+  user_json=$(drush user:information "${email}" --format=json 2>/dev/null)
+  [[ -z "${user_json}" || "${user_json}" == "[]" || "${user_json}" == "{}" ]] && {
+    echo "ERROR: User not found: ${email}"
+    exit 1
+  }
   local uid
-  uid=$(sql -e "SELECT uid FROM users_field_data WHERE mail='${email}' LIMIT 1;")
-  [[ -z "${uid}" ]] && { echo "ERROR: User not found: ${email}"; exit 1; }
+  uid=$(echo "${user_json}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(list(d.values())[0]["uid"] if d else "")')
+  [[ "${uid}" =~ ^[0-9]+$ ]] || { echo "ERROR: invalid uid extracted: ${uid}"; exit 1; }
   [[ "${uid}" == "1" ]] && { echo "ERROR: Cannot delete UID 1 (superadmin)"; exit 1; }
 
   echo "RIGHT TO ERASURE — this will permanently delete:"
@@ -118,7 +154,7 @@ gdpr_delete() {
   gdpr_export "${email}"
 
   echo "Cancelling user account..."
-  drush "user:cancel --delete-content --yes '${email}'"
+  drush user:cancel --delete-content --yes "${email}"
 
   gdpr_log "action=delete email=${email} result=success"
   echo "  Deleted: ${email}"
@@ -128,6 +164,7 @@ gdpr_delete() {
 gdpr_audit() {
   local email="${1:-}"
   [[ -z "${email}" ]] && { echo "Usage: actools gdpr audit <email>"; exit 1; }
+  validate_email "${email}" || exit 1
 
   gdpr_log "action=audit_view email=${email}"
 
