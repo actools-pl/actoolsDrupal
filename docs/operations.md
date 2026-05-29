@@ -13,36 +13,37 @@ Two jobs run automatically:
 
 | Job | Schedule | What |
 |---|---|---|
-| Full dump | Daily 02:00 | `mariadb-dump --single-transaction`, age-encrypted, rclone upload |
-| Binlog rotation | Hourly :05 | Closed binary logs compressed + age-encrypted |
+| Full dump | Daily 02:00 | `mariadb-dump --single-transaction`, gzip, optional rclone upload |
 
-Together these give RPO ~1 hour. For point-in-time restore see [Enterprise hardening](enterprise.md).
+Daily dumps give RPO of approximately 24 hours. Encrypted backup deployment with hourly binlog rotation for point-in-time recovery is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 ### Check backup status
 
 ```bash
-actools backup status
-# Shows: latest dump file + size, binlog archive count, current binlog position
+ls -lh /home/actools/backups/prod_db_*.sql.gz | tail -5
 ```
+
+`actools backup` accepts no subcommands; it runs the daily backup job immediately. A canonical `actools backup status` command for backup introspection is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 ### Run a backup manually
 
 ```bash
-actools backup db           # full dump now
-actools backup binlogs      # rotate binlogs now
+actools backup              # triggers the daily backup job immediately
 ```
+
+`actools backup` runs the same job as the daily 02:00 cron. Fine-grained subcommands (`db`, `binlogs`) are planned alongside encrypted backup deployment — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 ### Verify a backup
 
 ```bash
-actools restore-test        # decrypts latest dump, counts tables, reports pass/fail
+actools restore-test        # verifies latest dump can be restored, counts tables, reports pass/fail
 ```
 
 ### Restore from backup
 
 ```bash
-actools restore prod        # list available backups → choose → confirm → restore
-actools restore prod /home/actools/backups/db/2026-03-26/full-dump-210531.sql.gz.age
+actools restore prod                                       # use most recent dump
+actools restore prod /home/actools/backups/prod_db_2026-03-26.sql.gz   # specific file
 ```
 
 ---

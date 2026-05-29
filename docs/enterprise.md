@@ -15,8 +15,8 @@ MariaDB records every write to binary logs. Combined with daily full dumps, this
 
 | Job | Schedule | What |
 |---|---|---|
-| `db-full-backup.sh` | Daily 02:00 | Full encrypted dump with embedded binlog position |
-| `binlog-rotate.sh` | Hourly :05 | Archive all closed binlogs, age-encrypted |
+| `db-full-backup.sh` *(not deployed by standard installer)* | Daily 02:00 | Full encrypted dump with embedded binlog position |
+| `binlog-rotate.sh` *(not deployed by standard installer)* | Hourly :05 | Archive all closed binlogs, age-encrypted |
 
 `--master-data=2` embeds the exact binlog file and position into the dump. The restore script uses this to know exactly where to start replaying logs.
 
@@ -32,7 +32,9 @@ actools migrate --point-in-time "2026-03-26 14:30:00" --dry-run
 actools migrate --point-in-time "2026-03-26 14:30:00"
 ```
 
-The restore: finds the nearest full dump → decrypts → stops app containers → restores dump → replays binlogs to target time → restarts containers.
+The restore (when deployed): finds the nearest full dump → decrypts → stops app containers → restores dump → replays binlogs to target time → restarts containers.
+
+The PITR scripts exist in `modules/backup/` but are not currently invoked by the standard installer. Encrypted backup deployment with PITR is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 ### Check status
 
@@ -109,12 +111,12 @@ UID 1 (superadmin) cannot be deleted. Deletion requires typing the full email ad
 ── GDPR Compliance Report ────────────────────────────
 User statistics:  Total: 12  Active: 11  Blocked: 1
 Data retention:   DB backups: 7 dumps · Binlogs: 168 files
-Encryption:       age at rest ✓ · TLS 1.3 in transit ✓
+Encryption:       partial (DNA at rest ✓; backups planned · TLS 1.3 in transit ✓)
 Compliance:
   ✓ Right of Access (Art.15)
   ✓ Right to Erasure (Art.17)
   ✓ Audit trail
-  ✓ Encryption at rest
+  ~ Encryption at rest — partial (DNA snapshots only; backup encryption planned — see ROADMAP.md#encrypted-backups)
   ✓ Encryption in transit
   ✓ Data retention policy (7 days)
   ✓ Access control (RBAC)

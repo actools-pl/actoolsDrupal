@@ -51,7 +51,7 @@ actools update       # pull + drush updb + caddy reload
 
 ## Advanced features
 
-The installer also ships PITR backups, DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit`.
+The installer also ships DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit`. Encrypted backup deployment with PITR is planned — see [`ROADMAP.md#encrypted-backups`](ROADMAP.md#encrypted-backups).
 
 See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a working site.
 

@@ -98,7 +98,7 @@ The installer is idempotent — re-running `actools.sh fresh` on an already-inst
 - **No secrets in git** — `actools.env` and `docker-compose.yml` are gitignored
 - **No secrets in images** — credentials injected at runtime via Docker environment
 - **No secrets in Drupal config** — S3, Redis credentials use `getenv()` in `settings.php`
-- **Encrypted backups** — all dumps and binlogs age-encrypted before storage
+- **Daily backups** — daily database dumps with checksum verification (encrypted backup deployment planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups))
 - **RBAC** — three role users (`actools-dev`, `actools-ops`, `actools-viewer`) with scoped sudo rules
 - **Audit trail** — every CLI invocation logged to `logs/audit.log`
 
