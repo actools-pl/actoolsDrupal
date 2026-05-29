@@ -212,7 +212,7 @@ gdpr_report() {
   echo "Encryption:"
   echo "  DB backups:      age-encrypted ✓"
   echo "  Binlog archives: age-encrypted ✓"
-  echo "  MariaDB:         TLS 1.3 (require_secure_transport=ON) ✓"
+  echo "  MariaDB:         TLS in transit — not enabled by default (see hardening.md)"
   echo "  DNA snapshots:   age-encrypted ✓"
 
   echo ""

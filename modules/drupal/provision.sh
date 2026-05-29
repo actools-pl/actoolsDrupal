@@ -158,6 +158,10 @@ SETTINGS
 \$settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
 // Session cookie security - injected by actools installer
 ini_set('session.cookie_secure', TRUE);
+ini_set('session.cookie_httponly', TRUE);
+ini_set('session.cookie_samesite', 'Strict');
+ini_set('session.use_strict_mode', TRUE);
+ini_set('session.use_only_cookies', TRUE);
 \$settings['session_write_interval'] = 180;
 PHPEOF
       ./vendor/bin/drush cr 2>/dev/null || true
