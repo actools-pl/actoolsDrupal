@@ -90,5 +90,35 @@ actools tunnel logs      # last 50 lines of tunnel logs
 - Credentials JSON (`TUNNEL_ID.json`) is never committed to git
 - `cert.pem` is never committed to git
 - The `.cloudflared/` directory is in `.gitignore`
-- Caddy continues handling TLS — Cloudflare terminates TLS at edge,
-  passes HTTP to Caddy on localhost:80, Caddy re-terminates internally
+
+## TLS posture when using Cloudflare Tunnel
+
+The standard install assumes ports 80 and 443 are open and Caddy issues
+TLS certificates via Let's Encrypt's HTTP-01 challenge. When you put the
+server behind a Cloudflare tunnel and close those ports, the HTTP-01
+challenge can no longer reach Caddy — certificates will fail to renew
+after ~90 days.
+
+Choose one of these patterns when running under a tunnel:
+
+**Option 1 — DNS-01 challenge via Cloudflare API**
+
+Caddy can prove domain control by setting DNS TXT records via the
+Cloudflare API, with no inbound port required.
+
+1. Create a Cloudflare API token with `Zone:DNS:Edit` permission for your
+   domain
+2. Set `CADDY_CLOUDFLARE_TOKEN` in `actools.env`
+3. Caddy will use DNS-01 automatically when this token is set
+
+**Option 2 — Cloudflare Origin Certificate with `tls internal`**
+
+Generate a free 15-year origin certificate from the Cloudflare dashboard
+and configure Caddy to use it directly.
+
+1. Cloudflare Dashboard → SSL/TLS → Origin Server → Create Certificate
+2. Save the certificate and key to `certs/cloudflare-origin/`
+3. Adjust the Caddyfile to use those certs instead of ACME
+
+Both options keep Caddy as the TLS terminator on the inside of the tunnel.
+Pick the one that fits your operational comfort.

@@ -6,7 +6,7 @@
 
 ## settings.php
 
-Actools auto-injects database credentials, trusted host patterns, S3FS config, and Redis connection. The following you add manually.
+Actools auto-injects database credentials, trusted host patterns, S3FS config, Redis connection, and session cookie security flags. The following you add manually.
 
 ### Private files
 
@@ -25,7 +25,7 @@ chown www-data:www-data /home/actools/docroot/prod/private
 
 Then set in Drupal: **Admin → Configuration → Media → File system → Private file system path**
 
-### Session security
+### Session security (auto-applied)
 
 ```php
 ini_set('session.cookie_secure', TRUE);      // HTTPS only
@@ -94,20 +94,18 @@ chown -R www-data:www-data /home/actools/docroot/prod/private
 
 ---
 
-## MariaDB TLS
+## MariaDB TLS — Not enabled by default
 
-All connections to MariaDB are encrypted with TLS 1.3. `require_secure_transport=ON` rejects any non-SSL connection.
+A MariaDB TLS configuration template is provided at `certs/mariadb/99-ssl.cnf` for operators who want to enable encryption-in-transit between Drupal and MariaDB.
 
-### Verify it's active
+The template is NOT mounted into the database container by default. To enable MariaDB TLS, operators must:
 
-```bash
-docker compose exec db mariadb -uroot -p"${DB_ROOT_PASS}" --batch \
-  -e 'SHOW VARIABLES LIKE "require_secure_transport"; SHOW STATUS LIKE "Ssl_cipher";'
+1. Generate a server private key (`server-key.pem`) and a matching server certificate signed by the provided CA (or by a per-deployment CA — recommended)
+2. Mount `certs/mariadb/` into the db service at `/etc/mysql/certs/`
+3. Mount `99-ssl.cnf` at `/etc/mysql/mariadb.conf.d/99-ssl.cnf`
+4. Configure Drupal's database connection to use SSL
 
-# Expected:
-# require_secure_transport   ON
-# Ssl_cipher                 TLS_AES_256_GCM_SHA384
-```
+Per-deployment certificate generation (replacing the shared CA template currently shipped) is planned work. Until then, the templates exist as scaffolding; enabling them requires manual operator setup.
 
 ### Regenerate certificates
 
