@@ -197,8 +197,8 @@ gdpr_report() {
 
   echo ""
   echo "Data retention:"
-  echo "  DB backups:      $(find "${ACTOOLS_HOME}/backups/db" -name "*.age" 2>/dev/null | wc -l) dumps (${BACKUP_RETENTION_DAYS:-7} day retention)"
-  echo "  Binlog archives: $(find "${ACTOOLS_HOME}/backups/binlogs" -name "*.age" 2>/dev/null | wc -l) files"
+  echo "  DB backups:      $(find "${ACTOOLS_HOME}/backups" -maxdepth 1 -name "prod_db_*.sql.gz" 2>/dev/null | wc -l) dumps (${BACKUP_RETENTION_DAYS:-7} day retention)"
+  echo "  Binlog archives: 0 (binlog rotation not deployed — see ROADMAP.md#encrypted-backups)"
   echo "  DNA snapshots:   $(find "${ACTOOLS_HOME}/backups/dna" -name "*.age" 2>/dev/null | wc -l) files"
   echo "  Audit log:       $(wc -l < "${AUDIT_LOG}" 2>/dev/null || echo 0) entries"
   echo "  GDPR log:        $(wc -l < "${GDPR_LOG}" 2>/dev/null || echo 0) entries"
@@ -210,8 +210,8 @@ gdpr_report() {
 
   echo ""
   echo "Encryption:"
-  echo "  DB backups:      age-encrypted ✓"
-  echo "  Binlog archives: age-encrypted ✓"
+  echo "  DB backups:      gzip only (encryption planned — see ROADMAP.md#encrypted-backups)"
+  echo "  Binlog archives: not deployed"
   echo "  MariaDB:         TLS in transit — not enabled by default (see hardening.md)"
   echo "  DNA snapshots:   age-encrypted ✓"
 
@@ -220,7 +220,7 @@ gdpr_report() {
   echo "  ✓ Right of Access    — actools gdpr export <email>"
   echo "  ✓ Right to Erasure   — actools gdpr delete <email>"
   echo "  ✓ Audit trail        — logs/audit.log + logs/gdpr.log"
-  echo "  ✓ Encryption at rest — age"
+  echo "  ~ Encryption at rest — partial (DNA snapshots only; backup encryption planned — see ROADMAP.md#encrypted-backups)"
   echo "  ✓ Encryption transit — TLS 1.3"
   echo "  ✓ Data retention     — ${BACKUP_RETENTION_DAYS:-7} days"
   echo "  ✓ Access control     — RBAC (dev/ops/viewer)"

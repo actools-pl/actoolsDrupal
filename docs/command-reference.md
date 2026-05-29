@@ -55,7 +55,7 @@ Exit codes for `preflight`: `0` ready, `1` failures, `2` warnings only.
 
 | Command | What it does |
 |---|---|
-| `actools backup` | Full encrypted dump now. |
+| `actools backup` | Run the daily backup job now (gzip dump; encryption planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups)). |
 | `actools restore-test` | Verify the latest backup actually restores. |
 | `actools restore <env> [file]` | Restore with overwrite confirmation. |
 

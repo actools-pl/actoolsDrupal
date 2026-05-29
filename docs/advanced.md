@@ -31,7 +31,7 @@ See `modules/audit/docs/fix_catalog.md` for the full check catalogue.
 
 ## Point-in-time recovery
 
-MariaDB binary logging plus daily encrypted dumps lets you restore the database to any second within the retention window.
+MariaDB binary logging plus daily encrypted dumps would let you restore the database to any second within the retention window. The current installer deploys daily gzip dumps only; binary logging and encrypted dumps are planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 ```bash
 # Dry-run first — shows exactly what would happen
@@ -41,9 +41,11 @@ actools migrate --point-in-time "2026-03-26 14:30:00" --dry-run
 actools migrate --point-in-time "2026-03-26 14:30:00"
 ```
 
-How it works: `db-full-backup.sh` runs daily at 02:00, dumping with `--master-data=2` so the binlog position is embedded. `binlog-rotate.sh` runs hourly, encrypting closed binlogs with age. The restore script finds the nearest full dump, decrypts, stops app containers, restores, replays binlogs to the target time, restarts.
+How it works (planned): `db-full-backup.sh` runs daily at 02:00, dumping with `--master-data=2` so the binlog position is embedded. `binlog-rotate.sh` runs hourly, encrypting closed binlogs with age. The restore script finds the nearest full dump, decrypts, stops app containers, restores, replays binlogs to the target time, restarts.
 
-RPO ~1 hour (hourly binlog rotation), RTO <15 minutes for in-place recovery.
+Target RPO ~1 hour (hourly binlog rotation), target RTO <15 minutes for in-place recovery.
+
+These scripts exist in `modules/backup/` but the standard installer does not currently wire them into cron. Encrypted backup deployment with PITR is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
 Status:
 
