@@ -84,7 +84,7 @@ actools update
 
 Takes a pre-update database snapshot, pulls newer container images, runs `drush updb` and `drush cr` in every installed environment, then reloads Caddy. Idempotent — safe to re-run.
 
-Before running, `actools dry-run` will tell you what would happen.
+Before running, `actools dry-run` shows the steps `actools update` will take. (Note: dry-run currently prints a static description; it does not inspect your specific install state — pending Drupal updates, available container image versions, etc. Treat the output as a procedure description, not a per-install plan.)
 
 ---
 

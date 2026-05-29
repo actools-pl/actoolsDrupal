@@ -14,7 +14,12 @@ cmd_update() {
   docker compose up -d
   docker compose exec -T php_prod bash -c \
     "cd /var/www/html/prod && ./vendor/bin/drush updb --yes && ./vendor/bin/drush cr" \
-    2>&1 || echo "drush updb failed -- check manually"
+    2>&1 || {
+      echo "ERROR: drush updb failed for prod — update aborted before caddy reload"
+      echo "Pre-update snapshot retained at: ${SNAP}"
+      echo "Manual rollback: actools restore prod ${SNAP}"
+      exit 1
+    }
   docker exec actools_caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true
   echo "Update complete."
 }

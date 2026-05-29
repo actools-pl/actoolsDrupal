@@ -57,7 +57,13 @@ actools update
 # 2. Pulls latest container images
 # 3. Runs drush updb (database updates)
 # 4. Runs drush cr (cache rebuild)
-# 5. Health check — rolls back if it fails
+# 5. Reloads Caddy
+#
+# If drush updb fails, the update aborts before caddy reload and the
+# pre-update snapshot path is printed for manual rollback via
+# `actools restore prod <snapshot>`. Automated health-check + rollback
+# is planned work; until then, run `actools health` after updating to
+# verify the deployment.
 ```
 
 ### Stack updates (Docker images)
@@ -70,14 +76,19 @@ docker compose up -d
 actools health
 ```
 
-### Actools itself
+### Updating Actools itself
+
+Actools currently has two CLI surfaces with overlapping but divergent implementations: a heredoc-generated CLI installed at `/usr/local/bin/actools` (written during `sudo ./actools.sh install`), and a static CLI at `cli/actools` in the repository.
+
+Self-update of Actools is not yet a supported flow. To incorporate upstream changes, re-run the installer:
 
 ```bash
-cd /home/actools
+cd "${ACTOOLS_HOME:?ACTOOLS_HOME not set in environment — was actools installed via './actools.sh install'?}"
 git pull origin main
-# Re-install CLI if updated
-sudo cp cli/actools /usr/local/bin/actools-real
+sudo ./actools.sh install
 ```
+
+A canonical self-update path is planned work; until then, treat Actools-the-tool as something you reinstall rather than upgrade in place.
 
 ---
 
