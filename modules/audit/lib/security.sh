@@ -109,6 +109,6 @@ run_security() {
   # Active scans — only if explicitly requested
   if [[ "$active" == "true" ]]; then
     section_header "SECURITY (ACTIVE)"
-    record_finding "INFO" "LOW" "Active security scans: use actools audit --deep (Pro)" "" "" ""
+    record_finding "INFO" "LOW" "For extended security diagnostics, run: actools audit --deep" "" "" ""
   fi
 }

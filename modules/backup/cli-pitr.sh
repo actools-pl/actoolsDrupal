@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /home/actools/modules/backup/cli-pitr.sh
+# modules/backup/cli-pitr.sh
 # Phase 4.5 Item 2 — actools CLI integration for PITR commands
 #
 # Source this file from the main /usr/local/bin/actools dispatcher,
@@ -11,7 +11,7 @@
 #   actools backup binlogs
 #   actools backup status
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 MODULES="${ACTOOLS_HOME}/modules/backup"
 
 pitr_cli() {

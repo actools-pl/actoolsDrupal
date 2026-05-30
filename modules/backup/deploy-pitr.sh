@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 MODULES="${ACTOOLS_HOME}/modules/backup"
 

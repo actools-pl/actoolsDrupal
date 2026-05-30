@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# /home/actools/modules/dr/immortalize.sh
+# modules/dr/immortalize.sh
 # Phase 4.5 — DNA snapshot: complete server blueprint
 # Usage: ./immortalize.sh [--upload]
 
 set -euo pipefail
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 ENV_FILE="${ACTOOLS_HOME}/actools.env"
 AGE_KEY_FILE="${ACTOOLS_HOME}/.age-public-key"

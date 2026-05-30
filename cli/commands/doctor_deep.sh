@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# cli/commands/doctor_deep.sh — Pro-gated deep doctor.
+# cli/commands/doctor_deep.sh — deep doctor checks (extended diagnostics).
 #
 # Mirrors the gate pattern of modules/audit/audit.sh (audit --deep).
 # This file ships in the community installer and exits with an

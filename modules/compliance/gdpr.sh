@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# /home/actools/modules/compliance/gdpr.sh
+# modules/compliance/gdpr.sh
 # Phase 4.5 — GDPR compliance tools
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 AUDIT_LOG="${ACTOOLS_HOME}/logs/audit.log"
 GDPR_LOG="${ACTOOLS_HOME}/logs/gdpr.log"

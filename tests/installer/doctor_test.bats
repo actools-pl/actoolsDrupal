@@ -55,7 +55,7 @@ teardown() {
   [[ "$output" == *"backups"* ]]
 }
 
-@test "doctor --deep names the Pro additions" {
+@test "doctor --deep names the extended checks" {
   source "${INSTALL_DIR}/cli/commands/doctor.sh"
   run run_doctor --deep
   [[ "$output" == *"trend regression"* ]]
