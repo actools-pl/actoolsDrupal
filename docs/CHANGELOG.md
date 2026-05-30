@@ -6,7 +6,6 @@
 - `installer/dispatch.sh` — resolver function family (`resolve_feature_handler`, `resolve_preflight_check`, `resolve_doctor_check`, `resolve_handoff_section`, `profile_is_valid`, `actools::cli::resolve_profile`). Single dispatch surface for all profile-aware operations.
 - `tests/fixtures/profiles/test/` — test fixture profile (4 files). Exercises resolver dispatch against a non-production profile without requiring D.1+ modules to exist.
 - `tests/test_d0_dispatch.bats` — 33 bats tests covering all resolver paths, CLI profile resolution, fixture activation, sibling-scope audit, and community-install regression.
-- `docs/briefs/PHASE_D0_README.md` — historical record of D.0 scope and closure.
 
 **Modified files:**
 - `installer/init.sh` — added `--profile` flag; validates against allowed list; writes `ACTOOLS_PROFILE` to `actools.env`.

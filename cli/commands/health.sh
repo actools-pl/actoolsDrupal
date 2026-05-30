@@ -5,7 +5,7 @@
 
 cmd_health() {
   local mode="${1:-simple}"
-  local INSTALL_DIR="/home/actools"
+  local INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
 
   # Load env for BASE_DOMAIN and DB_ROOT_PASS
   source "${INSTALL_DIR}/actools.env" 2>/dev/null || true

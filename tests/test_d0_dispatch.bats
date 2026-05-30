@@ -2,11 +2,11 @@
 # =============================================================================
 # tests/test_d0_dispatch.bats — D.0 Community Seam Hardening: dispatch tests.
 #
-# Consolidates ALL D.0 verification into one file (H.7.1 consolidation
+# Consolidates ALL D.0 verification into one file (consolidation
 # discipline: one test file per phase, named for the phase).
 #
 # Test count target: ≥ 31 (brief floor). This suite contains 33 tests.
-# Rule T3 shape: community (default) / test (fixture) / adversarial (unknown).
+# Dispatch shapes: community (default) / test (fixture) / adversarial (unknown).
 #
 # Coverage:
 #   - Resolver dispatch correctness (12 tests: 4 resolvers × 3 profiles)
@@ -49,7 +49,7 @@ _dispatch_in_subshell() {
 
 # ---------------------------------------------------------------------------
 # BLOCK 1 — Resolver dispatch correctness (12 tests: 4 resolvers × 3 profiles)
-# Rule T3: three input shapes — community (default), test (fixture), unknown
+# Input shapes: community (default), test (fixture), unknown
 # ---------------------------------------------------------------------------
 
 @test "resolve_feature_handler: community returns empty string" {

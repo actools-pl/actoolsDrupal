@@ -11,7 +11,7 @@ cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exi
 #
 # Note on sibling-files discipline (brief Section 2, D.0-3):
 #   cli/actools is a static installed file. There is no setup_cli.sh heredoc
-#   generator in this codebase — the H.7.1-7 risk was audited and does not
+#   generator in this codebase — that injection risk was audited and does not
 #   apply here. This comment is the explicit record of that audit.
 # =============================================================================
 

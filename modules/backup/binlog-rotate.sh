@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# /home/actools/modules/backup/binlog-rotate.sh
+# modules/backup/binlog-rotate.sh
 # Phase 4.5 Item 2 — Hourly binlog rotation, encryption and upload
 
 set -euo pipefail
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 ENV_FILE="${ACTOOLS_HOME}/actools.env"
 AGE_KEY_FILE="${ACTOOLS_HOME}/.age-public-key"

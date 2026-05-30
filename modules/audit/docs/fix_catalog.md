@@ -58,15 +58,15 @@ Future: `actools fix --id ACT-*` will auto-remediate where safe.
 
 ---
 
-## Pro Tier (actools audit --deep)
+## Extended Audit (actools audit --deep)
 
 | FIX_ID | Issue | Available in |
 |--------|-------|-------------|
-| ACT-BKUP-01 | Backup restore test (verify backup integrity) | Pro — `--deep` |
-| ACT-SEC-DEEP | OWASP ZAP passive scan | Pro — `--deep` |
-| ACT-SEC-TLS | SSLyze TLS configuration analysis | Pro — `--deep` |
-| ACT-SEC-PORT | Nmap port scan | Pro — `--deep` |
-| ACT-SEC-MOD | Drupal Security Review module full scan | Pro — `--deep` |
+| ACT-BKUP-01 | Backup restore test (verify backup integrity) | `--deep` |
+| ACT-SEC-DEEP | OWASP ZAP passive scan | `--deep` |
+| ACT-SEC-TLS | SSLyze TLS configuration analysis | `--deep` |
+| ACT-SEC-PORT | Nmap port scan | `--deep` |
+| ACT-SEC-MOD | Drupal Security Review module full scan | `--deep` |
 
 ---
 

@@ -5,8 +5,8 @@
 # =============================================================================
 set -euo pipefail
 
-BACKUP_DIR="/home/actools/backups"
-INSTALL_DIR="/home/actools"
+INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
+BACKUP_DIR="${INSTALL_DIR}/backups"
 TIMESTAMP=$(date +%F)
 
 command -v docker &>/dev/null || exit 1

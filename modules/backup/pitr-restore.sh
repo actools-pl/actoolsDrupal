@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /home/actools/modules/backup/pitr-restore.sh
+# modules/backup/pitr-restore.sh
 # Phase 4.5 Item 2 — Point-in-Time Recovery
 #
 # Restores the database to any point in time since the last full dump.
@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 ENV_FILE="${ACTOOLS_HOME}/actools.env"
 AGE_KEY_FILE="${ACTOOLS_HOME}/.age-key.txt"   # PRIVATE key (not public)

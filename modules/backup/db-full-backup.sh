@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /home/actools/modules/backup/db-full-backup.sh
+# modules/backup/db-full-backup.sh
 # Phase 4.5 Item 2 — Daily full database dump (PITR baseline)
 #
 # Schedule: 02:00 daily (see cron entry at bottom of this file)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ACTOOLS_HOME="/home/actools"
+ACTOOLS_HOME="${ACTOOLS_HOME:-/home/actools}"
 BACKUP_ROOT="${ACTOOLS_HOME}/backups/db"
 COMPOSE_FILE="${ACTOOLS_HOME}/docker-compose.yml"
 ENV_FILE="${ACTOOLS_HOME}/actools.env"
