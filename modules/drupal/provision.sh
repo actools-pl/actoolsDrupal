@@ -88,7 +88,6 @@ PHPEOF
   else
     error "trusted_host_patterns injection failed for ${env}"
   fi
-  # shellcheck disable=SC2086
   if docker compose exec -T "$php_svc" bash -c "
     set -euo pipefail
     cat > /tmp/php_inject2.php << 'PHPEOF'
