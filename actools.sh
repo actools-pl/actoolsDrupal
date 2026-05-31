@@ -427,9 +427,11 @@ ACTOOLS_USER="${ACTOOLS_USER:-actools}"   # canonical runtime/service user (inte
 if [[ ! -f "${INSTALL_DIR}/.age-key.txt" ]]; then
   log "Generating per-deployment age keypair..."
   if age-keygen -o "${INSTALL_DIR}/.age-key.txt" 2>/dev/null; then
-    chmod 600 "${INSTALL_DIR}/.age-key.txt"
-    if age-keygen -y "${INSTALL_DIR}/.age-key.txt" > "${INSTALL_DIR}/.age-public-key" 2>/dev/null; then
-      chmod 644 "${INSTALL_DIR}/.age-public-key"
+    if ! chmod 600 "${INSTALL_DIR}/.age-key.txt"; then
+      rm -f "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key"
+      warn "age keypair created but private-key permission hardening failed; encrypted-backup features will be unavailable until repaired."
+    elif age-keygen -y "${INSTALL_DIR}/.age-key.txt" > "${INSTALL_DIR}/.age-public-key" 2>/dev/null; then
+      chmod 644 "${INSTALL_DIR}/.age-public-key" || warn "age public key permissions could not be normalized."
       if id "${ACTOOLS_USER}" >/dev/null 2>&1; then
         if chown "${ACTOOLS_USER}:${ACTOOLS_USER}" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key"; then
           log "age keypair generated and owned by ${ACTOOLS_USER}."
