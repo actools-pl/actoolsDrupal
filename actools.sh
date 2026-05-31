@@ -364,6 +364,21 @@ for var in DB_ROOT_PASS DRUPAL_ADMIN_PASS; do
     log "${var} written back to env file."
   fi
 done
+# Per-deployment age keypair for encrypted backups (consumed by modules/backup/*, modules/dr/*).
+# Generated here so each deployment has its own key; the committed placeholder was removed.
+if [[ ! -f "${INSTALL_DIR}/.age-key.txt" ]]; then
+  log "Generating per-deployment age keypair..."
+  if age-keygen -o "${INSTALL_DIR}/.age-key.txt" 2>/dev/null; then
+    chmod 600 "${INSTALL_DIR}/.age-key.txt"
+    grep 'public key:' "${INSTALL_DIR}/.age-key.txt" | awk '{print $NF}' > "${INSTALL_DIR}/.age-public-key"
+    chown "${REAL_USER}:${REAL_USER}" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key" 2>/dev/null || true
+    log "age keypair generated (private: .age-key.txt, mode 600; public: .age-public-key)."
+  else
+    warn "age-keygen failed — encrypted-backup features will be unavailable until a keypair exists at ${INSTALL_DIR}/.age-key.txt"
+  fi
+else
+  log "age keypair already present — preserving existing key."
+fi
 log "Secrets ready."
 
 # =============================================================================

@@ -11,7 +11,7 @@ install_packages() {
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
     apt-get install -y -qq \
-      curl git unzip zip jq ca-certificates gnupg lsb-release \
+      curl git unzip zip jq ca-certificates gnupg lsb-release age \
       ufw fail2ban rclone dnsutils logrotate
     touch "$PKG_DONE_FLAG"
     log "Packages installed."
