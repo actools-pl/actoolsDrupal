@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared output helpers for actools audit
+: "${DRUPAL_CONTAINER_DOCROOT:=/var/www/html}"   # self-default if sourced without the entrypoint constant (set -u-safe)
 
 # record_finding STATUS PRIORITY MESSAGE WHY FIX_CMD FIX_ID
 record_finding() {
@@ -62,5 +63,5 @@ section_header() {
 drush_exec() {
   cd "${ACTOOLS_HOME:-$(pwd)}" 2>/dev/null || true
   docker compose exec -T php_prod bash -c \
-    "cd /opt/drupal/web/prod && ./vendor/bin/drush $* 2>/dev/null" 2>/dev/null || true
+    "cd ${DRUPAL_CONTAINER_DOCROOT}/prod && ./vendor/bin/drush $* 2>/dev/null" 2>/dev/null || true
 }

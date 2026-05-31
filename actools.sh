@@ -93,6 +93,8 @@ fi
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export INSTALL_DIR
+readonly DRUPAL_CONTAINER_DOCROOT="/var/www/html"   # served docroot inside php container (compose mount; image symlinks /opt/drupal/web here)
+export DRUPAL_CONTAINER_DOCROOT
 ENV_FILE="$INSTALL_DIR/actools.env"
 STATE_FILE="$INSTALL_DIR/.actools-state.json"
 LOCK_FILE="/tmp/actools.lock"

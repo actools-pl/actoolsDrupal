@@ -145,7 +145,7 @@ print(f'{up}/{total}')
   # MariaDB reachable
   local db_ping
   db_ping=$(cd "$ACTOOLS_HOME" && docker compose exec -T db mariadb-admin ping \
-    -uroot -p"${DB_ROOT_PASS:-}" 2>/dev/null --silent 2>/dev/null || echo "fail")
+    -uroot -p"${DB_ROOT_PASS:-}" 2>/dev/null --silent || echo "fail")
   if echo "$db_ping" | grep -qi "alive"; then
     record_finding "PASS" "CRITICAL" "MariaDB: reachable" "" "" ""
   else

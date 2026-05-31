@@ -2,6 +2,10 @@
 # =============================================================================
 # modules/storage/settings_inject.sh — S3 settings.php Injection
 # Extracted from actools.sh v9.2 during Phase 1 modular refactor
+# NOTE (Phase 4.5): This module is currently UNWIRED — sourced nowhere, its
+# functions have no callers. Live Drupal settings injection is in
+# modules/drupal/provision.sh. Paths here are intentionally NOT maintained.
+# Wire-in (modular injection) vs delete-as-superseded (inline) is a Phase 5 decision.
 # =============================================================================
 
 inject_s3_settings() {
