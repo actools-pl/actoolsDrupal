@@ -590,6 +590,14 @@ setup_stack() {
   chown 999:999 "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
   chmod 664 "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
 
+  # The recursive chown above re-owns the whole install dir to REAL_USER, which would
+  # clobber the age keypair's ownership. The encrypted-backup cron runs as ACTOOLS_USER,
+  # so re-assert the key's ownership here (after the recursive chown). warn-not-fail.
+  if [[ -f "${INSTALL_DIR}/.age-key.txt" ]] && id "${ACTOOLS_USER}" >/dev/null 2>&1; then
+    chown "${ACTOOLS_USER}:${ACTOOLS_USER}" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key" 2>/dev/null \
+      || warn "Could not re-assert age keypair ownership to ${ACTOOLS_USER}; encrypted backups may fail under cron."
+  fi
+
   BACKUP_PASS=$(get_backup_pass)
 
   # ── MariaDB my.cnf ──────────────────────────────────────────────────────────
