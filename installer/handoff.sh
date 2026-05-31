@@ -70,6 +70,9 @@ run_handoff() {
           echo "  ${install_log}"
           echo
         fi
+        echo "Note: a per-deployment encrypted-backup key was generated. Keep a secure"
+        echo "      off-server backup of it; it will be required if encrypted backups are enabled."
+        echo
         ;;
       *)
         # Unknown section name — downstream profile asked for it but we

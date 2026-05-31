@@ -408,12 +408,47 @@ if [[ ! -f "$PKG_DONE_FLAG" ]]; then
   apt-get update -qq
   DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
   apt-get install -y -qq \
-    curl git unzip zip jq ca-certificates gnupg lsb-release \
+    curl git unzip zip jq ca-certificates gnupg lsb-release age \
     ufw fail2ban rclone dnsutils logrotate
   touch "$PKG_DONE_FLAG"
   log "Packages installed."
 else
   log "Packages already installed -- skipping upgrade."
+fi
+
+# =============================================================================
+# ENCRYPTED-BACKUP KEYPAIR (age) — generated per-deployment, after 'age' is installed.
+# Consumed by modules/backup/* and modules/dr/* (read from ${INSTALL_DIR}).
+# Owned by the canonical service/runtime user so the backup cron (which runs as
+# that user) can read it. warn-not-fail: a missing key disables an optional,
+# currently-unwired subsystem and must not abort install.
+# =============================================================================
+ACTOOLS_USER="${ACTOOLS_USER:-actools}"   # canonical runtime/service user (internal; not yet operator-configurable)
+if [[ ! -f "${INSTALL_DIR}/.age-key.txt" ]]; then
+  log "Generating per-deployment age keypair..."
+  if age-keygen -o "${INSTALL_DIR}/.age-key.txt" 2>/dev/null; then
+    if ! chmod 600 "${INSTALL_DIR}/.age-key.txt"; then
+      rm -f "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key"
+      warn "age keypair created but private-key permission hardening failed; encrypted-backup features will be unavailable until repaired."
+    elif age-keygen -y "${INSTALL_DIR}/.age-key.txt" > "${INSTALL_DIR}/.age-public-key" 2>/dev/null; then
+      chmod 644 "${INSTALL_DIR}/.age-public-key" || warn "age public key permissions could not be normalized."
+      if id "${ACTOOLS_USER}" >/dev/null 2>&1; then
+        if chown "${ACTOOLS_USER}:${ACTOOLS_USER}" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key"; then
+          log "age keypair generated and owned by ${ACTOOLS_USER}."
+        else
+          warn "age keypair generated but ownership could not be set to ${ACTOOLS_USER}; encrypted backups may fail under cron until ownership is corrected."
+        fi
+      else
+        warn "age keypair generated, but service user '${ACTOOLS_USER}' does not exist; encrypted-backup cron consumers may be unable to read the key."
+      fi
+    else
+      warn "age keypair private key created but public-key derivation failed; encrypted-backup features will be unavailable until repaired."
+    fi
+  else
+    warn "age-keygen failed; encrypted-backup features will be unavailable until a keypair is generated."
+  fi
+else
+  log "age keypair already present — preserving existing key."
 fi
 
 # =============================================================================
@@ -554,6 +589,14 @@ setup_stack() {
   touch "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
   chown 999:999 "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
   chmod 664 "$INSTALL_DIR/logs/db/slow.log" 2>/dev/null || true
+
+  # The recursive chown above re-owns the whole install dir to REAL_USER, which would
+  # clobber the age keypair's ownership. The encrypted-backup cron runs as ACTOOLS_USER,
+  # so re-assert the key's ownership here (after the recursive chown). warn-not-fail.
+  if [[ -f "${INSTALL_DIR}/.age-key.txt" ]] && id "${ACTOOLS_USER}" >/dev/null 2>&1; then
+    chown "${ACTOOLS_USER}:${ACTOOLS_USER}" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key" 2>/dev/null \
+      || warn "Could not re-assert age keypair ownership to ${ACTOOLS_USER}; encrypted backups may fail under cron."
+  fi
 
   BACKUP_PASS=$(get_backup_pass)
 
