@@ -24,12 +24,12 @@ The code for these features exists in the repository; install-time deployment wi
 - `modules/backup/deploy-pitr.sh` — deployment script (manual invocation)
 
 **What's missing:**
-- The standard installer does not generate the age keypair (`.age-public-key` and `.age-key.txt`) at install time
+- ✅ The standard installer now generates a per-deployment age keypair (`.age-key.txt` mode 600 + `.age-public-key`, owned by the service user) at install time — done; verified readable by the backup cron user on a fresh install
 - The standard installer does not invoke `deploy-pitr.sh` to install the encrypted backup cron entries
 - The standard install deploys `cron/backup.sh` (gzip-only, no encryption) via `/etc/cron.daily/actools-backup` instead
 
 **What's needed to complete:**
-1. Add age keypair generation step to the installer (per-deployment keypair)
+1. ✅ Add age keypair generation step to the installer (per-deployment keypair) — **done**
 2. Invoke `deploy-pitr.sh` during install to set up the encrypted backup cron jobs
 3. Update CLI `restore` and `restore-test` paths to handle `.age` files (detect extension, decrypt before restore)
 4. Update operational docs to describe the now-deployed encrypted system
