@@ -2,6 +2,10 @@
 # Deploy actools audit to any Actools server
 # Run from: $ACTOOLS_HOME (default: /home/actools)
 # Usage: bash deploy-audit.sh
+# NOTE (Phase 4.5): This generator is UNWIRED and STALE — invoked nowhere
+# (not by install, not by CI). Its embedded heredocs have DRIFTED from the repo
+# libs, so running it would regenerate from lossy copies and overwrite the
+# maintained lib/*.sh. DO NOT RUN. Reconcile-or-delete is deferred to Phase 5.
 
 set -euo pipefail
 

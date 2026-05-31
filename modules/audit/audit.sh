@@ -10,6 +10,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ACTOOLS_HOME="${ACTOOLS_HOME:-/home/sysadmin/actoolsDrupal}"
+readonly DRUPAL_CONTAINER_DOCROOT="/var/www/html"   # served docroot inside php container (compose mount; image symlinks /opt/drupal/web here)
+export DRUPAL_CONTAINER_DOCROOT
 # Re-exec with docker group if docker not accessible
 if ! docker info >/dev/null 2>&1; then
   if id -nG "$USER" 2>/dev/null | grep -qw docker; then

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Layer 1 — Drupal truth checks (drush-based)
+: "${DRUPAL_CONTAINER_DOCROOT:=/var/www/html}"   # self-default if sourced without the entrypoint constant (set -u-safe)
 
 run_drupal() {
   section_header "DRUPAL"
@@ -19,7 +20,7 @@ run_drupal() {
 
   # Cron last run
   local cron_last
-  cron_last=$(cd "${ACTOOLS_HOME:-$(pwd)}" && docker compose exec -T php_prod bash -c "cd /opt/drupal/web/prod && ./vendor/bin/drush state:get system.cron_last 2>/dev/null" 2>/dev/null | tr -d "[:space:]" || echo "0")
+  cron_last=$(cd "${ACTOOLS_HOME:-$(pwd)}" && docker compose exec -T php_prod bash -c "cd ${DRUPAL_CONTAINER_DOCROOT}/prod && ./vendor/bin/drush state:get system.cron_last 2>/dev/null" 2>/dev/null | tr -d "[:space:]" || echo "0")
   local now
   now=$(date +%s)
   if [[ -z "$cron_last" || "$cron_last" == "0" ]]; then
@@ -38,7 +39,7 @@ run_drupal() {
   # Config drift
   local drift_count
   local sync_file_count
-  sync_file_count=$(docker compose exec -T php_prod bash -c "find /opt/drupal/web/prod/web/sites/default/files -name '*.yml' -path '*/sync/*' 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]' || echo "0")
+  sync_file_count=$(docker compose exec -T php_prod bash -c "find ${DRUPAL_CONTAINER_DOCROOT}/prod/web/sites/default/files -name '*.yml' -path '*/sync/*' 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]' || echo "0")
   if [[ "$sync_file_count" == "0" ]]; then
     record_finding "INFO" "LOW" "Config: sync directory empty — run drush config:export after initial setup" "" "" ""
   else

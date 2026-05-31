@@ -75,26 +75,41 @@ drupal_provision() {
   "
 
   local domain_escaped="${BASE_DOMAIN//./\\.}"
-  docker compose exec -T "$php_svc" bash -c "cat > /tmp/php_inject.php << 'PHPEOF'
+  if docker compose exec -T "$php_svc" bash -c "
+    set -euo pipefail
+    cat > /tmp/php_inject.php << 'PHPEOF'
 \$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');
 // trusted_host_patterns_active
 PHPEOF
-grep -q trusted_host_patterns_active /opt/drupal/web/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject.php >> /opt/drupal/web/${env}/web/sites/default/settings.php
-rm -f /tmp/php_inject.php" 2>/dev/null && log "trusted_host_patterns set for ${env}" || warn "trusted_host_patterns injection failed for ${env}"
-  docker compose exec -T "$php_svc" bash -c "
-cat > /tmp/php_inject2.php << 'PHPEOF'
-\$settings['file_private_path'] = '/opt/drupal/web/${env}/private';
+    grep -q trusted_host_patterns_active ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject.php >> ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
+    rm -f /tmp/php_inject.php
+  " 2>/dev/null; then
+    log "trusted_host_patterns set for ${env}"
+  else
+    error "trusted_host_patterns injection failed for ${env}"
+  fi
+  if docker compose exec -T "$php_svc" bash -c "
+    set -euo pipefail
+    cat > /tmp/php_inject2.php << 'PHPEOF'
+\$settings['file_private_path'] = '${DRUPAL_CONTAINER_DOCROOT}/${env}/private';
 // file_private_path_active
 PHPEOF
-grep -q file_private_path_active /opt/drupal/web/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject2.php >> /opt/drupal/web/${env}/web/sites/default/settings.php
-rm -f /tmp/php_inject2.php" 2>/dev/null && log "file_private_path set for ${env}" || warn "file_private_path injection failed for ${env}"
-  docker compose exec -T "$php_svc" mkdir -p /opt/drupal/web/${env}/private 2>/dev/null || true
-  docker compose exec -T "$php_svc" bash -c "cd /opt/drupal/web/${env} && ./vendor/bin/drush cr" 2>/dev/null && log "Cache rebuilt after settings injection for ${env}" || true
+    grep -q file_private_path_active ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject2.php >> ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
+    rm -f /tmp/php_inject2.php
+  " 2>/dev/null; then
+    log "file_private_path set for ${env}"
+  else
+    error "file_private_path injection failed for ${env}"
+  fi
+  docker compose exec -T "$php_svc" mkdir -p "${DRUPAL_CONTAINER_DOCROOT}/${env}/private" 2>/dev/null || true
+  if docker compose exec -T "$php_svc" bash -c "cd ${DRUPAL_CONTAINER_DOCROOT}/${env} && ./vendor/bin/drush cr" 2>/dev/null; then
+    log "Cache rebuilt after settings injection for ${env}"
+  fi
 
   if [[ "${ENABLE_S3_STORAGE:-true}" == "true" ]]; then
     log "Injecting S3 credentials into settings.php for ${env}..."
     docker compose exec -T "$php_svc" bash -c "
-      CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
+      CONFIG_FILE=${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
       cat >> \"\$CONFIG_FILE\" <<'SETTINGS'
 
 // S3FS configuration -- injected by actools installer (v9.2).
@@ -117,7 +132,7 @@ if (!empty(\$_cdn_host)) {
   \$config['s3fs.settings']['domain']    = \$_cdn_host;
 }
 SETTINGS
-    " 2>/dev/null || warn "S3 settings.php injection failed for ${env}"
+    " 2>/dev/null || error "S3 settings.php injection failed for ${env}"
     log "S3 settings.php injection complete for ${env} (provider: ${STORAGE_PROVIDER})"
     [[ -n "${ASSET_CDN_HOST:-}" ]] && log "CDN: ${ASSET_CDN_HOST}"
     [[ -n "${S3_ENDPOINT_URL:-}" ]] && log "Endpoint: ${S3_ENDPOINT_URL}"
@@ -141,10 +156,11 @@ SETTINGS
   fi
 
   # Inject Redis cache and session settings using same pattern as trusted_host
-  docker compose exec -T "$php_svc" bash -c "
-    CONFIG_FILE=/opt/drupal/web/${env}/web/sites/default/settings.php
+  if docker compose exec -T "$php_svc" bash -c "
+    set -euo pipefail
+    CONFIG_FILE=${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
     if ! grep -q redis_cache_active \"\$CONFIG_FILE\" 2>/dev/null; then
-      cd /opt/drupal/web/${env} && ./vendor/bin/drush en redis --yes 2>/dev/null || true
+      cd ${DRUPAL_CONTAINER_DOCROOT}/${env} && ./vendor/bin/drush en redis --yes 2>/dev/null || true
       cat >> \"\$CONFIG_FILE\" << 'PHPEOF'
 
 // Redis cache backend - injected by actools installer
@@ -166,6 +182,10 @@ ini_set('session.use_only_cookies', TRUE);
 PHPEOF
       ./vendor/bin/drush cr 2>/dev/null || true
     fi
-  " 2>/dev/null && log "Redis cache and session settings injected for ${env}" || warn "Redis injection failed for ${env}"
+  " 2>/dev/null; then
+    log "Redis cache and session settings injected for ${env}"
+  else
+    error "Redis injection failed for ${env}"
+  fi
 
 }

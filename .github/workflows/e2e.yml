@@ -83,6 +83,18 @@ jobs:
           # Run installer (using the new 'install' name; 'fresh' still works)
           $SSH -t "cd /root/actoolsDrupal && sudo DEBIAN_FRONTEND=noninteractive ./actools.sh install" 2>&1 | tee install.log
 
+      - name: Verify settings.php injection (container-path regression guard)
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+          SETTINGS=/root/actoolsDrupal/docroot/prod/web/sites/default/settings.php
+          for marker in trusted_host_patterns_active file_private_path_active redis_cache_active "session.cookie_secure"; do
+            if ! $SSH "grep -q '$marker' $SETTINGS"; then
+              echo "FAIL: '$marker' not found in $SETTINGS — settings injection did not reach the served path"; exit 1
+            fi
+          done
+          echo "PASS: all injected markers present in the served settings.php"
+
       - name: Run audit
         run: |
           IP="${{ steps.server.outputs.server_ip }}"
