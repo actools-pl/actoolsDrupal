@@ -75,30 +75,29 @@ drupal_provision() {
   "
 
   local domain_escaped="${BASE_DOMAIN//./\\.}"
-  # shellcheck disable=SC2086
-  if docker compose exec -T "$php_svc" bash -c '
+  if docker compose exec -T "$php_svc" bash -c "
     set -euo pipefail
-    cat > /tmp/php_inject.php << PHPEOF
-$settings['trusted_host_patterns'] = array('^${domain_escaped}$', '^.*\\.${domain_escaped}$');
+    cat > /tmp/php_inject.php << 'PHPEOF'
+\$settings['trusted_host_patterns'] = array('^${domain_escaped}\$', '^.*\\.${domain_escaped}\$');
 // trusted_host_patterns_active
 PHPEOF
     grep -q trusted_host_patterns_active ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject.php >> ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
     rm -f /tmp/php_inject.php
-  ' 2>/dev/null; then
+  " 2>/dev/null; then
     log "trusted_host_patterns set for ${env}"
   else
     error "trusted_host_patterns injection failed for ${env}"
   fi
   # shellcheck disable=SC2086
-  if docker compose exec -T "$php_svc" bash -c '
+  if docker compose exec -T "$php_svc" bash -c "
     set -euo pipefail
-    cat > /tmp/php_inject2.php << PHPEOF
-$settings['file_private_path'] = '${DRUPAL_CONTAINER_DOCROOT}/${env}/private';
+    cat > /tmp/php_inject2.php << 'PHPEOF'
+\$settings['file_private_path'] = '${DRUPAL_CONTAINER_DOCROOT}/${env}/private';
 // file_private_path_active
 PHPEOF
     grep -q file_private_path_active ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php 2>/dev/null || cat /tmp/php_inject2.php >> ${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
     rm -f /tmp/php_inject2.php
-  ' 2>/dev/null; then
+  " 2>/dev/null; then
     log "file_private_path set for ${env}"
   else
     error "file_private_path injection failed for ${env}"
@@ -158,34 +157,33 @@ SETTINGS
   fi
 
   # Inject Redis cache and session settings using same pattern as trusted_host
-  # shellcheck disable=SC1078,SC1079,SC2026,SC2086
-  if docker compose exec -T "$php_svc" bash -c '
+  if docker compose exec -T "$php_svc" bash -c "
     set -euo pipefail
     CONFIG_FILE=${DRUPAL_CONTAINER_DOCROOT}/${env}/web/sites/default/settings.php
-    if ! grep -q redis_cache_active "$CONFIG_FILE" 2>/dev/null; then
+    if ! grep -q redis_cache_active \"\$CONFIG_FILE\" 2>/dev/null; then
       cd ${DRUPAL_CONTAINER_DOCROOT}/${env} && ./vendor/bin/drush en redis --yes 2>/dev/null || true
-      cat >> "$CONFIG_FILE" << PHPEOF
+      cat >> \"\$CONFIG_FILE\" << 'PHPEOF'
 
 // Redis cache backend - injected by actools installer
 // redis_cache_active
-$settings['redis.connection']['interface'] = 'PhpRedis';
-$settings['redis.connection']['host'] = 'redis';
-$settings['redis.connection']['port'] = 6379;
-$settings['cache']['default'] = 'cache.backend.redis';
-$settings['cache']['bins']['bootstrap'] = 'cache.backend.chainedfast';
-$settings['cache']['bins']['discovery'] = 'cache.backend.chainedfast';
-$settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
+\$settings['redis.connection']['interface'] = 'PhpRedis';
+\$settings['redis.connection']['host'] = 'redis';
+\$settings['redis.connection']['port'] = 6379;
+\$settings['cache']['default'] = 'cache.backend.redis';
+\$settings['cache']['bins']['bootstrap'] = 'cache.backend.chainedfast';
+\$settings['cache']['bins']['discovery'] = 'cache.backend.chainedfast';
+\$settings['cache']['bins']['config'] = 'cache.backend.chainedfast';
 // Session cookie security - injected by actools installer
 ini_set('session.cookie_secure', TRUE);
 ini_set('session.cookie_httponly', TRUE);
 ini_set('session.cookie_samesite', 'Strict');
 ini_set('session.use_strict_mode', TRUE);
 ini_set('session.use_only_cookies', TRUE);
-$settings['session_write_interval'] = 180;
+\$settings['session_write_interval'] = 180;
 PHPEOF
       ./vendor/bin/drush cr 2>/dev/null || true
     fi
-  ' 2>/dev/null; then
+  " 2>/dev/null; then
     log "Redis cache and session settings injected for ${env}"
   else
     error "Redis injection failed for ${env}"
