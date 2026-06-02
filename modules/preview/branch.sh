@@ -6,6 +6,28 @@
 #        actools branch --destroy feature-123
 # =============================================================================
 
+# Run a root mariadb command inside the db container with no password on the host argv.
+# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
+# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+
+# Pipe-fed root mariadb (e.g. restore): stdin is the piped SQL; $1 is the target database.
+# Password from container env (MYSQL_PWD); db name passed positionally. No password on host argv.
+db_exec_root_stdin() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$1"
+}
+
+# Container-exec mariadb-dump AS ROOT, password from the container's own env (no argv exposure).
+# Use ONLY where the dump must capture objects the backup user cannot read (migration snapshot, prod clone).
+# $@ = dump args (db name, --single-transaction, etc.). Caller pipes stdout to gzip.
+db_dump_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb-dump -uroot "$@"' _ "$@"
+}
+
+
+
 INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
 PREVIEW_DIR="${INSTALL_DIR}/previews"
 PREVIEW_STATE="${INSTALL_DIR}/.preview-state.json"
@@ -58,7 +80,7 @@ branch_create() {
   # Step 1: Clone prod database
   echo "Step 1/5: Cloning production database..."
   cd "$INSTALL_DIR"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+  db_exec_root <<SQL
 CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db_name}'@'%' IDENTIFIED BY '${db_pass}';
 GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_name}'@'%';
@@ -66,10 +88,8 @@ FLUSH PRIVILEGES;
 SQL
 
   # Dump prod and restore into preview DB
-  docker compose exec -T db mariadb-dump \
-    -uroot -p"${DB_ROOT_PASS}" actools_prod \
-    | docker compose exec -T db mariadb \
-      -uroot -p"${DB_ROOT_PASS}" "${db_name}"
+  db_dump_root actools_prod \
+    | db_exec_root_stdin "${db_name}"
   echo "  ✓ Database cloned"
 
   # Step 2: Copy docroot
@@ -173,7 +193,7 @@ branch_destroy() {
 
   # Drop database
   cd "$INSTALL_DIR"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+  db_exec_root <<SQL
 DROP DATABASE IF EXISTS \`${db_name}\`;
 DROP USER IF EXISTS '${db_name}'@'%';
 FLUSH PRIVILEGES;

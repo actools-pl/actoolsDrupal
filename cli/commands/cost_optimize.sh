@@ -4,6 +4,15 @@
 # Reads real Docker stats and suggests memory limit changes
 # =============================================================================
 
+# Run a root mariadb command inside the db container with no password on the host argv.
+# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
+# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+
+
+
 cmd_cost_optimize() {
   local stats_dir="/home/actools/logs/stats"
   local today
@@ -88,8 +97,7 @@ cmd_cost_optimize() {
   echo ""
   echo "=== MariaDB Buffer Pool Analysis ==="
   local bp_hit_rate
-  bp_hit_rate=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN \
-    -e "SELECT ROUND((1 - (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS
+  bp_hit_rate=$(db_exec_root -sN -e "SELECT ROUND((1 - (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS
         WHERE VARIABLE_NAME='Innodb_buffer_pool_reads') /
         (SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS
         WHERE VARIABLE_NAME='Innodb_buffer_pool_read_requests')) * 100, 2)
