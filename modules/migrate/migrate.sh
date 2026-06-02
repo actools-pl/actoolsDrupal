@@ -4,6 +4,28 @@
 # Uses gh-ost for large tables (>100k rows), drush updb for smaller ones
 # =============================================================================
 
+# Run a root mariadb command inside the db container with no password on the host argv.
+# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
+# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+
+# Pipe-fed root mariadb (e.g. restore): stdin is the piped SQL; $1 is the target database.
+# Password from container env (MYSQL_PWD); db name passed positionally. No password on host argv.
+db_exec_root_stdin() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$1"
+}
+
+# Container-exec mariadb-dump AS ROOT, password from the container's own env (no argv exposure).
+# Use ONLY where the dump must capture objects the backup user cannot read (migration snapshot, prod clone).
+# $@ = dump args (db name, --single-transaction, etc.). Caller pipes stdout to gzip.
+db_dump_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb-dump -uroot "$@"' _ "$@"
+}
+
+
+
 INSTALL_DIR="${INSTALL_DIR:-/home/actools}"
 MIGRATE_LOG="${INSTALL_DIR}/logs/migrate"
 
@@ -32,7 +54,7 @@ migrate_plan() {
 
   echo ""
   echo "── Large Tables (>100k rows — will use gh-ost) ──"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+  db_exec_root -sN <<SQL 2>/dev/null
 SELECT 
   table_name,
   table_rows,
@@ -45,7 +67,7 @@ SQL
 
   echo ""
   echo "── All Tables ──────────────────────────────"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+  db_exec_root -sN <<SQL 2>/dev/null
 SELECT 
   table_name,
   table_rows,
@@ -78,17 +100,14 @@ migrate_apply() {
   # Step 1: Pre-migration backup
   echo "Step 1/4: Pre-migration backup..."
   local snap="${INSTALL_DIR}/backups/pre_migrate_${env}_$(date +%F_%H%M%S).sql.gz"
-  docker compose exec -T db mariadb-dump \
-    -uroot -p"${DB_ROOT_PASS}" \
-    --single-transaction --quick \
-    "${db_name}" | gzip > "$snap"
+  db_dump_root --single-transaction --quick "${db_name}" | gzip > "$snap"
   echo "  ✓ Snapshot: ${snap}"
 
   # Step 2: Check for large tables needing gh-ost
   echo ""
   echo "Step 2/4: Checking table sizes..."
   local large_tables
-  large_tables=$(docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -sN <<SQL 2>/dev/null
+  large_tables=$(db_exec_root -sN <<SQL 2>/dev/null
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = '${db_name}' AND table_rows > 100000;
 SQL
@@ -156,10 +175,9 @@ migrate_rollback() {
 
   echo "Restoring..."
   cd "$INSTALL_DIR"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" \
+  db_exec_root \
     -e "DROP DATABASE IF EXISTS \`${db_name}\`; CREATE DATABASE \`${db_name}\` CHARACTER SET utf8mb4;"
-  gunzip -c "$latest" | docker compose exec -T db mariadb \
-    -uroot -p"${DB_ROOT_PASS}" "${db_name}"
+  gunzip -c "$latest" | db_exec_root_stdin "${db_name}"
 
   docker compose exec -T "php_${env}" bash -c \
     "cd /var/www/html/${env} && ./vendor/bin/drush cr"

@@ -3,6 +3,15 @@
 # modules/health/checks.sh — Phase 2: Semantic Health Checks
 # =============================================================================
 
+# Run a root mariadb command inside the db container with no password on the host argv.
+# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
+# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+
+
+
 health_check_all() {
   local issues=0
 
@@ -98,7 +107,7 @@ health_check_all() {
   echo ""
   echo "── MariaDB ─────────────────────────────"
   local slow_queries
-  slow_queries=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN \
+  slow_queries=$(db_exec_root -sN \
     -e "SHOW GLOBAL STATUS LIKE 'Slow_queries';" 2>/dev/null | awk '{print $2}')
   if [[ -n "$slow_queries" ]]; then
     if (( slow_queries > 100 )); then

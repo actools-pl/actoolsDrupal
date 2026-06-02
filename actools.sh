@@ -1040,6 +1040,42 @@ COMPOSE
   setup_backup_db_user "$BACKUP_PASS"
 }
 
+
+# =============================================================================
+# DB ACCESS HELPERS — remove password from host argv (3a)
+# =============================================================================
+# Run a root mariadb command inside the db container with no password on the host argv.
+# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
+# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+
+# Pipe-fed root mariadb (e.g. restore): stdin is the piped SQL; $1 is the target database.
+# Password from container env (MYSQL_PWD); db name passed positionally. No password on host argv.
+db_exec_root_stdin() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$1"
+}
+
+# Backup-user dump inside the db container, least-privilege preserved.
+# Password fed via a transient 0600 defaults-file written from a heredoc on stdin (never on any argv).
+# $1 = backup password; remaining args = dump args (db name, --single-transaction, etc.).
+# Caller pipes stdout to gzip as before.
+db_dump_container() {
+  local _bp="$1"; shift
+  docker exec -i actools_db sh -c '
+    umask 077
+    tmp="$(mktemp /tmp/actools-dump.XXXXXX.cnf)"
+    trap "rm -f \"$tmp\"" EXIT
+    cat > "$tmp"
+    mariadb-dump --defaults-extra-file="$tmp" "$@"
+  ' _ "$@" <<EOF
+[mariadb-dump]
+user=backup
+password=${_bp}
+EOF
+}
+
 # =============================================================================
 # BACKUP DB USER
 # =============================================================================
@@ -1047,7 +1083,7 @@ setup_backup_db_user() {
   local backup_pass="$1"
   wait_db
   # [v9.2 fix1] Use mariadb client (mysql removed in MariaDB 11.4)
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+  db_exec_root <<SQL
 CREATE USER IF NOT EXISTS 'backup'@'%' IDENTIFIED BY '${backup_pass}';
 GRANT SELECT, LOCK TABLES, SHOW VIEW ON *.* TO 'backup'@'%';
 FLUSH PRIVILEGES;
@@ -1080,7 +1116,7 @@ wait_db() {
 # =============================================================================
 check_db_creds() {
   cd "$INSTALL_DIR"
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" -e "SELECT 1;" &>/dev/null 2>&1 \
+  db_exec_root -e "SELECT 1;" &>/dev/null 2>&1 \
     || error "Cannot authenticate to MariaDB with current DB_ROOT_PASS.
   Revert DB_ROOT_PASS in actools.env to the previously generated value, or:
   docker compose exec db mariadb -uroot -p<old_pass> -e \"ALTER USER 'root'@'%' IDENTIFIED BY '<new_pass>';\""
@@ -1118,7 +1154,7 @@ install_env() {
   wait_db
 
   # [v9.2 fix1] Use mariadb client
-  docker compose exec -T db mariadb -uroot -p"${DB_ROOT_PASS}" <<SQL
+  db_exec_root <<SQL
 CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db_name}'@'%' IDENTIFIED BY '${db_pass}';
 GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_name}'@'%';
@@ -1166,9 +1202,13 @@ cd "\${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found: \${INSTALL_DIR}" >
 for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
   DB="actools_\${env}"
   DUMPFILE="\${BACKUP_DIR}/\${env}_db_\${TIMESTAMP}.sql.gz"
-  docker exec actools_db mariadb-dump \
-    --single-transaction --quick \
-    -ubackup -p"${backup_pass}" "\$DB" \
+  BK=\$(jq -r '.backup_user_pass // empty' "${INSTALL_DIR}/.actools-state.json")
+  printf '%s\n' '[mariadb-dump]' 'user=backup' "password=\$BK" \
+    | docker exec -i actools_db sh -c '
+        umask 077; t=$(mktemp /tmp/actools-dump.XXXXXX.cnf); trap "rm -f \"$t\"" EXIT
+        cat > "$t"
+        mariadb-dump --defaults-extra-file="$t" "$@"
+      ' _ --single-transaction --quick "\$DB" \
     | gzip > "\$DUMPFILE"
   sha256sum "\$DUMPFILE" > "\$DUMPFILE.sha256"
   sha256sum -c "\$DUMPFILE.sha256" &>/dev/null || {
@@ -1315,8 +1355,13 @@ case "\${1:-help}" in
   update)
     echo "Taking pre-update prod snapshot..."
     SNAP="\${INSTALL_DIR}/backups/pre_update_prod_\$(date +%F_%H%M%S).sql.gz"
-    docker exec actools_db mariadb-dump --single-transaction --quick \
-      -ubackup -p"\${BACKUP_PASS}" actools_prod \
+    BK=\$(jq -r '.backup_user_pass // empty' "\${INSTALL_DIR}/.actools-state.json")
+    printf '%s\n' '[mariadb-dump]' 'user=backup' "password=\$BK" \
+      | docker exec -i actools_db sh -c '
+          umask 077; t=\$(mktemp /tmp/actools-dump.XXXXXX.cnf); trap "rm -f \"\$t\"" EXIT
+          cat > "\$t"
+          mariadb-dump --defaults-extra-file="\$t" "\$@"
+        ' _ --single-transaction --quick actools_prod \
       | gzip > "\$SNAP" && echo "Snapshot: \$SNAP" || echo "Snapshot failed (non-fatal)"
     docker compose pull db redis
     docker compose up -d
@@ -1363,12 +1408,12 @@ case "\${1:-help}" in
     [[ -z "\$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
     echo "Testing DB restore: \$LATEST"
     sha256sum -c "\$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e \
+    docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$@"' _ -e \
       "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
-    gunzip -c "\$LATEST" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" actools_restore_test
-    TC=\$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN -e \
+    gunzip -c "\$LATEST" | docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$1"' _ actools_restore_test
+    TC=\$(docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$@"' _ -sN -e \
       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e "DROP DATABASE IF EXISTS actools_restore_test;"
+    docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$@"' _ -e "DROP DATABASE IF EXISTS actools_restore_test;"
     echo "DB restore test OK -- \${TC} tables restored."
     if [[ "${ENABLE_S3_STORAGE:-true}" == "true" ]]; then
       echo "Running S3 reachability check..."
@@ -1387,9 +1432,9 @@ case "\${1:-help}" in
     sha256sum -c "\$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
     read -rp "OVERWRITE actools_\${env}? [y/N] " reply
     [[ "\$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e \
+    docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$@"' _ -e \
       "DROP DATABASE IF EXISTS \`\$db\`; CREATE DATABASE \`\$db\` CHARACTER SET utf8mb4;"
-    gunzip -c "\$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" "\$db"
+    gunzip -c "\$BACKUP_FILE" | docker exec -i actools_db sh -c 'MYSQL_PWD="\$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "\$1"' _ "\$db"
     echo "Restore complete. Run: actools drush \$env cr"
     ;;
 
@@ -1602,8 +1647,7 @@ main() {
       BACKUP_PASS=$(get_backup_pass)
       log "Pre-update prod snapshot..."
       SNAP="$INSTALL_DIR/backups/pre_update_prod_$(date +%F_%H%M%S).sql.gz"
-      docker exec actools_db mariadb-dump --single-transaction --quick \
-        -ubackup -p"${BACKUP_PASS}" actools_prod \
+      db_dump_container "${BACKUP_PASS}" --single-transaction --quick actools_prod \
         | gzip > "$SNAP" && log "Snapshot: $SNAP" || warn "Snapshot failed (non-fatal)"
       docker compose pull db redis
       docker compose up -d
