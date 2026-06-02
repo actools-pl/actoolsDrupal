@@ -1205,9 +1205,9 @@ for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
   BK=\$(jq -r '.backup_user_pass // empty' "${INSTALL_DIR}/.actools-state.json")
   printf '%s\n' '[mariadb-dump]' 'user=backup' "password=\$BK" \
     | docker exec -i actools_db sh -c '
-        umask 077; t=$(mktemp /tmp/actools-dump.XXXXXX.cnf); trap "rm -f \"$t\"" EXIT
-        cat > "$t"
-        mariadb-dump --defaults-extra-file="$t" "$@"
+        umask 077; t=\$(mktemp /tmp/actools-dump.XXXXXX.cnf); trap "rm -f \"\$t\"" EXIT
+        cat > "\$t"
+        mariadb-dump --defaults-extra-file="\$t" "\$@"
       ' _ --single-transaction --quick "\$DB" \
     | gzip > "\$DUMPFILE"
   sha256sum "\$DUMPFILE" > "\$DUMPFILE.sha256"
