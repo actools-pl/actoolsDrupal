@@ -24,7 +24,7 @@ The code for these features exists in the repository; install-time deployment wi
 - `modules/backup/deploy-pitr.sh` — deployment script (manual invocation)
 
 **What's missing:**
-- ✅ The standard installer now generates a per-deployment age keypair (`.age-key.txt` mode 600 + `.age-public-key`, owned by the service user) at install time — done; verified readable by the backup cron user on a fresh install
+- ✅ The standard installer now generates a per-deployment age keypair (`.age-key.txt` mode 600 + `.age-public-key`, owned by the install operator) at install time — done. (No backup consumer is wired yet; the key is generated and stored, not yet read by any running job.)
 - The standard installer does not invoke `deploy-pitr.sh` to install the encrypted backup cron entries
 - The standard install deploys `cron/backup.sh` (gzip-only, no encryption) via `/etc/cron.daily/actools-backup` instead
 
@@ -33,6 +33,7 @@ The code for these features exists in the repository; install-time deployment wi
 2. Invoke `deploy-pitr.sh` during install to set up the encrypted backup cron jobs
 3. Update CLI `restore` and `restore-test` paths to handle `.age` files (detect extension, decrypt before restore)
 4. Update operational docs to describe the now-deployed encrypted system
+5. Introduce a configurable service user (and make the backup consumer run as it, owning the age key) — deferred to this feature-completion work, since only then does something actually run as that user. The current installer deliberately owns key material as the install operator (`REAL_USER`) and does not advertise a service-user knob.
 
 **Architectural reference:** [`docs/technical-roadmap.md`](docs/technical-roadmap.md) — Section 5A "High Availability & Disaster Recovery"
 
