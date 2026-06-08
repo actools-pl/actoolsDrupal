@@ -6,18 +6,31 @@
 #             installer/handoff.sh, cli/commands/doctor.sh, cli/actools
 # Source order: AFTER profile.sh (or the env file) has set ACTOOLS_PROFILE.
 #
-# Contract: every resolver function returns ONE token on stdout.
+# Contract: resolver functions return ONE value on stdout.
 #   Empty stdout  = no profile-specific handler; caller uses default behaviour.
-#   Non-empty     = call the named function instead of the default.
+#   Non-empty     = the handler to use instead of the default.
+#
+# Return-shape asymmetry (made explicit at P0-E):
+#   - resolve_feature_handler returns a FILE PATH to a handler script (3-tier
+#     resolution: active-profile override -> profile module -> default gate),
+#     or empty when nothing is found. See its header for the tiers.
+#   - resolve_preflight_check / resolve_doctor_check / resolve_handoff_section
+#     return a TOKEN (a function name like plus_*/test_*), or empty. These stay
+#     token-based until their live surfaces are wired (P0-H).
+#   - resolve_install_stage returns a concrete function NAME (never empty), as
+#     run_install_stage invokes it directly (P0-D).
+#   - resolve_profile_check is the locked-named umbrella that delegates to the
+#     per-surface token resolvers above.
 #
 # Profile semantics:
-#   community       — returns empty for all operations (no overrides; baseline)
-#   community-plus  — returns "plus_<operation>" for operations with handlers
-#   test            — returns "test_*" tokens (fixture profile, tests only)
+#   community       — returns empty/base for all operations (no overrides; baseline)
+#   community-plus  — returns plus_* tokens / resolved paths for handled operations
+#   test            — returns test_* tokens (fixture profile, tests only)
 #   <unknown>       — returns empty + emits WARN to stderr (fail-soft; default)
 #
 # D.0 defining property: community installs see ZERO behaviour change.
-# Resolver calls land in D.1+; D.0 establishes the seam only.
+# resolve_feature_handler / resolve_profile_check are internal primitives with
+# no live call sites yet; their callers land in P0-H. D.0 established the seam.
 #
 # Required globals at source time:
 #   INSTALL_DIR — repository / installation root
@@ -54,26 +67,81 @@ actools::dispatch::profile_is_valid() {
 # ---------------------------------------------------------------------------
 # actools::dispatch::resolve_feature_handler FEATURE
 #
-# Returns the handler name for a named feature in the active profile.
-# Callers use the result to decide which implementation to source/call.
+# Resolves a named feature to the PATH of the handler script that implements it
+# for the active profile, using the LOCKED 3-tier order (alignment §4.1):
+#
+#   Tier 1  ${INSTALL_DIR}/profiles.d/${ACTOOLS_PROFILE}/commands/${FEATURE}.sh
+#           (active-profile command override)
+#   Tier 2  ${INSTALL_DIR}/modules/${module}/${FEATURE}.sh
+#           for each module the active profile lists in PROFILE_FEATURE_MODULES
+#   Tier 3  ${INSTALL_DIR}/cli/commands/${FEATURE}.sh
+#           (the default handler / existing gate stub)
+#
+# The FIRST existing path wins; if none exist, output is empty (the caller then
+# runs its inline default). This is a deliberate change from the pre-P0-E token
+# contract — and it is safe because resolve_feature_handler has NO live call
+# sites yet (its callers are wired in P0-H).
+#
+# community short-circuits to empty BEFORE the 3-tier search: no community
+# override/module/default ships, so the search would yield empty anyway, but
+# the explicit short-circuit keeps community byte-identical and intent-clear
+# (alignment §4.1: "Returning empty for community is the correct baseline and
+# must be preserved").
+#
+# PROFILE_FEATURE_MODULES is an INTERNAL resolver convention used only by Tier
+# 2. It is intentionally NOT part of the public profile contract documented in
+# profiles/README.md and is NOT set by community.profile; only profiles that
+# ship feature modules define it. Read set -u-safely via a +x guard so its
+# absence (the common case) is a no-op.
 # ---------------------------------------------------------------------------
 actools::dispatch::resolve_feature_handler() {
     local feature="${1:-}"
-    case "${ACTOOLS_PROFILE:-community}" in
-        community)
-            echo ""
-            ;;
-        community-plus)
-            echo "plus_${feature}"
-            ;;
-        test)
-            echo "test_${feature}"
-            ;;
-        *)
-            echo "WARN: unknown ACTOOLS_PROFILE='${ACTOOLS_PROFILE}' — using community defaults" >&2
-            echo ""
-            ;;
-    esac
+    local profile="${ACTOOLS_PROFILE:-community}"
+
+    # community: preserved baseline — always empty (byte-identical).
+    if [[ "$profile" == "community" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # unknown profile: fail-soft — WARN to stderr, empty stdout (preserved).
+    if ! actools::dispatch::profile_is_valid "$profile"; then
+        echo "WARN: unknown ACTOOLS_PROFILE='${profile}' — using community defaults" >&2
+        echo ""
+        return 0
+    fi
+
+    local base="${INSTALL_DIR:-}"
+
+    # Tier 1 — active-profile command override.
+    local _override="${base}/profiles.d/${profile}/commands/${feature}.sh"
+    if [[ -f "$_override" ]]; then
+        echo "$_override"
+        return 0
+    fi
+
+    # Tier 2 — a module the active profile lists provides the feature.
+    if [[ -n "${PROFILE_FEATURE_MODULES+x}" ]]; then
+        local _mod _candidate
+        for _mod in "${PROFILE_FEATURE_MODULES[@]}"; do
+            _candidate="${base}/modules/${_mod}/${feature}.sh"
+            if [[ -f "$_candidate" ]]; then
+                echo "$_candidate"
+                return 0
+            fi
+        done
+    fi
+
+    # Tier 3 — default handler (or existing gate stub).
+    local _default="${base}/cli/commands/${feature}.sh"
+    if [[ -f "$_default" ]]; then
+        echo "$_default"
+        return 0
+    fi
+
+    # No handler anywhere — empty; caller uses its inline default.
+    echo ""
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -143,6 +211,35 @@ actools::dispatch::resolve_handoff_section() {
             ;;
         *)
             echo "WARN: unknown ACTOOLS_PROFILE='${ACTOOLS_PROFILE}' — using community defaults" >&2
+            echo ""
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# actools::dispatch::resolve_profile_check SURFACE CHECK_ID
+#
+# Locked-named umbrella (LOCKED §6 item 1 / Decision 1; alignment §4.2). The
+# spec names a single generic resolve_profile_check "<surface>" "<check_id>";
+# the repo implemented per-surface resolvers. This delegates to those existing
+# internals so the locked name resolves without re-opening the design. The
+# per-surface resolvers remain the implementations (kept as internals) and are
+# still token-based until their live surfaces are wired (P0-H).
+#
+#   surface = preflight -> resolve_preflight_check
+#   surface = doctor    -> resolve_doctor_check
+#   surface = handoff   -> resolve_handoff_section
+#   <other>             -> WARN to stderr + empty (fail-soft)
+# ---------------------------------------------------------------------------
+actools::dispatch::resolve_profile_check() {
+    local surface="${1:-}"
+    local check_id="${2:-}"
+    case "$surface" in
+        preflight) actools::dispatch::resolve_preflight_check "$check_id" ;;
+        doctor)    actools::dispatch::resolve_doctor_check "$check_id" ;;
+        handoff)   actools::dispatch::resolve_handoff_section "$check_id" ;;
+        *)
+            echo "WARN: unknown profile-check surface='${surface}' — no handler" >&2
             echo ""
             ;;
     esac

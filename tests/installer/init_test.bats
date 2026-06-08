@@ -19,6 +19,16 @@ setup() {
   export REAL_USER="${USER:-root}"
   export REAL_HOME="${HOME:-/root}"
 
+  # P0-E: init now sources installer/profile.sh and validates that the chosen
+  # profile's .profile file exists before persisting. Stage the files the
+  # default (community) path needs into the sandbox so these tests exercise the
+  # real init flow. (Staging dispatch.sh also means init runs under `set -u`,
+  # exactly as in production.)
+  mkdir -p "${INSTALL_DIR}/installer" "${INSTALL_DIR}/profiles"
+  cp "${BATS_TEST_DIRNAME}/../../installer/dispatch.sh" "${INSTALL_DIR}/installer/dispatch.sh"
+  cp "${BATS_TEST_DIRNAME}/../../installer/profile.sh"  "${INSTALL_DIR}/installer/profile.sh"
+  cp "${BATS_TEST_DIRNAME}/../../profiles/community.profile" "${INSTALL_DIR}/profiles/community.profile"
+
   # Source the helpers and the unit under test
   source "${BATS_TEST_DIRNAME}/../../installer/output.sh"
   source "${BATS_TEST_DIRNAME}/../../installer/init.sh"

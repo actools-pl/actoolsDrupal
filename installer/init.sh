@@ -18,12 +18,30 @@
 #   - Accept --profile flag; validate against allowed list; write to actools.env
 #   - Source installer/dispatch.sh for profile validation
 #
+# P0-E additions (profile validation, alignment §4.3):
+#   - Validate the chosen profile's .profile FILE exists before persisting
+#     actools.env (closes the latent --profile community-plus break: that
+#     profile is in the allowed list but its file is a Phase-1 product).
+#   - Source installer/profile.sh (the canonical loader) for the chosen profile
+#     and enforce its governance flags via the existing accessors:
+#       PROFILE_REQUIRES_ACTOR        -> requires --actor-id
+#       PROFILE_REQUIRES_CHANGE_TICKET -> requires --change-ticket
+#   - Consume PROFILE_INIT_FIELDS via profile_init_fields.
+#   - Community (REQUIRES_*=false, fields domain/email/site-name) is unchanged.
+#   - SCOPE: --actor-id / --change-ticket are VALIDATED but intentionally NOT
+#     persisted to actools.env. P0-E is validation scaffolding only; recording
+#     governance identity is a community-plus concern (forbidden here, → P0-H).
+#
 # Required globals (set by actools.sh before sourcing):
 #   INSTALL_DIR, ENV_FILE, REAL_USER, REAL_HOME
 # =============================================================================
 
 run_init() {
   local domain="" email="" site_name="" force=false profile="" unknown=""
+  local actor_id="" change_ticket=""
+  # Set after the .profile file is validated (just before sourcing profile.sh).
+  # Local so init never leaks profile identity into the caller's environment.
+  local ACTOOLS_PROFILE=""
 
   # Source dispatch.sh for profile validation.
   # DISPATCH_EXEMPT: init creates the env file; dispatch.sh is sourced here
@@ -39,6 +57,10 @@ run_init() {
       --site-name) site_name="${2:-}"; shift 2 ;;
       --profile)   profile="${2:-}"; shift 2 ;;
       --profile=*) profile="${1#*=}"; shift ;;
+      --actor-id)        actor_id="${2:-}"; shift 2 ;;
+      --actor-id=*)      actor_id="${1#*=}"; shift ;;
+      --change-ticket)   change_ticket="${2:-}"; shift 2 ;;
+      --change-ticket=*) change_ticket="${1#*=}"; shift ;;
       --force)     force=true; shift ;;
       --help|-h)
         _init_usage
@@ -66,7 +88,45 @@ run_init() {
   # Default to community if not specified.
   [[ -z "$profile" ]] && profile="community"
 
-  # Required-field validation
+  # P0-E §4.3(b) — validate the profile FILE exists BEFORE persisting actools.env.
+  # List membership (above) is necessary but not sufficient: community-plus is an
+  # allowed name whose .profile is a Phase-1 product that does not ship here, so
+  # `init --profile community-plus` must fail now rather than writing an env file
+  # that the next run cannot load. Fail with the same exit code as an unknown
+  # profile (3) — both are "this profile cannot be used here" conditions.
+  local profile_file="${INSTALL_DIR}/profiles/${profile}.profile"
+  if [[ ! -f "$profile_file" ]]; then
+    print_fail "--profile" "profile '${profile}' has no profile file"
+    print_fix "Expected: ${profile_file}"
+    print_fix "This build ships only the 'community' profile; others are separate products."
+    return 3
+  fi
+
+  # P0-E §4.3(a),(c),(d) — source the canonical loader for the chosen profile and
+  # read its governance contract through the existing accessors. The file is known
+  # to exist (checked just above), so profile.sh will not exit here. This sets the
+  # PROFILE_* contract variables and defines profile_requires_actor /
+  # profile_requires_change_ticket / profile_init_fields.
+  ACTOOLS_PROFILE="$profile"
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/profile.sh"
+
+  # P0-E §4.3(d) — consume PROFILE_INIT_FIELDS. The base fields domain/email/
+  # site-name are validated exactly as before (below). Any field a profile
+  # declares beyond those three is an "extra" whose collection/validation is a
+  # surface concern wired in P0-H; community declares no extras, so this loop is
+  # a no-op for the default profile and changes no community behavior.
+  local _extra_fields=() _f
+  while IFS= read -r _f; do
+    [[ -z "$_f" ]] && continue
+    case "$_f" in
+      domain|email|site-name) : ;;   # handled by the existing validation below
+      *) _extra_fields+=("$_f") ;;   # declared but not yet wired (→ P0-H)
+    esac
+  done < <(profile_init_fields 2>/dev/null || true)
+
+  # Required-field validation. Funnels missing/invalid base fields AND missing
+  # governance flags into a single failure path (exit 1).
   local missing=0
   if [[ -z "$domain" ]]; then
     print_fail "--domain" "required"
@@ -77,6 +137,19 @@ run_init() {
     missing=1
   elif [[ ! "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
     print_fail "--email" "invalid format: $email"
+    missing=1
+  fi
+
+  # P0-E §4.3(c) — profile-driven governance. Community sets both flags false, so
+  # neither check fires for the default profile (behavior preserved). A profile
+  # that sets PROFILE_REQUIRES_ACTOR / PROFILE_REQUIRES_CHANGE_TICKET true makes
+  # the corresponding flag mandatory. Validated only — NOT persisted (see header).
+  if profile_requires_actor && [[ -z "$actor_id" ]]; then
+    print_fail "--actor-id" "required by profile '${profile}'"
+    missing=1
+  fi
+  if profile_requires_change_ticket && [[ -z "$change_ticket" ]]; then
+    print_fail "--change-ticket" "required by profile '${profile}'"
     missing=1
   fi
 
@@ -115,6 +188,9 @@ run_init() {
     "$ENV_FILE"
 
   # Write ACTOOLS_PROFILE to env file — always explicit after init.
+  # NOTE (P0-E): --actor-id / --change-ticket were validated above but are
+  # intentionally NOT written here — recording governance identity is a
+  # community-plus concern deferred to P0-H; P0-E only proves the requirement.
   {
     echo ""
     echo "# -- Profile (set by actools init; do not edit directly) ---------------"
@@ -138,25 +214,27 @@ run_init() {
 _init_usage() {
   cat <<'USAGE'
 Usage:
-  sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"] [--profile <p>] [--force]
+  sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"] [--profile <p>] \
+                         [--actor-id <id>] [--change-ticket <ref>] [--force]
 
 Flags:
-  --domain      Required. Base domain, e.g. example.com
-  --email       Required. Drupal admin email address.
-  --site-name   Optional. Drupal site name. Defaults to the domain.
-  --profile     Optional. Deployment profile. Defaults to 'community'.
-                Allowed: community, community-plus
-  --force       Overwrite an existing actools.env.
+  --domain         Required. Base domain, e.g. example.com
+  --email          Required. Drupal admin email address.
+  --site-name      Optional. Drupal site name. Defaults to the domain.
+  --profile        Optional. Deployment profile. Defaults to 'community'.
+                   This build ships only 'community'; other profiles
+                   (e.g. community-plus) are separate products and cannot be
+                   selected until their profile file is installed.
+  --actor-id       Operator identity. Required only when the selected profile
+                   sets PROFILE_REQUIRES_ACTOR (community does not).
+  --change-ticket  Change-ticket reference. Required only when the selected
+                   profile sets PROFILE_REQUIRES_CHANGE_TICKET (community does not).
+  --force          Overwrite an existing actools.env.
 
 Example:
   sudo ./actools.sh init \
     --domain example.com \
     --email admin@example.com \
     --site-name "Example Site"
-
-  sudo ./actools.sh init \
-    --domain example.com \
-    --email admin@example.com \
-    --profile community-plus
 USAGE
 }

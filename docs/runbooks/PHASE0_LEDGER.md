@@ -85,6 +85,215 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 010 — P0-E · Profile Validation and Resolver Contract
+
+Date: 2026-06-09
+Branch: `phase0/P0-E-profile-validation-and-resolver`
+Commit SHA: (recorded by operator at apply time)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-E — Profile Validation and Resolver Contract
+Task prompt source: `P0-E-profile-validation-and-resolver.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Make profile selection **safe at `init` time** and **complete the resolver
+contract** to the LOCKED shape — with community behaviour byte-identical and **no
+community-plus feature work**. Two pieces: (1) `init` sources `profile.sh`,
+validates the `.profile` file exists, and enforces governance flags **before
+persisting** `actools.env`; (2) `resolve_feature_handler` becomes 3-tier
+path-resolution (alignment §4.1) and a LOCKED-named `resolve_profile_check`
+umbrella (alignment §4.2) is added, both as internal primitives still **uncalled
+on the live path** (their callers are P0-H).
+
+### Scope note (P0-D handoff superseded by the P0-E spec §1)
+
+The P0-D handoff named the next task as "replace the hardcoded
+`source community.profile` in `main()` with `ACTOOLS_PROFILE`-driven selection."
+The P0-E spec (and its operationalized prompt §1) explicitly **corrects** that:
+`actools.sh` is **not** in P0-E's allowed files and must not be touched; wiring
+the install path to the selected profile is **P0-H**. P0-E therefore changes **no
+runtime install behaviour** — the only live behavioural change is in the `init`
+command. `actools.sh` is byte-identical (`git diff HEAD -- actools.sh` empty).
+
+### Files changed
+
+- `installer/init.sh` — sources `installer/profile.sh` for the chosen profile;
+  **validates the `.profile` file exists and fails before persisting**
+  `actools.env` (exit 3 when absent); enforces `PROFILE_REQUIRES_ACTOR` /
+  `PROFILE_REQUIRES_CHANGE_TICKET` via the existing `profile_requires_actor`
+  (`profile.sh:38`) / `profile_requires_change_ticket` (`profile.sh:39`); consumes
+  `PROFILE_INIT_FIELDS` via `profile_init_fields` (`profile.sh:40`). Adds
+  `--actor-id` / `--change-ticket` (and `=` forms), **validated but not
+  persisted** (governance identity recording is P0-H). `ACTOOLS_PROFILE` is
+  declared **local** in `run_init` so init never leaks profile identity. All four
+  accessors already existed — this is **wiring, not authoring**.
+- `installer/dispatch.sh` —
+  - `actools::dispatch::resolve_feature_handler` rewritten to **3-tier PATH
+    resolution** (alignment §4.1): Tier 1 `profiles.d/${ACTOOLS_PROFILE}/commands/${feature}.sh`
+    → Tier 2 `modules/${module}/${feature}.sh` (module the active profile lists
+    via the internal `PROFILE_FEATURE_MODULES`, read `+x`-guarded for `set -u`
+    safety) → Tier 3 `cli/commands/${feature}.sh`. First existing path wins, else
+    empty. **community short-circuits to empty before the search** (byte-identical,
+    non-negotiable). Unknown profile → WARN + empty (preserved fail-soft).
+  - **new** `actools::dispatch::resolve_profile_check <surface> <check_id>`
+    (alignment §4.2) — umbrella delegating to `resolve_preflight_check` /
+    `resolve_doctor_check` / `resolve_handoff_section`; unknown surface → WARN +
+    empty. The per-surface resolvers are **kept as the internals**.
+  - File header updated to document the **return-shape asymmetry** (feature →
+    path; preflight/doctor/handoff → token; install-stage → function name;
+    profile-check → delegated token).
+- `tests/installer/init_profile_test.bats` — **new**, 10 tests (init-time
+  validation, governance fire, non-persistence, community preserved).
+- `tests/test_d0_dispatch.bats` — **+15 tests** (33 → 48): 3-tier order (Block 9),
+  `resolve_profile_check` delegation (Block 10), side-effect-free loading +
+  negative control (Block 11). The single community-plus `resolve_feature_handler`
+  test was updated from the `plus_doctor_deep` token to the resolved tier-3 path.
+- `tests/fixtures/profiles/fake-actor.profile`, `…/fake-ticket.profile` —
+  **new test-only fixtures** (never shipped; staged as `profiles/test.profile`).
+- `tests/installer/init_test.bats` — setup now stages `dispatch.sh`, `profile.sh`,
+  and `community.profile` into the sandbox so the 11 existing tests exercise the
+  real (profile-sourcing) init flow under `set -u`.
+- `docs/architecture/runtime-authority-map.md` — Init, Profile-loading, and
+  Resolver-layer rows updated; test-surface count 88 → 113; Review question
+  answered for P0-E.
+- `docs/CHANGELOG.md`, `docs/releases/P0-E-profile-validation-and-resolver.md`,
+  `docs/tests/P0-E-profile-validation-and-resolver.md`,
+  `docs/runbooks/HANDOFF-P0-E.md`, and this ledger entry (Entry 010).
+
+### Files intentionally not changed
+
+- `actools.sh` — **forbidden this phase**; byte-identical (no install-path wiring;
+  that is P0-H).
+- `profiles/community.profile` — read via the loader; **not modified** (governance
+  flags already `false`, `PROFILE_INIT_FIELDS=(domain email site-name)`).
+- All generator heredocs, `cli/*`, `modules/*`, `core/*`, `.github/workflows/*`.
+- `installer/profile.sh` — **in the allowed set but not edited**: all four
+  accessors already existed and were sufficient (wiring only).
+- `tests/helpers/capture_golden_outputs.sh` — untouched; golden harness guard not
+  widened/disabled.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Init (`installer/init.sh`) | validated profile **list membership** only; never sourced `profile.sh`; `--actor-id`/`--change-ticket` unhandled; wrote `actools.env` for any allowed *name* (incl. `community-plus`, whose file is absent) | sources `profile.sh`; validates **file existence** and **fails before persisting**; enforces actor/ticket via accessors; consumes `PROFILE_INIT_FIELDS`. Community unchanged |
+| Resolver — `resolve_feature_handler` | returned a **token** (`community`→`""`; `community-plus`→`plus_<f>`; `test`→`test_<f>`) | returns a **PATH** via 3-tier resolution (override → module → default), first existing wins, else empty; `community`→`""` short-circuit preserved. **No live call sites** → no runtime behaviour change |
+| Resolver — `resolve_profile_check` | **absent (0 hits)** | **present** — LOCKED-named umbrella delegating to the per-surface internals |
+| Resolver — preflight/doctor/handoff | token-based | **unchanged** (token-based; surfaces wired in P0-H) |
+| Install path / `actools.sh` | dispatcher-driven (P0-D) | **unchanged** (P0-E does not touch `actools.sh`) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | no generator edited; golden drift 6/6 |
+| Caddyfile | Not touched | no generator edited; golden drift 6/6 |
+| my.cnf | Not touched | no generator edited; golden drift 6/6 |
+| Dockerfiles | Not touched | no generator edited; golden drift 6/6 |
+| CLI | Not touched | `setup_cli` heredoc + `cli/actools` unedited; golden drift 6/6 |
+
+### Tests run
+
+```bash
+export PATH="$HOME/.npm-global/bin:$PATH"
+
+# BEFORE (clean HEAD, P0-E WIP stashed):
+bats tests/generated/golden_drift_test.bats                                 # 6/6
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 88/88
+
+# Syntax:
+bash -n actools.sh; bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n # clean
+
+# AFTER:
+bats tests/generated/golden_drift_test.bats                                 # 6/6 (byte-identical)
+bats tests/installer/init_profile_test.bats                                 # 10/10 (new)
+bats tests/test_d0_dispatch.bats                                            # 48/48 (33 + 15)
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 113/113
+```
+
+### Test result
+
+PASS — golden drift **6/6** before and after (generated output byte-identical);
+**113/113** regression+new; **119/119** overall. `actools.sh` byte-identical.
+
+### Documentation updated
+
+- [x] Runtime authority map — Init / Profile-loading / Resolver-layer rows; test count 88→113; Review question
+- [ ] Generated-file contract — no generated-file change
+- [ ] CLI authority contract — no CLI-authority change (init is CLI-adjacent but the change is validation, not authority)
+- [ ] Operator target docs — none this phase
+- [x] Test plan / report — `docs/tests/P0-E-profile-validation-and-resolver.md`
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated (Unreleased → P0-E section)
+- [x] Release note added — `docs/releases/P0-E-profile-validation-and-resolver.md` (incl. Rollback)
+- [x] Test report added — `docs/tests/P0-E-profile-validation-and-resolver.md`
+- [ ] Review notes — pending Review Gate
+
+### Known risks
+
+- **Token→path contract change (`resolve_feature_handler`).** This changes the
+  resolver's return shape for non-community profiles. It is safe **only** because
+  the function has **zero live call sites** (verified — its callers are wired in
+  P0-H). When P0-H wires it in, callers must consume a **path** (source/execute),
+  not a token. Documented in the CHANGELOG, release note, and authority map.
+- **Resolver asymmetry.** `resolve_feature_handler` is path-based while
+  preflight/doctor/handoff stay token-based; `resolve_profile_check` therefore
+  returns tokens today (it delegates to the token resolvers). Intentional and
+  documented; reconciled when the surfaces are wired (P0-H).
+- **`PROFILE_FEATURE_MODULES` is an internal resolver convention.** It is not part
+  of the public profile contract in `profiles/README.md` and is not set by
+  `community.profile`; only profiles shipping feature modules define it. Read
+  `+x`-guarded so its absence (the common case) is a no-op under `set -u`.
+- **`init` now sources `profile.sh`.** For community this is inert (flags false,
+  base fields). A profile that declares `PROFILE_INIT_FIELDS` beyond
+  domain/email/site-name has those "extra" fields collected but **not yet
+  validated/collected** at init — that surface wiring is P0-H (community declares
+  no extras, so this is a no-op today).
+- **Governance identity not persisted.** `--actor-id`/`--change-ticket` are
+  validated but not written to `actools.env` (P0-H concern). Tests assert
+  non-persistence.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate session (ideally a different model)** renders
+APPROVED / NEEDS REVISION / BLOCKED. Reviewer: confirm (1) golden 6/6 unchanged
+and `actools.sh` byte-identical; (2) only allowed files touched; (3)
+`resolve_feature_handler` 3-tier order is correct **and community short-circuits
+to empty even with a staged override**; (4) `init` fails **before** persisting for
+`community-plus`/absent profiles and community is unchanged; (5) the token→path
+asymmetry is acceptable for now (reconciled at P0-H).
+
+### Next safe task
+
+**P0-H — Surface wiring.** Wire the completed resolvers into the live surfaces:
+route preflight extras via `resolve_profile_check "preflight" …` (fail unknown for
+non-default), replace doctor's hard `source doctor_deep.sh` with
+`resolve_feature_handler`, replace handoff's silent `*)` with
+`resolve_handoff_section`, and wire the install path to the **selected** profile
+(the `ACTOOLS_PROFILE`-driven selection the P0-D handoff anticipated, now safe
+because `init` validates the profile file). Golden 6/6 must remain green. (The
+Review Gate owns final sequencing.)
+
+### Forbidden next scope
+
+No community-plus modules; no deep audit/doctor features; no governance gates
+beyond validation scaffolding; no generated-file byte change; no widening or
+disabling the golden harness range guard.
+
+### Community-plus status
+
+Still **BLOCKED**. Phase 0 not closed. P0-E adds the init-time safety and the
+resolver primitives but wires nothing into the live install path.
+
+---
+
 ## Entry 009 — P0-D · Install-Stage Dispatcher Skeleton
 
 Date: 2026-06-08
