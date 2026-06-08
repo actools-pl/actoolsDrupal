@@ -1603,24 +1603,19 @@ main() {
       fi
       [[ "$reply" =~ ^[Yy]$ ]] || { log "Aborted."; exit 0; }
 
-      setup_stack
-
-      IFS=',' read -ra ENVS <<< "$ENVIRONMENTS"
-
-      TOTAL_RAM=$(free -m | awk '/Mem:/ {print $2}')
-      if [[ "${PARALLEL_INSTALL:-false}" == "true" ]] && (( TOTAL_RAM < 6000 )); then
-        warn "Only ${TOTAL_RAM}MB RAM -- forcing sequential install."
-        PARALLEL_INSTALL=false
-      fi
-
-      if [[ "${PARALLEL_INSTALL:-false}" == "true" ]]; then
-        log "Parallel install (${TOTAL_RAM}MB RAM)..."
-        for env in "${ENVS[@]}"; do install_env "${env// /}" & done
-        wait
-        log "All environments installed."
-      else
-        for env in "${ENVS[@]}"; do install_env "${env// /}"; done
-      fi
+      # P0-D: route the install through the stage dispatcher instead of a
+      # hardcoded setup_stack + install_env sequence. Community is the only
+      # shipped profile and P0-D is community-only; profile SELECTION by
+      # ACTOOLS_PROFILE arrives in P0-E. Sourcing the profile here yields the
+      # canonical PROFILE_INSTALL_STAGES=(host stack db drupal worker); the
+      # stage handlers in installer/dispatch.sh call setup_stack and the
+      # per-env install_env loop UNCHANGED, so behavior and generated output
+      # stay byte-identical.
+      # shellcheck source=/dev/null
+      source "${INSTALL_DIR}/profiles/community.profile"
+      for stage in "${PROFILE_INSTALL_STAGES[@]}"; do
+        actools::dispatch::run_install_stage "$stage"
+      done
 
       setup_backup_cron
       setup_cli
