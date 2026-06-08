@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — P0-D Install-Stage Dispatcher Skeleton
+
+### Changed — runtime (behaviour-preserving)
+- `actools.sh` `main()` (fresh install) now routes through an install-stage
+  dispatcher instead of a hardcoded call sequence: it sources
+  `profiles/community.profile` and iterates `PROFILE_INSTALL_STAGES` via
+  `actools::dispatch::run_install_stage`. The trailing post-stage steps
+  (`setup_backup_cron`, `setup_cli`, `tls_check`) are unchanged.
+
+### Added — runtime
+- `installer/dispatch.sh` — install-stage dispatcher (append-only, behind the
+  existing module guard): `actools::dispatch::resolve_install_stage`,
+  `actools::dispatch::run_install_stage`, and the community base handlers
+  `actools::install::stage_{host,stack,db,drupal,worker}`. Stage→handler
+  mapping for this phase: `stack`→`setup_stack` (unchanged); `drupal`→the
+  per-environment `install_env` loop (verbatim, incl. parallel/sequential +
+  low-RAM downgrade); `host`/`db`/`worker`→documented no-ops folded into the
+  existing monoliths until P0-G.
+- `tests/installer/dispatch_stages_test.bats` — 12 tests (stage order,
+  real-handler behaviour preservation, append-only stage guard, resolver
+  correctness).
+
+### Behaviour / generated files
+- **No behaviour change** on the default community install: same operations,
+  same order, same parallel/sequential + low-RAM logic, same trailing steps.
+- **No generated-file change**: the golden drift suite stays **6/6**
+  (byte-identical) before and after. No generator heredoc was touched.
+
+### Not changed
+- `profiles/community.profile` — `PROFILE_INSTALL_STAGES` was already canonical;
+  read, not redefined.
+- `setup_stack` / `install_env` / `setup_backup_cron` / `setup_cli` / `tls_check`
+  bodies — untouched (the dispatcher calls them unchanged).
+- No CLI-authority change (P0-F), no module extraction (P0-G), no community-plus
+  stage implementation, no change to the golden harness range guard.
+
+---
+
 ## [Unreleased] / Documentation — P0-B Target Operator Docs + Architecture Reconciliation
 
 ### Added — target operator documentation (unreleased; Phase 0 target behaviour only)

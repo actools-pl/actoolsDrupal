@@ -85,6 +85,200 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 009 — P0-D · Install-Stage Dispatcher Skeleton
+
+Date: 2026-06-08
+Branch: `phase0/P0-D-install-stage-dispatcher`
+Commit SHA: (recorded by operator at apply time)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-D — Install-Stage Dispatcher Skeleton
+Task prompt source: `P0-D-install-stage-dispatcher.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Introduce an install-stage dispatcher (`actools::dispatch::resolve_install_stage`
++ `actools::dispatch::run_install_stage`) and route the default `fresh` install
+through it by iterating `PROFILE_INSTALL_STAGES`, with **byte-identical generated
+output and byte-identical behaviour**. This is the seam that makes install order
+profile-driven and append-only (it is what makes LOCKED Decision 3 —
+community-plus *appends* `plus_*` — enforceable). No module extraction (P0-G);
+no community-plus stages; no CLI-authority change (P0-F).
+
+### Stage → handler mapping decision (the §5 design decision)
+
+The flat community stage list `(host stack db drupal worker)` does not yet map
+one-to-one onto the two coarse monoliths (`setup_stack` builds host + stack +
+worker; `install_env` does db + Drupal per environment inside a parallel/RAM
+loop). Full per-stage decomposition is **P0-G**. For P0-D the minimal
+behaviour-preserving wiring is:
+
+| Stage  | Handler                          | Behaviour |
+|---|---|---|
+| host   | `actools::install::stage_host`   | no-op — folded inside `setup_stack` until P0-G |
+| stack  | `actools::install::stage_stack`  | calls `setup_stack` **unchanged** (host + stack + worker) |
+| db     | `actools::install::stage_db`     | no-op — folded inside the per-env `install_env` loop until P0-G |
+| drupal | `actools::install::stage_drupal` | runs the full per-env `install_env` loop **verbatim** (ENVIRONMENTS split + RAM probe + low-RAM downgrade + parallel/sequential branch) |
+| worker | `actools::install::stage_worker` | no-op — worker container built inside `setup_stack` until P0-G |
+
+Iterating host→stack→db→drupal→worker therefore executes
+`(no-op)→setup_stack→(no-op)→install_env loop→(no-op)`, byte-for-byte the legacy
+sequence. **Judgment call (flagged):** the DB work is anchored under the `drupal`
+handler (the `db` handler is a documented no-op) because `install_env` performs
+DB creation and Drupal install together; this is trivially flippable and both
+arrangements keep the golden net and the stage-order test green.
+
+**Resolver asymmetry (documented):** the existing feature/preflight/doctor/handoff
+resolvers echo `""` for community (callers treat empty as "run default inline"),
+but an install stage MUST resolve to a concrete, runnable function because
+`run_install_stage` calls it. So `resolve_install_stage` returns
+`actools::install::stage_<stage>` for community (and as the unknown-profile
+fail-soft fallback, after a WARN), never empty. `community-plus`→`plus_<stage>`
+and `test`→`test_<stage>` mirror the sibling resolvers as forward-looking
+scaffolding (only community runs in P0-D).
+
+### Files changed
+
+- `installer/dispatch.sh` — **append-only** (behind the existing module guard;
+  no edits above line 191). Adds `actools::dispatch::resolve_install_stage`,
+  `actools::dispatch::run_install_stage`, and the five community base handlers
+  `actools::install::stage_{host,stack,db,drupal,worker}`. The `drupal` handler
+  contains the per-env install loop copied verbatim from `main()`.
+- `actools.sh` — **`main()` only** (fresh mode). Replaced the hardcoded
+  `setup_stack` + per-env `install_env` block (old lines 1606–1623) with:
+  `source "${INSTALL_DIR}/profiles/community.profile"` then
+  `for stage in "${PROFILE_INSTALL_STAGES[@]}"; do actools::dispatch::run_install_stage "$stage"; done`.
+  The trailing post-stage steps `setup_backup_cron` / `setup_cli` / `tls_check`
+  are unchanged. No function above `main()` was touched, so the harness line
+  ranges for `setup_stack` (569–1028) and `setup_cli` (1247–1528) are preserved.
+- `tests/installer/dispatch_stages_test.bats` — **new**, 12 BATS tests (stage
+  order; real-handler behaviour preservation incl. low-RAM downgrade;
+  append-only stage guard; resolver correctness + fail-loud-on-undefined-handler).
+- `docs/architecture/runtime-authority-map.md` — dispatcher now wired (see below).
+- `docs/CHANGELOG.md`, `docs/releases/P0-D-install-stage-dispatcher.md`,
+  `docs/tests/P0-D-install-stage-dispatcher.md`, `docs/runbooks/HANDOFF-P0-D.md`,
+  and this ledger entry (Entry 009).
+
+### Files intentionally not changed
+
+- `profiles/community.profile` — `PROFILE_INSTALL_STAGES=(host stack db drupal worker)`
+  is already canonical (line 28); the dispatcher reads it, does not redefine it.
+- `setup_stack`, `install_env`, `setup_backup_cron`, `setup_cli`, `tls_check`
+  bodies — untouched (behaviour provided unchanged).
+- All generated-file generators (`actools.sh:595/607/624/634/663/795`, the
+  `setup_cli` heredoc) — untouched.
+- `tests/helpers/capture_golden_outputs.sh` — untouched; `SS_*/SC_*` ranges
+  still valid (the guard was NOT widened, commented, or disabled).
+- `.github/workflows/*` (CI guard is P0-I), `modules/*`, `core/*`, `cli/*`.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Install-stage orchestration | `main()` (fresh) ran a hardcoded `setup_stack` then a per-env `install_env` loop | `main()` iterates `PROFILE_INSTALL_STAGES` and calls `actools::dispatch::run_install_stage` per stage; handlers call the same monoliths unchanged |
+| Resolver layer (`installer/dispatch.sh`) | 4 resolvers (feature, preflight, doctor, handoff); install stages had no resolver | + `resolve_install_stage` (5th resolver) and `run_install_stage` (runner) + 5 community base stage handlers |
+| Profile read in `main()` | `main()` was profile-blind (0 refs to `PROFILE_INSTALL_STAGES`) | `main()` sources `community.profile` to obtain the stage list (profile **selection** by `ACTOOLS_PROFILE` remains P0-E) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | generator unedited; golden drift 6/6 |
+| Caddyfile | Not touched | generator unedited; golden drift 6/6 |
+| my.cnf | Not touched | generator unedited; golden drift 6/6 |
+| Dockerfiles | Not touched | generators unedited; golden drift 6/6 |
+| CLI | Not touched | `setup_cli` heredoc + `cli/actools` unedited; golden drift 6/6 |
+
+### Tests run
+
+```bash
+export PATH="$HOME/.npm-global/bin:$PATH"
+
+# BEFORE any change — baseline green:
+bats tests/generated/golden_drift_test.bats          # 6/6
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 76/76
+
+# syntax (all shell):
+bash -n actools.sh
+bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n   # all OK
+
+# AFTER changes — still green:
+bats tests/generated/golden_drift_test.bats          # 6/6 (byte-identical)
+bats tests/installer/dispatch_stages_test.bats       # 12/12 (new)
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats     # 88/88 (76 + 12)
+# total across golden + regression + new = 94/94
+```
+
+### Test result
+
+PASS — golden drift 6/6 before **and** after (generated bytes unchanged);
+12/12 new dispatcher tests; 88/88 regression+new; 94/94 overall. Function line
+ranges re-verified unchanged (`setup_stack` 569/1028, `setup_cli` 1247/1528) so
+`_assert_fn_range` still holds.
+
+### Documentation updated
+
+- [x] Runtime authority map — install-stage orchestration + resolver rows updated
+- [ ] Generated-file contract — no generated-file change
+- [ ] CLI authority contract — no CLI-authority change
+- [ ] Operator target docs — none this phase
+- [x] Test plan / report — `docs/tests/P0-D-install-stage-dispatcher.md`
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated (Unreleased → runtime change)
+- [x] Release note added — `docs/releases/P0-D-install-stage-dispatcher.md` (incl. Rollback)
+- [x] Test report added — `docs/tests/P0-D-install-stage-dispatcher.md`
+- [ ] Review notes — pending Review Gate
+
+### Known risks
+
+- **db/drupal anchor (judgment call):** DB creation runs inside the `drupal`
+  handler (the `db` handler is a no-op). This preserves current behaviour exactly
+  but means the `db`↔`drupal` split is cosmetic until P0-G genuinely separates
+  `install_env` into DB and Drupal handlers. Flipping the anchor is trivial and
+  test-covered.
+- **`PARALLEL_INSTALL` global mutation:** the `drupal` handler intentionally does
+  NOT declare `PARALLEL_INSTALL` local, mirroring the legacy in-`main()` mutation
+  during the low-RAM downgrade. `ENVS`/`TOTAL_RAM`/`env` ARE local (every other
+  use site re-derives them; nothing reads them after the loop), which is
+  provably behaviour-neutral.
+- **Profile sourced inside `main()`:** P0-D hardcodes `source community.profile`.
+  P0-E must replace this with profile-driven selection via `ACTOOLS_PROFILE`
+  (using `actools::cli::resolve_profile`), at which point the hardcode is removed.
+- **Line-range coupling (unchanged):** the harness still hardcodes `setup_stack`
+  569–1028 and `setup_cli` 1247–1528. P0-D did not shift them; any future
+  `main()`-above edit must update `SS_*/SC_*` in the same commit.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate Sonnet window** (scope/diff review) renders
+APPROVED / NEEDS REVISION / BLOCKED. Reviewer: confirm (1) golden 6/6 unchanged,
+(2) only allowed files touched, (3) the stage loop reproduces the legacy
+sequence exactly, (4) the db/drupal anchor judgment call is acceptable or should
+be flipped.
+
+### Next safe task
+
+**P0-E — Profile selection wiring** — replace the hardcoded
+`source community.profile` in `main()` with `ACTOOLS_PROFILE`-driven profile
+resolution (via `actools::cli::resolve_profile`), so the stage loop runs the
+selected profile's `PROFILE_INSTALL_STAGES`. Golden 6/6 must remain green; the
+dispatcher seam from P0-D is the foundation. (Final sequencing is the Review
+Gate's call.)
+
+### Forbidden next scope
+
+No module extraction / host-stack decomposition (P0-G); no community-plus stage
+implementations; no generated-file byte change; no CLI-authority consolidation
+(P0-F); no widening/disabling the golden harness range guard.
+
+---
+
 ## Entry 008 — P0-C · Golden Behavior Capture
 
 Date: 2026-06-08
