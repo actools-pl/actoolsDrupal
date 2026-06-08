@@ -1,12 +1,12 @@
 # Architecture
 
-> Applies to: Actools v11.2.0+
+> Applies to: Actools v14.0+
 
 ---
 
 ## How it's built
 
-Actools is a modular bash platform. Each capability lives in its own module directory with a clear boundary. The CLI dispatcher (`/usr/local/bin/actools`) sources modules and routes commands — it never contains business logic itself.
+Actools is a bash platform with a staged install spine (`actools.sh`) and a separate operator CLI (`/usr/local/bin/actools`). The install spine (`actools.sh`) is the live authority for provisioning; it is monolithic today and is being extracted into per-stage modules (Phase 0 seam hardening). The CLI dispatcher routes operator commands to command handlers in `cli/commands/`.
 
 ```
 /home/actools/
@@ -46,7 +46,7 @@ Actools is a modular bash platform. Each capability lives in its own module dire
 ├── cron/                   scheduled jobs (backup, binlog, DNA snapshots)
 ├── certs/                  TLS certificates (private keys gitignored)
 ├── templates/              Dockerfiles, CI workflows, settings.php template
-├── tests/                  21 bats tests
+├── tests/                  76 bats tests
 └── docs/                   this documentation
 ```
 
@@ -81,11 +81,9 @@ Actools tracks installation state in `.actools-state.json`:
 
 ```json
 {
-  "version": "11.2.0",
-  "installed_at": "2026-03-25T18:00:00Z",
-  "domain": "example.com",
-  "phases_complete": ["host", "stack", "db", "drupal", "storage", "worker"],
-  "preview_environments": {}
+  "envs": { "prod": true },
+  "db_passes": { "prod": "<generated at install>" },
+  "backup_user_pass": "<generated at install>"
 }
 ```
 
@@ -116,7 +114,7 @@ my_command() {
 EOF
 
 # Source it in the CLI dispatcher
-# Add to /usr/local/bin/actools-real:
+# Add to cli/actools (the canonical CLI source):
 #   source "${INSTALL_DIR}/modules/mymodule/mymodule.sh"
 #   my_command) my_command ;;
 ```
