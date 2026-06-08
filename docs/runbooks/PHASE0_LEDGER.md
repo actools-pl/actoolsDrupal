@@ -85,6 +85,170 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 008 — P0-C · Golden Behavior Capture
+
+Date: 2026-06-08
+Branch: `phase0/P0-C-golden-behavior-capture`
+Commit SHA: (recorded by operator at apply time)
+Actor / Claude session (model): Coding Window (Sonnet)
+Phase: P0-C — Golden Behavior Capture
+Task prompt source: `P0-C-coding-window-prompt.md` (filled, archived)
+
+### Objective
+
+Capture byte-exact golden fixtures of all generated files across the 5-variant
+environment matrix, plus a drift-detecting BATS test suite that FAILS on any
+unexplained change.  This is the safety net that must remain green before any
+later phase (P0-D / P0-G) touches generation logic.  Zero generator or runtime
+byte changes.
+
+### Files changed
+
+New (golden fixtures — 5 variants × 7 files + 1 manifest each = 40 files):
+
+- `tests/fixtures/golden/default/` — my.cnf, Dockerfile.caddy, Dockerfile.php,
+  Dockerfile.worker, Caddyfile, docker-compose.yml, actools-cli, SHA256SUMS
+- `tests/fixtures/golden/redis-off/` — same 8 files
+- `tests/fixtures/golden/s3-on/` — same 8 files (S3 creds populated)
+- `tests/fixtures/golden/cadvisor-on/` — same 8 files (cadvisor service added)
+- `tests/fixtures/golden/all-in-one/` — same 8 files (dev/stg services + vhosts)
+
+New (test infrastructure):
+
+- `tests/helpers/capture_golden_outputs.sh` — capture helper; extracts
+  `setup_stack()` and `setup_cli()` from the live `actools.sh` via
+  `sed -n 'X,Yp'` + `eval`, never copies heredoc text; runs each function
+  in an isolated subshell with no-op bash function shims for `docker`,
+  `chown`, `section`, `log`, `warn`, `error`, `setup_backup_db_user`
+- `tests/generated/golden_drift_test.bats` — 6 BATS tests (5 variant drift
+  tests + 1 meta test); re-renders each variant and compares sha256 against
+  stored fixtures; fails with diff output on mismatch
+- `docs/tests/P0-C-golden-behavior-capture.md` — this test report; contains
+  the (currently empty) intentional-difference table
+- `docs/runbooks/PHASE0_LEDGER.md` — this entry (Entry 008)
+
+### Files intentionally not changed
+
+- `actools.sh` — untouched; zero runtime/generator change
+- `installer/*`, `cli/*`, `modules/*`, `profiles/*`, `core/*` — untouched
+- `.github/workflows/*` — untouched (CI shellcheck for actools.sh is P0-I)
+- `docs/target/phase0/operator/*` — not promoted (remains target-only)
+- All other runtime files — untouched
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| (all) | as recorded in `docs/architecture/runtime-authority-map.md` | **unchanged** — P0-C is capture-only; no `current` authority moved |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | generator `actools.sh:795` unedited; golden fixture only captures output |
+| Caddyfile | Not touched | generator `actools.sh:663` unedited |
+| my.cnf | Not touched | generator `actools.sh:595` unedited |
+| Dockerfiles | Not touched | generators `actools.sh:607/624/634` unedited |
+| CLI | Not touched | `setup_cli` heredoc `actools.sh:1251-1520` and `cli/actools` unedited |
+
+### Tests run
+
+```bash
+# 1. Syntax check
+bash -n tests/helpers/capture_golden_outputs.sh       # parses
+
+# 2. Capture all variants
+bash tests/helpers/capture_golden_outputs.sh all
+# → 5 variants × 7 files = 35 files + 5 SHA256SUMS; all captured
+
+# 3. Determinism check (run capture again; sums must be identical)
+bash tests/helpers/capture_golden_outputs.sh default /tmp/golden_verify
+diff tests/fixtures/golden/default/SHA256SUMS /tmp/golden_verify/default/SHA256SUMS
+# → no diff (deterministic)
+
+# 4. Run drift test suite (all 6 tests must pass)
+bats tests/generated/golden_drift_test.bats
+# → 6/6 ok
+
+# 5. Verify drift test FAILS on injected change
+#    (echo "# DRIFT" >> fixture; bats sees mismatch; restore fixture; bats green)
+
+# 6. Confirm no runtime change
+git diff --stat -- ':!docs' ':!tests'
+# → empty
+
+# 7. Confirm actools.sh untouched
+git diff actools.sh cli/actools installer/ core/ modules/ profiles/
+# → empty
+```
+
+### Test result
+
+PASS (6/6 bats tests; determinism confirmed; drift detection confirmed)
+
+### Documentation updated
+
+- [x] `docs/tests/P0-C-golden-behavior-capture.md` — test report with captured
+  matrix, limitations, and intentional-difference table (currently empty)
+- [x] `docs/runbooks/PHASE0_LEDGER.md` — this entry (Entry 008)
+- [ ] Runtime authority map — no authority changes this phase
+- [ ] Operator target docs — no new docs this phase
+
+### Changelog / release notes
+
+- [ ] CHANGELOG.md — no user-visible change (capture infrastructure only)
+- [ ] Release note — n/a
+- [x] Test report — `docs/tests/P0-C-golden-behavior-capture.md`
+- [ ] Review notes — pending
+
+### Known risks
+
+- **Line-number coupling:** the capture helper uses `sed -n '569,1028p'` and
+  `sed -n '1247,1528p'` to extract function bodies.  If `actools.sh` is
+  edited in a future phase and the function start lines shift, the helper
+  will detect the mismatch via `_assert_fn_range()` and fail loudly before
+  producing a wrong capture.  Update `SS_START`/`SS_END`/`SC_START`/`SC_END`
+  in the helper at the same time as the actools.sh edit.
+
+- **redis-off depends_on quirk:** With `ENABLE_REDIS=false`, `docker-compose.yml`
+  still includes `depends_on: redis: condition: service_started` for php_prod
+  and worker_prod (hardcoded in the compose heredoc), even though the redis
+  service itself is absent.  This is the current generator behavior; the
+  fixture captures it as-is.  P0-G will correct the generator; when it does,
+  the `redis-off` fixture must be updated with an intentional-difference entry.
+
+- **Dockerfile.php vs repo copy:** The `Dockerfile.php` fixture captures the
+  fallback heredoc generator at actools.sh:624.  In real installs, the repo's
+  tracked `Dockerfile.php` is used instead (the heredoc is skipped because the
+  file already exists at INSTALL_DIR).  The fixture tests the generator code
+  path, not the production path.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate Opus window** renders APPROVED / NEEDS REVISION / BLOCKED.
+Reviewer: confirm the captured variant matrix is complete (both OFF and ON
+branches for every toggle appear in the matrix).
+
+### Next safe task
+
+**P0-D — Stage Dispatcher Scaffold** — wire `main()` in `actools.sh` to iterate
+`PROFILE_INSTALL_STAGES` via a `run_install_stage`/`resolve_install_stage` loop
+(append-only guard, behavior-preserving).  The golden fixtures from P0-C must
+remain green after P0-D; any accidental generator change will be caught by
+`bats tests/generated/golden_drift_test.bats`.
+
+### Forbidden next scope
+
+No generator/runtime change before Review Gate approval; no promotion of
+`docs/target/phase0/operator/`; no CI shellcheck edits (P0-I); no CLI
+consolidation (P0-F).
+
+---
+
 ## Entry 007 — P0-B · Target Operator Documentation + Documentation Reconciliation
 
 Date: 2026-06-08
