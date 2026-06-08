@@ -1,0 +1,8 @@
+# Golden fixtures are committed test artifacts. The repo-root .gitignore ignores
+# these filenames (docker-compose.yml, Caddyfile, my.cnf, Dockerfile.caddy,
+# Dockerfile.worker) as generated files; re-include them here so the fixtures track.
+!my.cnf
+!Caddyfile
+!docker-compose.yml
+!Dockerfile.caddy
+!Dockerfile.worker
