@@ -85,6 +85,161 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 007 — P0-B · Target Operator Documentation + Documentation Reconciliation
+
+Date: 2026-06-08
+Branch: `phase0/P0-B-target-operator-docs`
+Commit SHA: (recorded by operator at apply time — see `APPLY-P0-B.md` §4)
+Actor / Claude session (model): Coding Window (Sonnet)
+Phase: P0-B — Target Operator Documentation
+Task prompt source: system prompt P0-B (inline) + `docs/runbooks/HANDOFF-P0-A.md`
+
+### Objective
+
+Write the six operator-facing **target** docs under `docs/target/phase0/operator/`, each
+carrying the required `"Phase 0 target contract — not yet released"` status banner. As
+documentation reconciliation, correct the stale/false claims recorded by the authority
+map in `docs/architecture.md` and `docs/CHANGELOG.md`. Zero runtime change.
+
+### Files changed
+
+New (target operator docs — unreleased behaviour only):
+
+- `docs/target/phase0/operator/README.md` — directory index, promotion gate, cross-links
+- `docs/target/phase0/operator/install-community.md` — default `community` install journey
+  (5 stages: init → preflight → install → handoff → doctor) with D.0-gap annotations
+- `docs/target/phase0/operator/profiles.md` — profile lifecycle, error behaviour, allowed
+  profiles, non-bypass rule, community-plus reserved status
+- `docs/target/phase0/operator/commands.md` — full command surface as a target contract
+  (installer + CLI commands, global flags, profile resolution, out-of-surface list)
+- `docs/target/phase0/operator/generated-files.md` — all 6 operator-visible generated
+  files with current/target authority, safety rules, golden fixture strategy
+- `docs/target/phase0/operator/troubleshooting.md` — symptom-first troubleshooting for
+  init, preflight, install, CLI, generated-file, and profile problems
+
+Corrected (documentation reconciliation — no restructure, in-place only):
+
+- `docs/architecture.md` —
+  (1) `:3` `v11.2.0+` → `v14.0+` (actual `ACTOOLS_VERSION` per `actools.sh:46`);
+  (2) `:9` false "never contains business logic" claim deleted; replaced with accurate
+      description: monolithic `actools.sh` is the live spine, `cli/commands/` are the
+      operator CLI handlers;
+  (3) `:49` `21 bats tests` → `76` (verified: dispatch 33 + init 11 + preflight 6 +
+      doctor 5 + validate 11 + secrets 10);
+  (4) `:84-89` false `phases_complete` state-machine block replaced with actual
+      `init_state()` structure (`{"envs":{}, "db_passes":{}, "backup_user_pass":…}`);
+  (5) `:119` `/usr/local/bin/actools-real` example reference corrected to `cli/actools`
+      (the canonical CLI source per `docs/architecture/cli-authority-contract.md`)
+- `docs/CHANGELOG.md` —
+  (1) `:113` false "All Dockerfiles moved to template variables" claim corrected; replaced
+      with accurate statement citing live authority `actools.sh:607/624/634` and P0-G
+      extraction scope; phrase fully removed (grep gate confirmed clean);
+  (2) Added `[Unreleased] / Documentation` section at top recording target docs added
+      and architecture reconciliation
+
+Also updated:
+- `docs/runbooks/PHASE0_LEDGER.md` — this entry (Entry 007)
+
+### Files intentionally not changed
+
+- `actools.sh` — untouched (zero runtime change)
+- `installer/*`, `cli/*`, `modules/*`, `profiles/*`, `core/*` — untouched
+- `.github/workflows/*` — untouched
+- `docs/architecture/runtime-authority-map.md` — not modified (no authority changes this
+  phase; forbidden per P0-B scope)
+- `docs/target/phase0/operator/.gitkeep` — remains (directory anchor; not removed)
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| (all) | as recorded in `docs/architecture/runtime-authority-map.md` | **unchanged** — P0-B is documentation-only; no `current` authority moved |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | generator `actools.sh:795` unedited |
+| Caddyfile | Not touched | generator `actools.sh:663` unedited |
+| my.cnf | Not touched | generator `actools.sh:595` unedited |
+| Dockerfiles | Not touched | generators `actools.sh:607/624/634` unedited |
+| CLI | Not touched | `setup_cli` heredoc `actools.sh:1251-1520` and `cli/actools` unedited |
+
+### Tests run
+
+```bash
+# P0-B is doc-only; checks prove no runtime file was altered and docs are well-formed.
+git status --porcelain
+    # only docs/ paths appear; actools.sh, installer, core, cli, modules, profiles, tests untouched
+grep -rL "Phase 0 target contract" docs/target/phase0/operator/
+    # returns only .gitkeep — all authored docs carry the banner
+grep -nE '21 bats|never contains business logic|"version": "11\.2|phases_complete' docs/architecture.md
+    # empty — no surviving false assertion
+grep -n 'moved to template variables' docs/CHANGELOG.md
+    # empty
+bash -n actools.sh      # parses (untouched)
+bash -n cli/actools     # parses (untouched)
+```
+
+### Test result
+
+PASS (self-validation): all four grep gates pass. No runtime file changed.
+
+### Documentation updated
+
+- [x] Operator target docs (6 files created under `docs/target/phase0/operator/`)
+- [x] `docs/architecture.md` (5 false claims corrected)
+- [x] `docs/CHANGELOG.md` (false Dockerfile claim corrected + Unreleased section added)
+- [ ] Runtime authority map (not modified — no authority changes this phase)
+- [ ] Generated-file contract (not modified — no changes)
+- [ ] CLI authority contract (not modified — no changes)
+- [ ] Test plan (deferred to P0-C/P0-I)
+
+### Changelog / release notes
+
+- [x] `docs/CHANGELOG.md` — `[Unreleased] / Documentation` section added
+- [ ] Release note (n/a — doc-only phase)
+
+### Known risks
+
+- Every target doc is explicitly labelled `unreleased-target`. No doc asserts that
+  community-plus is implemented or that target behaviour is currently released.
+- The D.0 gap annotations in `install-community.md` and `profiles.md` (P0-E / P0-H scope)
+  were written from the authority map's verified evidence; they do not introduce any new
+  runtime obligation.
+- `docs/architecture.md` was corrected in-place only — no restructuring or expansion.
+  The false-claim removal shrinks `:9` but does not alter section order.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate Sonnet window** renders APPROVED / NEEDS REVISION / BLOCKED.
+P0-B is low-risk doc-only; Sonnet is the correct reviewer.
+
+### Next safe task
+
+**P0-C — Golden Fixture Capture** (`06_implementation_phases/P0-C-golden-behavior-capture.md`).
+Coding model: **Sonnet**. Render and capture byte-exact golden fixtures for every generated
+file across the env matrix (all-in-one, Redis, cAdvisor, S3 on/off). Add `actools.sh` to
+CI shellcheck. No generator is touched until the golden net is green.
+
+### Forbidden next scope
+
+- No runtime code change (P0-C is capture-only, not extraction).
+- No promotion of `docs/target/phase0/operator/` to `docs/operator/`.
+- No community-plus feature work; no `plus_*` module.
+- No dispatcher/resolver wiring (that is P0-D/P0-E).
+- No generated-file byte change (P0-C captures current bytes; it does not change them).
+
+### Community-plus status
+
+Still **BLOCKED**. Phase 0 not closed. Build-trigger #1 not yet met.
+
+---
+
 ## Entry 006 — P0-A · Adopt synthesis + materialize canon and runtime authority map
 
 Date: 2026-06-08  
