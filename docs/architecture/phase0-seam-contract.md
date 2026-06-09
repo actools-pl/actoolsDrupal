@@ -4,6 +4,15 @@
 
 Target contract for Phase 0 seam hardening. This is not a community-plus feature implementation document.
 
+### Implementation status (informative)
+
+The target functions below are the Phase-0 goal; the live wiring lands incrementally:
+
+- **`resolve_install_stage` / `run_install_stage`** — landed (P0-D); `main()` iterates `PROFILE_INSTALL_STAGES` through the dispatcher.
+- **Install-stage handlers** — `host` and `stack` are now **driven by the dispatcher (P0-G)**: `stage_host` invokes the `modules/host/*` functions in the canonical order (`packages → age → kernel → swap → firewall → docker → logrotate`), and `stage_stack` runs `setup_stack`, which is now a thin orchestrator delegating to the `modules/stack/*` generators (`generate_mycnf`, `build_caddy_image`/`build_php_image`/`build_worker_image`, `generate_caddyfile`, `generate_compose`). The `db` and `worker` stages remain documented no-ops (DB SQL stays in `install_env`; the worker runtime stays in the compose generator). Behaviour-preserving: golden drift 6/6, fixtures unchanged.
+- **`resolve_feature_handler` (3-tier) / `resolve_profile_check`** — implemented as internal primitives (P0-E); the live surface wiring (feature/preflight/doctor/handoff) is **P0-H**.
+- **Profile file-existence validation + governance enforcement at `init`** — landed (P0-E).
+
 ## Purpose
 
 Phase 0 creates the seams that allow future profiles to extend behavior without hardcoded conditionals in community code.

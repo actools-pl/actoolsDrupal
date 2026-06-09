@@ -85,6 +85,225 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 012 — P0-G · Extract Host and Stack Logic
+
+Date: 2026-06-09
+Branch: `phase0/P0-G-extract-host-stack`
+Commit SHA: G1 `de64958`, G2 `47b05d8`, G3 `860d4a0`, G4 `74bc5b0`, G5 `e6af4fb`, G6 `0b220ce`, G7 `433a3c2` (operator records the merge SHA at apply time)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-G — Extract Host and Stack Logic
+Task prompt source: `P0-G-extract-host-stack.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Move the live host-provisioning and stack-generation business logic out of the
+monolithic `actools.sh::setup_stack()` into the canonical modules that existed as
+orphans — `modules/host/*` and `modules/stack/*` — and drive them through the
+install-stage dispatcher (`stage_host`) and the now-thin `setup_stack`. Hold all
+30 golden fixtures **byte-identical** (drift 6/6). Unlike P0-F, this is an
+**authority** move (which file is authoritative) with **no change to generated
+output**.
+
+### Approach (one unit per commit; drift re-run after every move)
+
+Each generator was assembled by **byte-for-byte `sed` extraction** of its monolith
+heredoc block, wrapped in a function, and verified with an empty `diff` of the
+function body against the source range. Each move re-ran golden drift before
+commit. The host block was extracted first (G1 modules carry bytes; G2 wires
+`stage_host` and deletes the monolith host block), then the four stack generators
+one file at a time (G3 my.cnf, G4 Dockerfiles, G5 Caddyfile, G6 compose), then the
+harness was switched from sed-extract/eval of `setup_stack` to calling the module
+generators directly (G7).
+
+### Files changed
+
+- `actools.sh` — **1416 → 871 lines.**
+  - The inline host block (7 steps) is **deleted**; `stage_host` now drives
+    `modules/host/*`.
+  - Two module-sourcing loops added after init: host
+    (`packages age kernel swap firewall docker logrotate`) and stack
+    (`mycnf images caddyfile compose`).
+  - `setup_stack()` (`:430-483`) is now a **thin orchestrator** (~53 lines):
+    mkdir/chown prologue, `BACKUP_PASS=$(get_backup_pass)`, then
+    `generate_mycnf` → `build_caddy_image`/`build_php_image`/`build_worker_image`
+    → `generate_caddyfile` → `generate_compose`, then `docker compose
+    pull/down/up`, then the out-of-scope `setup_backup_db_user "$BACKUP_PASS"`.
+    The ten stack heredocs are removed (relocated to modules).
+  - `setup_cli()` (`:702-717`) untouched (still pinned by the harness canary).
+- `modules/host/{packages,age,kernel,swap,firewall,docker,logrotate}.sh` —
+  **now live authority**; byte-identical to the monolith host steps. `docker.sh`'s
+  `local bashrc` is the one intentional adaptation. `packages.sh` restores the
+  `age` package.
+- `modules/stack/mycnf.sh::generate_mycnf` — body byte-identical to the monolith
+  my.cnf block; env-default `${INNODB_BUFFER_POOL:-1G}` (followed code, not the
+  spec's stale "RAM-derived" claim); dropped the orphan's stale trailing
+  `log "my.cnf generated."`.
+- `modules/stack/images.sh::{build_caddy_image,build_php_image,build_worker_image}`
+  — each body byte-identical; caddy heredoc QUOTED; php keeps the
+  `if [[ ! -f Dockerfile.php ]]` guard + verbatim multi-space `docker build`;
+  worker multi-line `docker build --build-arg`. Replaced the stale orphan (which
+  lacked `build_php_image`).
+- `modules/stack/caddyfile.sh::generate_caddyfile` — body byte-identical; UNQUOTED
+  `CADDY` heredoc; full security headers; `/health` + `/csp-violations`; `@login
+  rate_limit`; embedded all-in-one `$(… ALLINONE …)` fragment. Replaced the very
+  stale orphan (which carried a `servers { protocols h1 h2 h3 }` block absent from
+  the monolith).
+- `modules/stack/compose.sh::generate_compose` — body byte-identical **except** a
+  single `# shellcheck disable=SC2034` on `local REDIS_MEM` (confirmed false
+  positive — `REDIS_MEM` is used at `:262-263` in the nested `REDIS_SVC` fragment;
+  no output impact). Preserves the redis-off `depends_on` quirk. Replaced the very
+  stale orphan (prod-only, inline env, no all-in-one/cadvisor).
+- `tests/helpers/capture_golden_outputs.sh` — **harness rework.** Sources the four
+  stack modules and calls the generators directly; the `eval "$(sed -n
+  SS_START,SS_END)"` + `setup_stack` call removed; `SS_START`/`SS_END` deleted;
+  `_assert_fn_range "setup_stack"` replaced by a new `_assert_fn_defined()` guard
+  (module-file + generator existence); `SC_START`/`SC_END` (`setup_cli`) pin kept
+  as the P0-F drift canary; header/comments/log text updated.
+- `tests/installer/dispatch_stages_test.bats` — `setup()` now exports
+  `ACTOOLS_SH`; **+2 tests**: `stage_host` canonical-order (G2) and `setup_stack`
+  delegation order (G7); BLOCK 2 header notes the modular delegation.
+- `docs/architecture/runtime-authority-map.md` (Host/Stack/Worker/Generated-file
+  rows flipped to **modules = live (P0-G)**; install-stage `host` no-op → wired;
+  test count 133 → 135; CI-gaps note updated; P0-G answer added),
+  `docs/architecture/phase0-seam-contract.md` (P0-G status note),
+  `docs/CHANGELOG.md`, `docs/releases/P0-G-extract-host-stack.md`,
+  `docs/tests/P0-G-extract-host-stack.md`, `docs/runbooks/HANDOFF-P0-G.md`, and
+  this ledger entry (Entry 012).
+
+### Files intentionally not changed
+
+- **No golden fixture was modified.** All 30 fixtures (5 variants × 6 files) are
+  byte-identical; drift 6/6 proves the relocation preserved output.
+- DB user/credential creation (`setup_backup_db_user`, the `install_env` DB SQL)
+  — **folded, out of scope**; the `db` stage remains a documented no-op.
+- Worker **runtime** (the worker compose service) — stays inside the compose
+  generator; the `worker` stage remains a no-op. Only the worker **image** build
+  moved (`build_worker_image`, part of `images.sh`).
+- `docker compose pull/down/up` — stays in `setup_stack` (orchestration).
+- The harness range guard was **replaced/kept**, never widened or disabled.
+- `docker-compose.observability.yml` / `modules/observability/prometheus.sh` —
+  **git-ignored**, untracked, out of scope (not authored or modified).
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Host provisioning | inline in `setup_stack` (`modules/host/*` orphan) | **`modules/host/*` (live)** invoked by dispatcher `stage_host` in the canonical 7-step order; monolith host block deleted |
+| Stack file generation | inline heredocs in `setup_stack` (`modules/stack/*` orphan) | **`modules/stack/*` (live)** — `setup_stack` calls `generate_mycnf`/`build_*_image`/`generate_caddyfile`/`generate_compose` |
+| `setup_stack` role | ~468-line monolith (host + 10 heredocs) | thin orchestrator (~53 lines): secret-gen order → 6 generators → `docker compose pull/down/up` → backup user |
+| `host` stage handler | documented no-op (P0-D) | **wired** to the seven `modules/host/*` functions in monolith order |
+| Worker image | inline `Dockerfile.worker` heredoc in `setup_stack` | `modules/stack/images.sh::build_worker_image` (live); worker **service** still in the compose generator (folded) |
+| Golden capture mechanism | sed-extract + `eval` of `setup_stack` (SS_* line range) | sources `modules/stack/*` and **calls the generators directly**; SS_* removed; `_assert_fn_defined` guard |
+| DB / worker runtime | folded (P0-D no-ops) | **unchanged** (still folded) |
+| CLI / `setup_cli` | install-by-copy (P0-F) | **unchanged** |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | **Unchanged** (generation relocated) | `modules/stack/compose.sh::generate_compose`; golden drift 6/6 |
+| Caddyfile | **Unchanged** (generation relocated) | `modules/stack/caddyfile.sh::generate_caddyfile`; golden drift 6/6 |
+| my.cnf | **Unchanged** (generation relocated) | `modules/stack/mycnf.sh::generate_mycnf`; golden drift 6/6 |
+| Dockerfiles | **Unchanged** (generation relocated) | `modules/stack/images.sh::build_*_image`; golden drift 6/6 |
+| CLI | Not touched | P0-F; `setup_cli` untouched |
+
+### Tests run
+
+```bash
+export PATH="$HOME/.npm-global/bin:$PATH"
+
+# BEFORE (clean P0-F baseline @ 37b09c8):
+bats tests/generated/golden_drift_test.bats                                 # 6/6
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 127/127
+
+# AFTER (re-run at every generated-file move):
+bats tests/generated/golden_drift_test.bats                                 # 6/6 (fixtures unchanged)
+bats tests/installer/dispatch_stages_test.bats                              # 14/14
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 129/129
+
+# Syntax + lint:
+bash -n actools.sh
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n # clean
+shellcheck modules/host/*.sh modules/stack/*.sh                             # clean
+shellcheck --severity=warning tests/helpers/capture_golden_outputs.sh      # clean
+```
+
+### Test result
+
+PASS — golden drift **6/6** before and after (six stack files byte-identical;
+**fixtures untouched**). Unit/integration **129/129** (127 prior + 2 new),
+**135/135** overall. All `bash -n` clean; `modules/host/*`, `modules/stack/*`, and
+the harness shellcheck-clean (warning+). `actools.sh` 1416 → 871 lines.
+
+### Documentation updated
+
+- [x] Runtime authority map — Host/Stack/Worker/Generated-file rows flipped to modules=live; install-stage `host` no-op→wired; test count 133→135; CI-gaps note; P0-G answer
+- [x] Phase 0 seam contract — P0-G status note (host/stack now dispatcher-driven)
+- [ ] Generated-file contract — no change to the doc (output unchanged; relocation recorded here + release note)
+- [x] Test plan / report — `docs/tests/P0-G-extract-host-stack.md`
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated (Unreleased → P0-G section)
+- [x] Release note added — `docs/releases/P0-G-extract-host-stack.md` (incl. Rollback + per-file table + host-behaviour diffs + SC2034 note)
+- [x] Test report added — `docs/tests/P0-G-extract-host-stack.md`
+- [ ] Review notes — pending Review Gate
+
+### Known risks
+
+- **`setup_stack` body coverage moved off the golden path.** The harness no longer
+  exercises `setup_stack` (it calls generators directly). Mitigated by the new
+  delegation test, which runs the real `setup_stack` against recorder stubs and
+  asserts generator order. A reviewer should confirm that test, not just drift.
+- **Host steps are now fresh-install-only.** Four deliberate behaviour
+  differences (dry-run/interactive-N/update/env) — see the release note. The
+  fresh-install happy path is byte-identical; host steps were already idempotent.
+- **One `compose.sh` SC2034 suppression.** Confirmed false positive (`REDIS_MEM`
+  used in the nested `REDIS_SVC` fragment); no output impact; drift 6/6.
+- **Stale `modules/stack/*` orphans replaced.** The previous orphans were v9.2 and
+  divergent; each was overwritten with the monolith's current exact bytes. A
+  reviewer should treat the module as the live authority.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate session (ideally a different model)** renders
+APPROVED / NEEDS REVISION / BLOCKED. Reviewer: confirm (1) golden drift **6/6**
+with **fixtures unmodified** (the relocation preserved output); (2) only allowed
+files touched; (3) `modules/host/*` + `modules/stack/*` bodies are byte-identical
+to the monolith blocks (the one exception is the documented `compose.sh` SC2034
+comment, no output impact); (4) `stage_host` drives the seven host functions in
+monolith order and `setup_stack` delegates to the six generators in canonical
+order (both asserted by tests); (5) the harness renders via the modules directly
+(no `setup_stack` eval / no `SS_*`), and `_assert_fn_defined` + the `setup_cli`
+canary are green, not widened/disabled; (6) the redis-off `depends_on` quirk is
+preserved (validated by the `redis-off` golden).
+
+### Next safe task
+
+**P0-H — Surface wiring** (wire the *selected* profile into the install spine and
+route the preflight/doctor/handoff surfaces through the resolvers), or the Review
+Gate's chosen sequencing. With host/stack extracted behind the dispatcher and the
+CLI consolidated (P0-F), the remaining Phase-0 work is surface/resolver wiring and
+the CI/shellcheck hardening (P0-I).
+
+### Forbidden next scope
+
+No DB user/credential extraction or worker-runtime extraction (still folded); no
+profile-semantics changes; no community-plus feature commands; no touching the
+golden fixtures or widening/disabling the harness guards; no authoring or
+modifying observability (out of scope, git-ignored).
+
+### Community-plus status
+
+Still **BLOCKED**. Phase 0 not closed. P0-G relocates host/stack authority into
+the modules behind the dispatcher but wires no community-plus feature.
+
+---
+
 ## Entry 011 — P0-F · CLI Authority Consolidation
 
 Date: 2026-06-09
