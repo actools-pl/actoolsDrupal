@@ -294,26 +294,32 @@ actools::cli::resolve_profile() {
 # profile-driven and append-only (LOCKED Decision 3: community-plus *appends*
 # plus_* stages; it never replaces a community stage).
 #
-# Stage -> handler mapping for P0-D (behavior-preserving; full per-stage module
-# decomposition is P0-G, NOT this phase). The flat community stage list
-# (host stack db drupal worker) does not yet map one-to-one onto the two coarse
-# monoliths, so stages are wired as follows:
+# Stage -> handler mapping. Host decomposition landed in P0-G (the host stage
+# now drives modules/host/*); DB-user and worker-runtime decomposition remain
+# folded for a later phase. The community stage list (host stack db drupal
+# worker) is wired as follows:
 #
-#   host    -> no-op  (host provisioning is folded inside setup_stack until P0-G)
-#   stack   -> setup_stack            (builds host + container stack + worker)
+#   host    -> install_packages -> setup_age_keypair -> tune_kernel ->
+#              configure_swap -> configure_firewall -> install_docker ->
+#              configure_logrotate  (modules/host/*, canonical monolith order; P0-G)
+#   stack   -> setup_stack            (builds the container stack + worker image)
 #   db      -> no-op  (DB creation is folded inside the per-env install_env loop,
-#                      which runs at the `drupal` stage, until P0-G)
+#                      which runs at the `drupal` stage, until a later phase)
 #   drupal  -> the full per-environment install_env loop, copied verbatim from
 #              main() (ENVIRONMENTS split + total-RAM probe + low-RAM sequential
-#              downgrade + parallel/sequential branch). Until P0-G this single
-#              handler covers BOTH the db and drupal stages.
-#   worker  -> no-op  (the worker container is built inside setup_stack until P0-G)
+#              downgrade + parallel/sequential branch). This single handler
+#              still covers BOTH the db and drupal stages.
+#   worker  -> no-op  (the worker container runtime is built inside setup_stack
+#                      until a later phase; P0-G moved only the worker IMAGE build)
 #
-# Iterating host->stack->db->drupal->worker therefore executes exactly:
-#   (no-op) -> setup_stack -> (no-op) -> install_env loop -> (no-op)
-# which is byte-for-byte the legacy sequence. The db-vs-drupal grouping (DB work
-# anchored under the drupal handler) is a documented judgment call; it is
-# trivially flippable and both arrangements keep the golden net green.
+# Iterating host->stack->db->drupal->worker therefore executes:
+#   host modules -> setup_stack -> (no-op) -> install_env loop -> (no-op)
+# The fresh-install generated output stays byte-for-byte identical; host
+# provisioning now runs at the host stage (after the confirm prompt) instead of
+# at top-level script load, so dry-run/update/env no longer re-provision the
+# host. The db-vs-drupal grouping (DB work anchored under the drupal handler) is
+# a documented judgment call; it is trivially flippable and both arrangements
+# keep the golden net green.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -380,8 +386,19 @@ actools::dispatch::run_install_stage() {
 # uniformity, but the community handlers do not need it.
 # ---------------------------------------------------------------------------
 
-# host: folded into setup_stack until P0-G.
-actools::install::stage_host() { :; }
+# host: provisions the host via modules/host/* (P0-G). The modules are sourced
+# at startup by actools.sh; this stage drives their functions in the canonical
+# monolith order — the order the legacy top-level host block ran top-to-bottom.
+# install_packages must precede setup_age_keypair so the `age` package exists.
+actools::install::stage_host() {
+    install_packages
+    setup_age_keypair
+    tune_kernel
+    configure_swap
+    configure_firewall
+    install_docker
+    configure_logrotate
+}
 
 # stack: build host + container stack + worker via the setup_stack monolith.
 actools::install::stage_stack() {

@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] — P0-G Extract Host and Stack Logic
+
+### Changed — runtime authority (host + stack logic relocated into modules; output byte-identical)
+- `actools.sh::setup_stack()` is no longer a monolith. Its live **host
+  provisioning** moved into `modules/host/*` (`packages`, `age`, `kernel`, `swap`,
+  `firewall`, `docker`, `logrotate`), now invoked by the install-stage
+  dispatcher's `stage_host` handler in the exact monolith order. The inline host
+  block was **deleted** from `actools.sh`.
+- The four **stack generators** moved into `modules/stack/*`:
+  `mycnf.sh::generate_mycnf`, `images.sh::build_caddy_image`/`build_php_image`/
+  `build_worker_image`, `caddyfile.sh::generate_caddyfile`, and
+  `compose.sh::generate_compose`. `setup_stack` is now a **thin orchestrator**
+  (~53 lines) that sources those modules, calls the generators in order, then runs
+  `docker compose pull/down/up` and `setup_backup_db_user`.
+- **This is an authority move, not an output change.** The six generated stack
+  files (`my.cnf`, `Dockerfile.caddy`, `Dockerfile.php`, `Dockerfile.worker`,
+  `Caddyfile`, `docker-compose.yml`) are **byte-identical** — golden drift 6/6,
+  with **no golden fixture modified**. `actools.sh` shrank from 1416 to 871 lines.
+  Each module body is a byte-for-byte extraction of its monolith block (the one
+  exception is a documented `# shellcheck disable=SC2034` in `compose.sh`, no
+  output impact). The previously orphaned, stale `modules/host/*` and
+  `modules/stack/*` were overwritten with the monolith's current exact bytes and
+  are now the live authority. Edit host/stack logic in the modules, not in
+  `actools.sh`.
+
+### Changed — host steps are now fresh-install-only (deliberate, bounded)
+- Because host provisioning runs on the dispatcher's `host` stage, it executes
+  **only** on a confirmed fresh install: `--dry-run` no longer mutates the host
+  (bug fix), declining the interactive confirm aborts before any host change, and
+  `update`/`env` no longer re-run host provisioning (the steps were already
+  idempotent). The fresh-install happy path (`host → stack → db → drupal →
+  worker`) is byte-identical. See `docs/releases/P0-G-extract-host-stack.md`.
+
+### Changed — tests
+- The golden-capture harness (`tests/helpers/capture_golden_outputs.sh`) now
+  renders fixtures by sourcing `modules/stack/*` and **calling the generators
+  directly**, instead of sed-extracting and `eval`-ing `setup_stack`. The
+  `SS_*` line range was removed; a new `_assert_fn_defined()` guard checks each
+  module defines its generator; the `setup_cli` range pin is kept as a drift
+  canary.
+- `tests/installer/dispatch_stages_test.bats` gains two tests (133 → **135**
+  overall): `stage_host` drives the host modules in canonical order, and
+  `setup_stack` delegates to the six generators in canonical order.
+
 ## [Unreleased] — P0-F CLI Authority Consolidation
 
 ### Changed — runtime (CLI authority consolidated to a single source; **Option A**)

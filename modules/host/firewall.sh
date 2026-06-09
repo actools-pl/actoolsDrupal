@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
 # modules/host/firewall.sh — UFW + Fail2ban
-# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+#
+# LIVE AUTHORITY (P0-G): carries the monolith's exact Firewall logic (UFW +
+# fail2ban), extracted verbatim from actools.sh. Sourced by actools.sh, driven
+# by the `host` install stage (installer/dispatch.sh::actools::install::stage_host).
 # =============================================================================
 
 configure_firewall() {

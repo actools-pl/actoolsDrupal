@@ -5,9 +5,10 @@
 #
 # Renders every generated STACK file for each environment variant WITHOUT
 # executing docker build, apt-get, chown, systemctl, ufw, or any other
-# privileged/side-effect command.  The REAL actools.sh heredoc text is never
-# copied here; setup_stack() is extracted from the live actools.sh via sed and
-# eval'd so fixtures stay byte-for-byte identical to what the generator
+# privileged/side-effect command.  The REAL heredoc text is never copied here;
+# the canonical modules/stack/* generator functions are sourced from the live
+# tree and called directly (the same functions setup_stack() calls in
+# production), so fixtures stay byte-for-byte identical to what the installer
 # actually produces.
 #
 # P0-F: the CLI is no longer a generated file. setup_cli() installs the CLI by
@@ -48,18 +49,25 @@ readonly FIXED_DB_ROOT_PASS="TEST_DB_ROOT_PASS_FIXED"
 readonly FIXED_DRUPAL_ADMIN_PASS="TEST_DRUPAL_ADMIN_PASS_FIXED"
 readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 
-# ── Line ranges in actools.sh (verified against current source) ──────────────
-# setup_stack starts at line 569, closes at line 1028
-# setup_cli   starts at line 1247, closes at line 1262
+# ── Stack generation: now driven entirely by modules/stack/* ─────────────────
+# P0-G is complete: the host block lives in modules/host/* and every stack
+# generated file is produced by a canonical modules/stack/* function — the live
+# authority. setup_stack() in actools.sh is a thin orchestrator that sources and
+# calls those same functions and then runs `docker compose pull/down/up`.
+# This harness therefore sources the four stack modules and calls their
+# generators directly (see PHASE 1); there is no longer any sed-extract/eval of
+# setup_stack and no SS_* line range to maintain. The modules are guarded by
+# _assert_fn_defined() (below) instead — it fails loudly if a module file goes
+# missing or stops defining its expected generator. See
+# docs/releases/P0-G-extract-host-stack.md.
 #
 # P0-F: setup_cli() no longer renders a CLI — it installs the CLI by copying
 # the canonical cli/actools verbatim. The SC_START..SC_END range below is kept
 # ONLY so _assert_fn_range() still pins setup_cli()'s location and fails loudly
-# if a future edit moves it (drift guard). The range is no longer sed-extracted
-# to generate a CLI fixture; the CLI is validated directly by
+# if a future edit moves it (a vestigial drift canary). The range is not
+# sed-extracted to generate a fixture; the CLI is validated directly by
 # tests/installer/cli_authority_test.bats (installed == cli/actools).
-readonly SS_START=569  SS_END=1028
-readonly SC_START=1247 SC_END=1262
+readonly SC_START=702  SC_END=717
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(
@@ -93,6 +101,23 @@ _assert_fn_range() {
   _log "  ${fn_name}(): lines ${start}-${end} verified ✓"
 }
 
+# Validate that modules/stack/<file> exists and defines each <fn>.
+# Replaces the setup_stack line-range guard now that stack generation is driven
+# entirely by the canonical modules (P0-G). Sourcing happens in a subshell so it
+# cannot leak function definitions into the capture environment.
+_assert_fn_defined() {
+  local file="$1"; shift
+  local path="${REPO_ROOT}/modules/stack/${file}"
+  [[ -f "$path" ]] || _err "stack module missing: modules/stack/${file}"
+  local fn
+  for fn in "$@"; do
+    # shellcheck source=/dev/null
+    ( source "$path" >/dev/null 2>&1 && declare -F "$fn" >/dev/null ) \
+      || _err "modules/stack/${file} does not define ${fn}()"
+    _log "  modules/stack/${file} :: ${fn}() defined ✓"
+  done
+}
+
 # =============================================================================
 # capture_variant  <spec>  <dest_root>
 # =============================================================================
@@ -120,7 +145,7 @@ capture_variant() {
 
   _log "Capturing variant: ${VNAME}"
 
-  # Temp dir for setup_stack file output
+  # Temp dir for stack-generator file output
   local tmp_install
   tmp_install=$(mktemp -d)
   # shellcheck disable=SC2064
@@ -132,7 +157,7 @@ capture_variant() {
     "$FIXED_DB_ROOT_PASS" "$FIXED_BACKUP_PASS" > "$state_file"
 
   # ===========================================================================
-  # PHASE 1 — generate stack files via setup_stack()
+  # PHASE 1 — generate stack files via the modules/stack/* generators
   # Runs in a subshell so exported env + bash function shims are fully isolated.
   # ===========================================================================
   (
@@ -203,16 +228,30 @@ capture_variant() {
       echo "${_p:-${FIXED_BACKUP_PASS}}"
     }
 
-    # ── Define setup_stack from the live actools.sh (not a copy) ───────────
-    # sed extracts lines SS_START..SS_END; eval defines the function in this
-    # subshell; heredocs inside execute only when setup_stack() is called.
-    eval "$(sed -n "${SS_START},${SS_END}p" "${ACTOOLS_SH}")"
+    # ── Source the stack-generator modules and call them directly (P0-G) ────
+    # The stack's generated files are produced by the canonical modules/stack/*
+    # functions (the live authority). setup_stack() in actools.sh is now a thin
+    # orchestrator that calls these same functions, in this order, and then runs
+    # `docker compose pull/down/up` — orchestration the golden capture does not
+    # need (docker is shimmed). So we reproduce only the file-generating calls
+    # here, against the deterministic env above, to render the six stack files.
+    for _sm in mycnf images caddyfile compose; do
+      # shellcheck source=/dev/null
+      source "${REPO_ROOT}/modules/stack/${_sm}.sh" \
+        || _err "capture: cannot source modules/stack/${_sm}.sh"
+    done
+    unset _sm
 
-    setup_stack
+    generate_mycnf
+    build_caddy_image
+    build_php_image
+    build_worker_image
+    generate_caddyfile
+    generate_compose
 
-  ) || _err "setup_stack() failed for variant '${VNAME}' — see error above"
+  ) || _err "stack generation failed for variant '${VNAME}' — see error above"
 
-  _log "  setup_stack done for '${VNAME}'"
+  _log "  stack files generated for '${VNAME}'"
 
   # ===========================================================================
   # PHASE 2 — copy generated stack files to fixture directory
@@ -223,7 +262,7 @@ capture_variant() {
                         Caddyfile docker-compose.yml)
   for f in "${STACK_FILES[@]}"; do
     [[ -f "${tmp_install}/${f}" ]] \
-      || _err "Expected file missing after setup_stack: ${tmp_install}/${f}"
+      || _err "Expected file missing after stack generation: ${tmp_install}/${f}"
     cp "${tmp_install}/${f}" "${fixture_dir}/${f}"
   done
 
@@ -250,10 +289,13 @@ main() {
   _log "actools.sh : $(wc -l < "$ACTOOLS_SH") lines"
   _log ""
 
-  # Validate function line ranges before any work — catches actools.sh drift
-  _log "Validating function line ranges in actools.sh..."
-  _assert_fn_range "setup_stack" "$SS_START" "$SS_END"
-  _assert_fn_range "setup_cli"   "$SC_START" "$SC_END"
+  # Validate stack modules + the setup_cli drift canary before any work.
+  _log "Validating stack-generator modules and setup_cli line range..."
+  _assert_fn_defined mycnf.sh     generate_mycnf
+  _assert_fn_defined images.sh    build_caddy_image build_php_image build_worker_image
+  _assert_fn_defined caddyfile.sh generate_caddyfile
+  _assert_fn_defined compose.sh   generate_compose
+  _assert_fn_range   "setup_cli"  "$SC_START" "$SC_END"
   _log ""
 
   mkdir -p "$ARG_DEST"

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
 # modules/stack/mycnf.sh — MariaDB my.cnf Generation
-# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+#
+# LIVE AUTHORITY (P0-G): carries the monolith's exact my.cnf generation logic,
+# extracted verbatim from actools.sh setup_stack(). Sourced by actools.sh and
+# called by setup_stack (and, in tests, by the golden-capture harness). The
+# buffer-pool size derives from ${INNODB_BUFFER_POOL:-1G} (env-default, NOT
+# RAM-derived — this matches the current monolith).
 # =============================================================================
 
 generate_mycnf() {
@@ -19,5 +24,4 @@ slow_query_log          = 1
 slow_query_log_file     = /var/log/mysql/slow.log
 long_query_time         = 2
 MYCNF
-  log "my.cnf generated."
 }
