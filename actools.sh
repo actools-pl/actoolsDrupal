@@ -197,6 +197,18 @@ for _hostmod in packages age kernel swap firewall docker logrotate; do
 done
 unset _hostmod
 
+# Source modular stack-generation logic (P0-G). These define the stack
+# generator functions; setup_stack delegates to them (and the golden-capture
+# harness sources them too). Extracted incrementally — this list grows as each
+# generated file moves out of setup_stack into modules/stack/*.
+# shellcheck disable=SC2043  # one item now; this list grows per extracted file
+for _stackmod in mycnf; do
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/modules/stack/${_stackmod}.sh" \
+    || error "Cannot load modules/stack/${_stackmod}.sh"
+done
+unset _stackmod
+
 [[ -z "${BASE_DOMAIN:-}" ]]        && error "BASE_DOMAIN is not set in $ENV_FILE"
 [[ -z "${DRUPAL_ADMIN_EMAIL:-}" ]] && error "DRUPAL_ADMIN_EMAIL is not set in $ENV_FILE"
   [[ "${DRUPAL_ADMIN_EMAIL}" =~ ^[^@]+@[^@]+.[^@]+$ ]] || error "DRUPAL_ADMIN_EMAIL is not a valid email address: ${DRUPAL_ADMIN_EMAIL}"
@@ -438,20 +450,7 @@ setup_stack() {
   BACKUP_PASS=$(get_backup_pass)
 
   # ── MariaDB my.cnf ──────────────────────────────────────────────────────────
-  local innodb_buf="${INNODB_BUFFER_POOL:-1G}"
-  local innodb_log="${INNODB_LOG_FILE_SIZE:-256M}"
-  local max_conn="${MARIADB_MAX_CONNECTIONS:-100}"
-
-  cat > "$INSTALL_DIR/my.cnf" <<MYCNF
-[mysqld]
-innodb_buffer_pool_size = ${innodb_buf}
-innodb_log_file_size    = ${innodb_log}
-max_connections         = ${max_conn}
-innodb_flush_log_at_trx_commit = 1
-slow_query_log          = 1
-slow_query_log_file     = /var/log/mysql/slow.log
-long_query_time         = 2
-MYCNF
+  generate_mycnf
 
   # ── Dockerfile.caddy ────────────────────────────────────────────────────────
   cat > "$INSTALL_DIR/Dockerfile.caddy" <<'CADDY_DOCKERFILE'

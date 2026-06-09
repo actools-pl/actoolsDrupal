@@ -49,15 +49,17 @@ readonly FIXED_DRUPAL_ADMIN_PASS="TEST_DRUPAL_ADMIN_PASS_FIXED"
 readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 
 # ── Line ranges in actools.sh (verified against current source) ──────────────
-# setup_stack starts at line 419, closes at line 878
-# setup_cli   starts at line 1097, closes at line 1112
+# setup_stack starts at line 431, closes at line 877
+# setup_cli   starts at line 1096, closes at line 1111
 #
-# P0-G: the top-level host-provisioning block was extracted to modules/host/*
-# and deleted from actools.sh, shifting setup_stack up from 569->419 and
-# setup_cli from 1247->1097. setup_stack is still the monolith stack generator
-# at this step, so it is still sed-extracted + eval'd below; the stack-generator
-# extraction (modules/stack/*) reworks this harness to source those modules and
-# drop the SS_* eval range — see docs/releases/P0-G-extract-host-stack.md.
+# P0-G: the host block was extracted to modules/host/* and the stack generators
+# are being extracted to modules/stack/* one file at a time. setup_stack is now
+# a (shrinking) orchestrator that DELEGATES each extracted file to a module
+# function, so this harness sources those modules (see PHASE 1 below) and still
+# sed-extracts + eval's setup_stack for the not-yet-extracted inline generators.
+# SS_*/SC_* are re-pinned after each extraction; when the last generator moves
+# out, the harness switches to calling the module generators directly and drops
+# the SS_* eval range — see docs/releases/P0-G-extract-host-stack.md.
 #
 # P0-F: setup_cli() no longer renders a CLI — it installs the CLI by copying
 # the canonical cli/actools verbatim. The SC_START..SC_END range below is kept
@@ -65,8 +67,8 @@ readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 # if a future edit moves it (drift guard). The range is no longer sed-extracted
 # to generate a CLI fixture; the CLI is validated directly by
 # tests/installer/cli_authority_test.bats (installed == cli/actools).
-readonly SS_START=419  SS_END=878
-readonly SC_START=1097 SC_END=1112
+readonly SS_START=431  SS_END=877
+readonly SC_START=1096 SC_END=1111
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(
@@ -209,6 +211,18 @@ capture_variant() {
       _p=$(jq -r '.backup_user_pass // empty' "${STATE_FILE}" 2>/dev/null || true)
       echo "${_p:-${FIXED_BACKUP_PASS}}"
     }
+
+    # ── Source extracted stack-generator modules (P0-G) ────────────────────
+    # setup_stack now delegates each extracted generated file to a module
+    # function, so those functions must be defined in this subshell before
+    # setup_stack runs. This list grows as each file moves out of setup_stack.
+    # shellcheck disable=SC2043  # one item now; this list grows per extracted file
+    for _sm in mycnf; do
+      # shellcheck source=/dev/null
+      source "${REPO_ROOT}/modules/stack/${_sm}.sh" \
+        || _err "capture: cannot source modules/stack/${_sm}.sh"
+    done
+    unset _sm
 
     # ── Define setup_stack from the live actools.sh (not a copy) ───────────
     # sed extracts lines SS_START..SS_END; eval defines the function in this
