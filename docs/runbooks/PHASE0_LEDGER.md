@@ -85,6 +85,225 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 011 — P0-F · CLI Authority Consolidation
+
+Date: 2026-06-09
+Branch: `phase0/P0-F-cli-authority`
+Commit SHA: (recorded by operator at apply time)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-F — CLI Authority Consolidation
+Task prompt source: `P0-F-cli-authority.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Collapse the two divergent operator CLIs into **one canonical source**. Adopt
+**Option A**: `cli/actools` is canonical; the installer (`setup_cli`) installs it
+by copying it verbatim; the duplicate `cat > /usr/local/bin/actools <<HELPER`
+generator is deleted. Preserve safe secret handling, retain every command's
+behavior (parity matrix), declare the CLI **Changed intentionally** while proving
+the six non-CLI generated files stay byte-identical (golden drift 6/6).
+
+### Decision (Option A)
+
+Option A over Option B because no runtime substitution is required: the CLI reads
+all install-time state at runtime (`ACTOOLS_HOME`, `actools.env`, `.actools-state.json`).
+The single value the heredoc baked in (`INSTALL_DIR`) is now resolved at runtime
+via `INSTALL_DIR="${ACTOOLS_HOME:-$(self-locate)}"`. `setup_cli` already writes
+`ACTOOLS_HOME` to `/etc/environment`; the fallback covers in-repo execution
+(tests, `./cli/actools`). Because the installed file is a verbatim copy, the CLI
+is **no longer a generated artifact** and is removed from the golden-fixture set;
+its integrity is proven directly by an installed==source test.
+
+### Files changed
+
+- `cli/actools` — **now the single canonical CLI.**
+  - `:7` `INSTALL_DIR="${ACTOOLS_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"`
+    (was self-location only) so the verbatim copy resolves correctly at
+    `/usr/local/bin/actools`.
+  - Stale comment (old `:12-15`, "no setup_cli.sh heredoc generator… audited")
+    **rewritten** to describe install-by-copy and point at the contract.
+  - `update` — snapshot switched to the **safe** `--defaults-extra-file` path
+    (password fed via stdin into a temp cnf created **inside** the db container
+    with `umask 077` + `trap` cleanup; never in argv), reusing the already-loaded
+    `BACKUP_PASS` and keeping its guard; **kept** static's strict `exit 1` +
+    rollback hint and `pull db redis php_prod`; **changed** the `drush updb` loop
+    to env-driven (`for env in $(echo "${ENVIRONMENTS:-prod}" | tr ',' ' ')`).
+  - `restore` / `restore-test` — root DB ops switched to
+    `docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"'`
+    (password from the db container's own env var, never in argv); removed the now
+    **dead** `[[ -z "$DB_ROOT_PASS" ]]` guards (`DB_ROOT_PASS` is not exported to
+    the host); kept confirmation/checksum/glob and the backtick-escaped DB name;
+    **kept** `restore-test`'s `.restore-test-last` marker (consumed by
+    `cli/commands/doctor.sh:194`); **dropped** the generated CLI's S3 reachability
+    chain (accepted consequence — no functional dependency, avoids noise on
+    non-S3 installs).
+  - `storage-info` — `ENV_FILE` `/home/actools/actools.env` → `${INSTALL_DIR}/actools.env`.
+  - `migrate` — `Current mode: local` → `Current mode: ${XELATEX_MODE:-local}`.
+  - `health` — loop made env-driven (matches generated; identical for community).
+  - **`audit` command added** (ported verbatim from the generated CLI; sets
+    `ACTOOLS_HOME`, sources `modules/audit/lib/output.sh`, runs
+    `modules/audit/audit.sh "${@:2}"`) + `audit` entries added to both help tiers.
+    Parity preservation: the module already ships; only `--deep` is edition-gated.
+- `actools.sh` — `setup_cli()` (`:1247-1262`): the `HELPER` heredoc (old
+  `:1251-1520`) and the dead `local backup_pass=$(get_backup_pass)` removed;
+  replaced with `install -m 0755 "${INSTALL_DIR}/cli/actools" /usr/local/bin/actools`;
+  `chmod +x` / `log` / `ACTOOLS_HOME` write tail kept. `setup_stack` (`:569-1028`)
+  untouched. (`get_backup_pass` retained — still used at `:588/:1169/:1629`.)
+- `tests/helpers/capture_golden_outputs.sh` — `SC_END` 1528 → **1262**
+  (`SC_START` 1247, `SS_*` unchanged); the PHASE-2 CLI render and the PHASE-3
+  `actools-cli` copy removed; `actools-cli` dropped from the PHASE-4 sha manifest;
+  orphaned `FIXED_CLI_INSTALL_DIR` removed. The `_assert_fn_range "setup_cli"`
+  **drift guard is kept and updated** (range-checked though no longer rendered).
+- `tests/fixtures/golden/{default,redis-off,s3-on,cadvisor-on,all-in-one}/` —
+  `actools-cli` fixture deleted; each `SHA256SUMS` reduced to **6** entries by
+  removing only the `actools-cli` line (the six stack-file sums are **byte-for-byte
+  preserved**, so a passing drift run proves the non-CLI files are unchanged).
+- `tests/generated/golden_drift_test.bats` — meta-test manifest-entry assertion
+  7 → **6**.
+- `tests/installer/cli_authority_test.bats` — **new, 14 tests.**
+- `docs/architecture/cli-authority-contract.md` (Option A decision + 12-row matrix
+  filled + Status: satisfied), `docs/architecture/runtime-authority-map.md`
+  (CLI-install / Generated-CLI / Doctor / Handoff rows; test count 119→133),
+  `docs/CHANGELOG.md`, `docs/releases/P0-F-cli-authority.md`,
+  `docs/tests/P0-F-cli-authority.md`, `docs/runbooks/HANDOFF-P0-F.md`, and this
+  ledger entry (Entry 011).
+
+### Files intentionally not changed
+
+- `actools.sh::setup_stack()` and the six non-CLI generators (`my.cnf`,
+  `Dockerfile.{caddy,php,worker}`, `Caddyfile`, `docker-compose.yml`) — **not
+  touched**; golden drift 6/6.
+- `modules/audit/*` — the `audit` command was **wired**, not authored; the module
+  ships as-is.
+- `cli/commands/*.sh` — unchanged (the `.restore-test-last` consumer in
+  `doctor.sh` verified intact by a test).
+- `modules/dr/resurrect.sh` — its independent `actools-real` copy is **out of
+  scope** (P0-J).
+- The harness range guard was **updated, not widened or disabled**.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| CLI source | **two** divergent CLIs: a generated `HELPER` heredoc in `setup_cli` **and** static `cli/actools` | **one** canonical source: `cli/actools`; installer copies it verbatim |
+| CLI install (`setup_cli`) | `cat > /usr/local/bin/actools <<HELPER …` (install-time `$`/`$()` expansion) | `install -m 0755 "${INSTALL_DIR}/cli/actools" …` (verbatim copy) |
+| CLI `INSTALL_DIR` resolution | heredoc baked `INSTALL_DIR=<literal>` | runtime `"${ACTOOLS_HOME:-<self-locate>}"` |
+| CLI golden coverage | rendered `actools-cli` fixture in all 5 variants (7-entry manifests) | **no CLI fixture** (6-entry manifests); installed==source proven by `cli_authority_test.bats` |
+| DB secrets in CLI | snapshot `-p"$BACKUP_PASS"`; root ops `-p"$DB_ROOT_PASS"` (argv-visible) | snapshot `--defaults-extra-file` (umask 077 + trap); root ops `MYSQL_PWD` in-container — **never in argv** |
+| `audit` in static CLI | absent | present (parity) |
+| Install path / `setup_stack` | dispatcher-driven (P0-D) | **unchanged** |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | no generator edited; golden drift 6/6 |
+| Caddyfile | Not touched | no generator edited; golden drift 6/6 |
+| my.cnf | Not touched | no generator edited; golden drift 6/6 |
+| Dockerfiles | Not touched | no generator edited; golden drift 6/6 |
+| CLI (`actools-cli`) | **Changed intentionally** | CLI authority consolidated to `cli/actools` (Option A); CLI is no longer generated; `actools-cli` fixture retired; installed==source proven by `cli_authority_test.bats`. See release note. |
+
+### Tests run
+
+```bash
+export PATH="$HOME/.npm-global/bin:$PATH"
+
+# BEFORE (clean P0-F baseline @ aa881de):
+bats tests/generated/golden_drift_test.bats                                 # 6/6
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 113/113
+
+# AFTER:
+bats tests/generated/golden_drift_test.bats                                 # 6/6 (six non-CLI files byte-identical)
+bats tests/installer/cli_authority_test.bats                                # 14/14 (new)
+bats tests/core/*.bats tests/installer/*.bats tests/test_d0_dispatch.bats   # 127/127
+
+# Syntax:
+bash -n actools.sh; bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n # clean
+
+# Secret-safety static check (in the new suite):
+grep -nE '(-p"?\$|--password=)' cli/actools                                 # no matches
+```
+
+### Test result
+
+PASS — golden drift **6/6** before and after (six non-CLI generated files
+byte-identical; `actools-cli` fixture retired by design). Unit/integration
+**127/127** (113 prior + 14 new), **133/133** overall. All `bash -n` clean. No
+password-in-argv pattern remains in `cli/actools`.
+
+### Documentation updated
+
+- [x] Runtime authority map — CLI-install / Generated-CLI / Doctor / Handoff rows; test count 119→133
+- [ ] Generated-file contract — no change to the doc itself (the CLI's "Changed intentionally" status is recorded in the release note, per its rule)
+- [x] CLI authority contract — Option A decision recorded + 12-row parity matrix filled + Status: satisfied
+- [ ] Operator target docs — none this phase
+- [x] Test plan / report — `docs/tests/P0-F-cli-authority.md`
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated (Unreleased → P0-F section)
+- [x] Release note added — `docs/releases/P0-F-cli-authority.md` (incl. Rollback + "Changed intentionally" justification)
+- [x] Test report added — `docs/tests/P0-F-cli-authority.md`
+- [ ] Review notes — pending Review Gate
+
+### Known risks
+
+- **CLI is now "Changed intentionally" (not byte-identical).** This is the first
+  generated-file behavior change in Phase 0. It is bounded by the parity matrix
+  and justified in the release note; the six **non-CLI** generated files remain
+  byte-identical (drift 6/6). A reviewer should read the matrix, not just the
+  drift result.
+- **`INSTALL_DIR` now trusts `ACTOOLS_HOME`.** On an installed host this is set by
+  `setup_cli`; if `/etc/environment` is wiped, the CLI falls back to self-location
+  which, from `/usr/local/bin`, resolves to `/usr/local` (wrong). The risk is the
+  same class the heredoc baked around; mitigated because `setup_cli` always
+  (re)writes `ACTOOLS_HOME` at install. Tests pin `ACTOOLS_HOME` for determinism.
+- **Dropped `restore-test` S3 reachability chain.** Operators who relied on
+  `restore-test` implicitly running `storage-test` must call `actools storage-test`
+  explicitly. Documented in the release note.
+- **Installed CLI gains `tunnel` and a 2-tier `help`** (previously only in static)
+  and the `audit` command. These are additive; documented.
+- **`worker-run`** keeps the static `drush queue:run …` (the generated CLI's
+  `xelatex --version` anomaly is intentionally dropped). Documented.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a **separate session (ideally a different model)** renders
+APPROVED / NEEDS REVISION / BLOCKED. Reviewer: confirm (1) the six non-CLI
+generated files are byte-identical (drift 6/6) and the CLI's "Changed
+intentionally" status matches the parity matrix; (2) only allowed files touched;
+(3) `setup_cli` installs by verbatim copy with no heredoc and the installed CLI
+equals `cli/actools`; (4) **no** DB password appears in any argv (snapshot uses a
+defaults file, root ops use `MYSQL_PWD` in-container) and the temp cnf uses
+`umask 077` + trap; (5) the harness range guard is updated (SC_END=1262) and
+green, not widened/disabled.
+
+### Next safe task
+
+**P0-G — Host/stack extraction**, or **P0-H — Surface wiring** (the Review Gate
+owns sequencing). With the CLI consolidated, the remaining generated-file authority
+work (extracting `setup_stack`'s host/stack heredocs into `modules/*` behind the
+dispatcher, with golden fixtures) can proceed independently of CLI concerns.
+
+### Forbidden next scope
+
+No host/stack extraction in this phase (that is P0-G); no community-plus feature
+commands beyond the existing stubs/gates; no broad rewrite of command behavior
+beyond the documented parity matrix; no touching `setup_stack` or the six non-CLI
+generators; no widening or disabling the golden harness range guard.
+
+### Community-plus status
+
+Still **BLOCKED**. Phase 0 not closed. P0-F removes the CLI duplication and locks
+the CLI to a single safe source, but wires no community-plus feature.
+
+---
+
 ## Entry 010 — P0-E · Profile Validation and Resolver Contract
 
 Date: 2026-06-09

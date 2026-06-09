@@ -3,12 +3,17 @@
 # tests/helpers/capture_golden_outputs.sh
 # P0-C — Golden Behavior Capture helper
 #
-# Renders every generated file for each environment variant WITHOUT executing
-# docker build, apt-get, chown, systemctl, ufw, or any other privileged/
-# side-effect command.  The REAL actools.sh heredoc text is never copied here;
-# setup_stack() and setup_cli() are extracted from the live actools.sh via sed
-# and eval'd so fixtures stay byte-for-byte identical to what the generator
+# Renders every generated STACK file for each environment variant WITHOUT
+# executing docker build, apt-get, chown, systemctl, ufw, or any other
+# privileged/side-effect command.  The REAL actools.sh heredoc text is never
+# copied here; setup_stack() is extracted from the live actools.sh via sed and
+# eval'd so fixtures stay byte-for-byte identical to what the generator
 # actually produces.
+#
+# P0-F: the CLI is no longer a generated file. setup_cli() installs the CLI by
+# copying the canonical cli/actools verbatim, so there is no CLI fixture to
+# capture here. CLI integrity (installed == cli/actools) and secret-safety are
+# verified directly by tests/installer/cli_authority_test.bats.
 #
 # Usage:
 #   bash tests/helpers/capture_golden_outputs.sh [all|<variant>] [<dest-dir>]
@@ -42,14 +47,19 @@ readonly FIXED_EMAIL="golden@example.com"
 readonly FIXED_DB_ROOT_PASS="TEST_DB_ROOT_PASS_FIXED"
 readonly FIXED_DRUPAL_ADMIN_PASS="TEST_DRUPAL_ADMIN_PASS_FIXED"
 readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
-# Pinned path baked into the CLI fixture (must not be a temp dir — sha256 must be stable)
-readonly FIXED_CLI_INSTALL_DIR="/opt/actools-golden-test"
 
 # ── Line ranges in actools.sh (verified against current source) ──────────────
 # setup_stack starts at line 569, closes at line 1028
-# setup_cli   starts at line 1247, closes at line 1528
+# setup_cli   starts at line 1247, closes at line 1262
+#
+# P0-F: setup_cli() no longer renders a CLI — it installs the CLI by copying
+# the canonical cli/actools verbatim. The SC_START..SC_END range below is kept
+# ONLY so _assert_fn_range() still pins setup_cli()'s location and fails loudly
+# if a future edit moves it (drift guard). The range is no longer sed-extracted
+# to generate a CLI fixture; the CLI is validated directly by
+# tests/installer/cli_authority_test.bats (installed == cli/actools).
 readonly SS_START=569  SS_END=1028
-readonly SC_START=1247 SC_END=1528
+readonly SC_START=1247 SC_END=1262
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(
@@ -205,57 +215,9 @@ capture_variant() {
   _log "  setup_stack done for '${VNAME}'"
 
   # ===========================================================================
-  # PHASE 2 — generate CLI via setup_cli()   [rootless, side-effect-free]
-  # setup_cli() hardcodes three root-only host writes:
-  #     cat > /usr/local/bin/actools <<HELPER     (actools.sh:1251)
-  #     chmod +x /usr/local/bin/actools           (actools.sh:1521)
-  #     sed -i / echo >> /etc/environment         (actools.sh:1524-1526, ACTOOLS_HOME=)
-  # Running those for real needs root AND mutates the host (notably it would
-  # persist ACTOOLS_HOME=${FIXED_CLI_INSTALL_DIR} into /etc/environment).  The
-  # HELPER heredoc BODY contains neither path, so we extract setup_cli and
-  # sed-redirect ONLY those write targets to temp paths before eval.  The
-  # captured CLI content is byte-identical to a real generation; nothing outside
-  # the per-variant temp dir is touched, and no root is required.
-  # INSTALL_DIR = FIXED_CLI_INSTALL_DIR keeps the path baked into the CLI stable.
-  # ===========================================================================
-  local cli_out="${tmp_install}/actools-cli"
-  local env_out="${tmp_install}/etc-environment.throwaway"
-
-  (
-    export INSTALL_DIR="$FIXED_CLI_INSTALL_DIR"
-    export STATE_FILE="$state_file"
-    export BASE_DOMAIN="$FIXED_DOMAIN"
-    export ENVIRONMENTS="$ENVIRONMENTS"
-    export ENABLE_S3_STORAGE="$S3"
-    export XELATEX_MODE="local"
-    export XELATEX_ENDPOINT=""
-
-    docker()  { return 0; }
-    log()     { return 0; }
-    warn()    { return 0; }
-    error()   { echo "[capture_shim_error] $*" >&2; exit 1; }
-
-    get_state() { jq -r "$1" "${STATE_FILE}" 2>/dev/null || echo "null"; }
-    get_backup_pass() {
-      local _p
-      _p=$(jq -r '.backup_user_pass // empty' "${STATE_FILE}" 2>/dev/null || true)
-      echo "${_p:-${FIXED_BACKUP_PASS}}"
-    }
-
-    # Redirect the host writes to temp paths (body untouched — verified).
-    eval "$(sed -n "${SC_START},${SC_END}p" "${ACTOOLS_SH}" \
-            | sed -e "s#/usr/local/bin/actools#${cli_out}#g" \
-                  -e "s#/etc/environment#${env_out}#g")"
-    setup_cli
-
-  ) || _err "setup_cli() failed for variant '${VNAME}'"
-
-  [[ -f "$cli_out" ]] || _err "CLI not generated at ${cli_out} for '${VNAME}'"
-
-  _log "  setup_cli done for '${VNAME}' (rootless; no system files touched)"
-
-  # ===========================================================================
-  # PHASE 3 — copy generated files to fixture directory
+  # PHASE 2 — copy generated stack files to fixture directory
+  # (P0-F: the former PHASE-2 CLI render is gone — the CLI is installed by
+  #  copying cli/actools verbatim, so it is not a captured fixture.)
   # ===========================================================================
   local -a STACK_FILES=(my.cnf Dockerfile.caddy Dockerfile.php Dockerfile.worker
                         Caddyfile docker-compose.yml)
@@ -265,17 +227,13 @@ capture_variant() {
     cp "${tmp_install}/${f}" "${fixture_dir}/${f}"
   done
 
-  [[ -f "${tmp_install}/actools-cli" ]] \
-    || _err "CLI fixture missing: ${tmp_install}/actools-cli"
-  cp "${tmp_install}/actools-cli" "${fixture_dir}/actools-cli"
-
   # ===========================================================================
-  # PHASE 4 — record SHA256 manifest
+  # PHASE 3 — record SHA256 manifest
   # ===========================================================================
   (
     cd "$fixture_dir"
     sha256sum my.cnf Dockerfile.caddy Dockerfile.php Dockerfile.worker \
-              Caddyfile docker-compose.yml actools-cli > SHA256SUMS
+              Caddyfile docker-compose.yml > SHA256SUMS
   )
 
   _log "  Variant '${VNAME}' captured → ${fixture_dir}"

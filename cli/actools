@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Actools CLI v14.0
-INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# INSTALL_DIR resolution: prefer ACTOOLS_HOME (written to /etc/environment by
+# setup_cli at install time) so this file works verbatim when copied to
+# /usr/local/bin/actools; fall back to self-location for in-repo execution
+# (e.g. tests, ./cli/actools), where ../ correctly points at the repo root.
+INSTALL_DIR="${ACTOOLS_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exit 1; }
 
 # =============================================================================
@@ -9,10 +13,12 @@ cd "$INSTALL_DIR" 2>/dev/null || { echo "Actools not found at $INSTALL_DIR"; exi
 # Strip --profile / --profile=VALUE from $@ before the main case statement.
 # Read ACTOOLS_PROFILE from actools.env if present, resolve via dispatch.sh.
 #
-# Note on sibling-files discipline (brief Section 2, D.0-3):
-#   cli/actools is a static installed file. There is no setup_cli.sh heredoc
-#   generator in this codebase — that injection risk was audited and does not
-#   apply here. This comment is the explicit record of that audit.
+# Note on CLI authority (P0-F — CLI Authority Consolidation):
+#   cli/actools is the SINGLE canonical source for the CLI. The installer
+#   (actools.sh setup_cli) installs the CLI by copying this file verbatim to
+#   /usr/local/bin/actools — there is no longer a setup_cli heredoc that
+#   re-emits a second CLI implementation. Edit the CLI here and only here.
+#   See docs/architecture/cli-authority-contract.md (Option A).
 # =============================================================================
 
 _actools_cli_profile=""
@@ -128,7 +134,7 @@ case "${1:-help}" in
     ;;
 
   storage-info)
-    ENV_FILE="/home/actools/actools.env"
+    ENV_FILE="${INSTALL_DIR}/actools.env"
     [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
     STORAGE_PROVIDER="${STORAGE_PROVIDER:-${S3_PROVIDER:-aws}}"
     S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-${S3_ENDPOINT:-}}"
@@ -158,10 +164,19 @@ case "${1:-help}" in
     echo "Taking pre-update prod snapshot..."
     SNAP="${INSTALL_DIR}/backups/pre_update_prod_$(date +%F_%H%M%S).sql.gz"
     [[ -z "$BACKUP_PASS" ]] && { echo "ERROR: backup_user_pass missing from .actools-state.json — reinstall or restore state to regenerate"; exit 1; }
-    docker exec actools_db mariadb-dump --single-transaction --quick       -ubackup -p"${BACKUP_PASS}" actools_prod       | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
+    # Safe snapshot: pass the backup password via a temp defaults file created
+    # INSIDE the db container (umask 077, trap-cleaned) so it never appears in
+    # any host or container process argument list.
+    printf '%s\n' '[mariadb-dump]' 'user=backup' "password=${BACKUP_PASS}" \
+      | docker exec -i actools_db sh -c '
+          umask 077; t=$(mktemp /tmp/actools-dump.XXXXXX.cnf); trap "rm -f \"$t\"" EXIT
+          cat > "$t"
+          mariadb-dump --defaults-extra-file="$t" "$@"
+        ' _ --single-transaction --quick actools_prod \
+      | gzip > "$SNAP" && echo "Snapshot: $SNAP" || echo "Snapshot failed (non-fatal)"
     docker compose pull db redis php_prod
     docker compose up -d
-    for env in prod; do
+    for env in $(echo "${ENVIRONMENTS:-prod}" | tr ',' ' '); do
       svc=$(php_svc "$env")
       if docker compose ps "$svc" | grep -q "Up"; then
         echo "drush updb on ${env}..."
@@ -182,7 +197,7 @@ case "${1:-help}" in
   backup)     /etc/cron.daily/actools-backup ;;
 
   health)
-    for env in prod; do
+    for env in $(echo "${ENVIRONMENTS:-prod}" | tr ',' ' '); do
       dom="${env}.${BASE_DOMAIN}"
       [[ "$env" == "prod" ]] && dom="${BASE_DOMAIN}"
       http=$(curl -sso /dev/null -w "%{http_code}" --max-time 5 "https://$dom" 2>/dev/null || echo "ERR")
@@ -213,11 +228,12 @@ case "${1:-help}" in
     [[ -z "$LATEST" ]] && { echo "No prod DB backups found"; exit 1; }
     echo "Testing DB restore: $LATEST"
     sha256sum -c "$LATEST.sha256" && echo "Checksum OK" || { echo "CHECKSUM FAILED"; exit 1; }
-    [[ -z "$DB_ROOT_PASS" ]] && { echo "ERROR: DB_ROOT_PASS missing from actools.env — run init or set the value"; exit 1; }
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
-    gunzip -c "$LATEST" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" actools_restore_test
-    TC=$(docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -sN -e       "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e "DROP DATABASE IF EXISTS actools_restore_test;"
+    docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ -e \
+      "CREATE DATABASE IF NOT EXISTS actools_restore_test CHARACTER SET utf8mb4;"
+    gunzip -c "$LATEST" | docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ actools_restore_test
+    TC=$(docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ -sN -e \
+      "SELECT count(*) FROM information_schema.tables WHERE table_schema='actools_restore_test';")
+    docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ -e "DROP DATABASE IF EXISTS actools_restore_test;"
     echo "DB restore test OK -- ${TC} tables restored."
     date -Iseconds > "${INSTALL_DIR}/backups/.restore-test-last"
     ;;
@@ -232,9 +248,9 @@ case "${1:-help}" in
     sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
     read -rp "OVERWRITE actools_${env}? [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
-    [[ -z "$DB_ROOT_PASS" ]] && { echo "ERROR: DB_ROOT_PASS missing from actools.env — run init or set the value"; exit 1; }
-    docker exec actools_db mariadb -uroot -p"${DB_ROOT_PASS}" -e       "DROP DATABASE IF EXISTS \`${db}\`; CREATE DATABASE \`${db}\` CHARACTER SET utf8mb4;"
-    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db mariadb -uroot -p"${DB_ROOT_PASS}" "$db"
+    docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ -e \
+      "DROP DATABASE IF EXISTS \`${db}\`; CREATE DATABASE \`${db}\` CHARACTER SET utf8mb4;"
+    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$db"
     echo "Restore complete. Run: actools drush $env cr"
     ;;
 
@@ -265,7 +281,7 @@ case "${1:-help}" in
 
   migrate)
     echo "=== XeLaTeX Migration Guide ==="
-    echo "Current mode: local"
+    echo "Current mode: ${XELATEX_MODE:-local}"
     echo ""
     echo "1. Deploy XeLaTeX HTTP service on target server"
     echo "2. Set XELATEX_MODE=remote and XELATEX_ENDPOINT=http://<host>:8081 in actools.env"
@@ -292,6 +308,17 @@ case "${1:-help}" in
       *)       echo "Usage: actools tunnel [status|restart|logs]" ;;
     esac
     ;;
+
+  audit)
+    AUDIT_SCRIPT="${INSTALL_DIR}/modules/audit/audit.sh"
+    [[ ! -f "$AUDIT_SCRIPT" ]] && { echo "audit module not found at $AUDIT_SCRIPT"; exit 1; }
+    export ACTOOLS_HOME="${INSTALL_DIR}"
+    # shellcheck source=/dev/null
+    source "${INSTALL_DIR}/modules/audit/lib/output.sh" 2>/dev/null || true
+    cd "${INSTALL_DIR}"
+    set -a; source "${INSTALL_DIR}/actools.env" 2>/dev/null || true; set +a
+    bash "$AUDIT_SCRIPT" "${@:2}"
+    ;;
   help|*)
     if [[ "${2:-}" == "advanced" || "${2:-}" == "all" ]]; then
       cat <<'EOF'
@@ -300,6 +327,7 @@ Actools Drupal Community — Full Command Reference
 Common
   doctor              Daily health check (site, TLS, DB, Redis, disk, backups)
   doctor --deep       Performance trends, drift, forecasting (in development)
+  audit               Drupal health audit + scoring
   status              Container status
   logs [svc]          Stream logs
   backup              Run a backup now
@@ -340,6 +368,7 @@ Actools Drupal Community
 
 Common commands:
   actools doctor       Daily health check
+  actools audit        Drupal health audit + scoring
   actools status       Container status
   actools logs         Stream logs
   actools backup       Run a backup

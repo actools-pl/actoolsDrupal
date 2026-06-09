@@ -1,5 +1,81 @@
 # Changelog
 
+## [Unreleased] — P0-F CLI Authority Consolidation
+
+### Changed — runtime (CLI authority consolidated to a single source; **Option A**)
+- There is now **one** canonical operator CLI: `cli/actools`. The installer
+  (`actools.sh` → `setup_cli`) installs it by copying that file **verbatim**
+  (`install -m 0755 "${INSTALL_DIR}/cli/actools" /usr/local/bin/actools`). The
+  duplicate `cat > /usr/local/bin/actools <<HELPER` generator that re-emitted a
+  second, divergent CLI has been **removed**. Edit the CLI in `cli/actools` and
+  nowhere else.
+- `cli/actools` resolves its install directory at runtime as
+  `INSTALL_DIR="${ACTOOLS_HOME:-$(self-locate)}"` so the verbatim copy works at
+  `/usr/local/bin/actools` (where bare self-location would wrongly yield
+  `/usr/local`). `setup_cli` continues to persist `ACTOOLS_HOME` to
+  `/etc/environment`; the self-location fallback covers in-repo execution.
+- **The CLI is the one generated file Changed intentionally this phase.** The six
+  non-CLI generated files (`my.cnf`, `Dockerfile.caddy`, `Dockerfile.php`,
+  `Dockerfile.worker`, `Caddyfile`, `docker-compose.yml`) are **byte-identical**
+  (golden drift 6/6); `setup_stack` was not touched. See
+  `docs/releases/P0-F-cli-authority.md` for the per-command parity matrix and
+  justification.
+
+### Changed — CLI secret handling (now uniformly safe)
+- `update` takes its pre-update snapshot via a **temporary MariaDB defaults file
+  created inside the db container** (`umask 077` + `trap` cleanup), fed the backup
+  password over stdin — the password never appears in any process argument list.
+  Replaces the previous `mariadb-dump … -p"$BACKUP_PASS"`.
+- `restore` and `restore-test` perform root DB operations via
+  `docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"'`,
+  taking the password from the db container's own environment variable rather than
+  `-p"$DB_ROOT_PASS"` on the command line. The now-dead `DB_ROOT_PASS` guards
+  (the value was never exported to the host) were removed.
+
+### Changed — CLI command parity (per the matrix)
+- `update` / `health` now iterate `ENVIRONMENTS` (`for env in $(echo "${ENVIRONMENTS:-prod}" | tr ',' ' ')`);
+  identical to before for the community default (`prod`), correct for all-in-one.
+- `storage-info` reads `${INSTALL_DIR}/actools.env` instead of a hardcoded
+  `/home/actools/actools.env`.
+- `migrate` prints the live `${XELATEX_MODE:-local}` instead of a hardcoded
+  `local`.
+- `update` retains strict failure handling (abort with `exit 1` + retained-snapshot
+  rollback hint) and `docker compose pull db redis php_prod`.
+
+### Added — runtime
+- `actools audit` is now available in the canonical CLI (it previously existed only
+  in the generated CLI). It dispatches to the shipping `modules/audit/audit.sh`
+  (`--deep` remains edition-gated). Added to both help tiers.
+
+### Removed — runtime
+- `restore-test` no longer chains an implicit S3 reachability check
+  (`actools storage-test`). Run `actools storage-test` explicitly if needed. This
+  removes noise on non-S3 installs and avoids a cross-command dependency.
+
+### Changed — tests and fixtures
+- The CLI is no longer a *generated* artifact, so it has **no golden fixture**.
+  The `actools-cli` fixture was removed from all five variants and each
+  `SHA256SUMS` reduced from 7 to 6 entries (the six stack-file checksums are
+  preserved verbatim, so the drift gate still proves they are unchanged).
+- `tests/helpers/capture_golden_outputs.sh` no longer renders a CLI; the
+  `setup_cli` range guard (`_assert_fn_range`) is kept and updated
+  (`SC_END` 1528 → 1262).
+- `tests/generated/golden_drift_test.bats` meta-test now expects 6 manifest
+  entries.
+
+### Added — tests
+- `tests/installer/cli_authority_test.bats` — 14 tests: `bash -n`; **installed CLI
+  is byte-for-byte identical to `cli/actools`**; `setup_cli` persists
+  `ACTOOLS_HOME`; no CLI-emitting heredoc remains; **no DB password in argv**;
+  safe mechanisms present (`--defaults-extra-file`, `MYSQL_PWD`, `umask 077`);
+  preserved behaviors (backup cron, restore confirm+checksum, restore-test
+  checksum + `.restore-test-last` marker, doctor.sh consumer intact); help smoke
+  (basic + advanced, including the ported `audit`).
+
+### Test status — P0-F
+- Golden drift **6/6** (six non-CLI files byte-identical). Unit/integration
+  **127/127** (113 prior + 14 new), **133/133** overall. All `bash -n` clean.
+
 ## [Unreleased] — P0-E Profile Validation and Resolver Contract
 
 ### Changed — runtime (community-preserving; the only live behaviour change is in `init`)
