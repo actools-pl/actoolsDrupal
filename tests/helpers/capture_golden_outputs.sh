@@ -49,8 +49,15 @@ readonly FIXED_DRUPAL_ADMIN_PASS="TEST_DRUPAL_ADMIN_PASS_FIXED"
 readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 
 # ── Line ranges in actools.sh (verified against current source) ──────────────
-# setup_stack starts at line 569, closes at line 1028
-# setup_cli   starts at line 1247, closes at line 1262
+# setup_stack starts at line 419, closes at line 878
+# setup_cli   starts at line 1097, closes at line 1112
+#
+# P0-G: the top-level host-provisioning block was extracted to modules/host/*
+# and deleted from actools.sh, shifting setup_stack up from 569->419 and
+# setup_cli from 1247->1097. setup_stack is still the monolith stack generator
+# at this step, so it is still sed-extracted + eval'd below; the stack-generator
+# extraction (modules/stack/*) reworks this harness to source those modules and
+# drop the SS_* eval range — see docs/releases/P0-G-extract-host-stack.md.
 #
 # P0-F: setup_cli() no longer renders a CLI — it installs the CLI by copying
 # the canonical cli/actools verbatim. The SC_START..SC_END range below is kept
@@ -58,8 +65,8 @@ readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 # if a future edit moves it (drift guard). The range is no longer sed-extracted
 # to generate a CLI fixture; the CLI is validated directly by
 # tests/installer/cli_authority_test.bats (installed == cli/actools).
-readonly SS_START=569  SS_END=1028
-readonly SC_START=1247 SC_END=1262
+readonly SS_START=419  SS_END=878
+readonly SC_START=1097 SC_END=1112
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(

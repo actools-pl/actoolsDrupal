@@ -183,6 +183,20 @@ source "$ENV_FILE"
 source "${INSTALL_DIR}/modules/drupal/provision.sh" || error "Cannot load modules/drupal/provision.sh"
 set +a
 
+# Source modular host-provisioning logic (P0-G). These only DEFINE the host
+# module functions; the `host` install stage executes them in the canonical
+# monolith order (installer/dispatch.sh::actools::install::stage_host).
+# install_packages runs first so the `age` package is present before
+# setup_age_keypair. Host provisioning therefore now runs only on a fresh
+# `install` (via the stage loop), not on dry-run/update/env — see
+# docs/releases/P0-G-extract-host-stack.md.
+for _hostmod in packages age kernel swap firewall docker logrotate; do
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/modules/host/${_hostmod}.sh" \
+    || error "Cannot load modules/host/${_hostmod}.sh"
+done
+unset _hostmod
+
 [[ -z "${BASE_DOMAIN:-}" ]]        && error "BASE_DOMAIN is not set in $ENV_FILE"
 [[ -z "${DRUPAL_ADMIN_EMAIL:-}" ]] && error "DRUPAL_ADMIN_EMAIL is not set in $ENV_FILE"
   [[ "${DRUPAL_ADMIN_EMAIL}" =~ ^[^@]+@[^@]+.[^@]+$ ]] || error "DRUPAL_ADMIN_EMAIL is not a valid email address: ${DRUPAL_ADMIN_EMAIL}"
@@ -398,170 +412,6 @@ get_backup_pass() {
   fi
   echo "$pass"
 }
-
-# =============================================================================
-# PACKAGES -- idempotent
-# =============================================================================
-section "System Packages"
-mkdir -p /var/lib/actools
-if [[ ! -f "$PKG_DONE_FLAG" ]]; then
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
-  apt-get install -y -qq \
-    curl git unzip zip jq ca-certificates gnupg lsb-release age \
-    ufw fail2ban rclone dnsutils logrotate
-  touch "$PKG_DONE_FLAG"
-  log "Packages installed."
-else
-  log "Packages already installed -- skipping upgrade."
-fi
-
-# =============================================================================
-# ENCRYPTED-BACKUP KEYPAIR (age) — generated per-deployment, after 'age' is installed.
-# Consumed by modules/backup/* and modules/dr/* (read from ${INSTALL_DIR}).
-# Owned by the install operator (REAL_USER) like other install secrets; encrypted-backup
-# consumption is a deferred, currently-unwired subsystem (see ROADMAP.md#encrypted-backups).
-# warn-not-fail: a missing key disables an optional subsystem and must not abort install.
-# =============================================================================
-if [[ ! -f "${INSTALL_DIR}/.age-key.txt" ]]; then
-  log "Generating per-deployment age keypair..."
-  if age-keygen -o "${INSTALL_DIR}/.age-key.txt" 2>/dev/null; then
-    if ! chmod 600 "${INSTALL_DIR}/.age-key.txt"; then
-      rm -f "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key"
-      warn "age keypair created but private-key permission hardening failed; encrypted-backup features will be unavailable until repaired."
-    elif age-keygen -y "${INSTALL_DIR}/.age-key.txt" > "${INSTALL_DIR}/.age-public-key" 2>/dev/null; then
-      chmod 644 "${INSTALL_DIR}/.age-public-key" || warn "age public key permissions could not be normalized."
-      chown "$REAL_USER:$REAL_USER" "${INSTALL_DIR}/.age-key.txt" "${INSTALL_DIR}/.age-public-key" 2>/dev/null \
-        || warn "age keypair generated but ownership could not be set to ${REAL_USER}."
-      log "age keypair generated (owned by ${REAL_USER})."
-    else
-      warn "age keypair private key created but public-key derivation failed; encrypted-backup features will be unavailable until repaired."
-    fi
-  else
-    warn "age-keygen failed; encrypted-backup features will be unavailable until a keypair is generated."
-  fi
-else
-  log "age keypair already present — preserving existing key."
-fi
-
-# =============================================================================
-# KERNEL TUNING
-# =============================================================================
-section "Kernel Tuning"
-cat > /etc/sysctl.d/99-actools.conf <<SYSCTL
-vm.overcommit_memory=1
-vm.swappiness=10
-fs.file-max=2097152
-net.core.somaxconn=65535
-net.ipv4.tcp_max_syn_backlog=8192
-net.ipv4.ip_local_port_range=10240 65535
-SYSCTL
-sysctl --system >/dev/null 2>&1
-log "Kernel tuning applied."
-
-# =============================================================================
-# SWAP
-# =============================================================================
-section "Swap Configuration"
-if [[ "${ENABLE_SWAP:-true}" == "true" ]]; then
-  if ! swapon --show | grep -q '/'; then
-    SWAP="${SWAP_SIZE:-4G}"
-    log "Creating ${SWAP} swap file..."
-    fallocate -l "$SWAP" /swapfile && chmod 600 /swapfile
-    mkswap /swapfile && swapon /swapfile
-    grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    log "Swap active: ${SWAP}."
-  else
-    log "Swap already configured -- skipping."
-  fi
-else
-  warn "Swap disabled. XeLaTeX in worker container may OOM on large papers."
-fi
-
-# =============================================================================
-# FIREWALL
-# =============================================================================
-section "Firewall"
-ufw limit 22/tcp  comment 'SSH rate-limited'  2>/dev/null || true
-ufw allow 80/tcp  comment 'HTTP Caddy ACME'   2>/dev/null || true
-ufw allow 443/tcp comment 'HTTPS'             2>/dev/null || true
-ufw allow 443/udp comment 'HTTP/3 QUIC'       2>/dev/null || true
-ufw --force enable
-systemctl enable --now fail2ban
-log "UFW + fail2ban active."
-
-# =============================================================================
-# DOCKER CE
-# =============================================================================
-section "Docker Engine"
-if ! command -v docker &>/dev/null; then
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-    | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-    https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
-    > /etc/apt/sources.list.d/docker.list
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
-    docker-buildx-plugin docker-compose-plugin
-  log "Docker CE installed."
-else
-  log "Docker present: $(docker --version)"
-fi
-# Always ensure REAL_USER is in docker group
-if ! id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
-  usermod -aG docker "$REAL_USER"
-  log "$REAL_USER added to docker group."
-  # Write docker group activation to .bashrc so every new session picks it up
-  bashrc="/home/${REAL_USER}/.bashrc"
-  if [[ -f "$bashrc" ]] && ! grep -q "actools docker group" "$bashrc" 2>/dev/null; then
-    cat >> "$bashrc" << 'BASHRC'
-
-# actools docker group — activate docker group without re-login
-if id -nG "$USER" 2>/dev/null | grep -qw docker && ! id -nG 2>/dev/null | grep -qw docker; then
-  exec sg docker -c "bash --login"
-fi
-BASHRC
-    log "Docker group activation added to ${bashrc}"
-  fi
-fi
-
-if [[ ! -f /etc/docker/daemon.json ]]; then
-  cat > /etc/docker/daemon.json <<DAEMON
-{
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
-}
-DAEMON
-  systemctl reload docker 2>/dev/null || true
-  log "Docker daemon log rotation configured."
-fi
-
-! docker compose version &>/dev/null && apt-get install -y -qq docker-compose-plugin
-systemctl enable --now docker
-log "Docker Compose: $(docker compose version)"
-
-# =============================================================================
-# HOST LOG ROTATION
-# =============================================================================
-cat > /etc/logrotate.d/actools <<LOGROTATE
-${INSTALL_DIR}/logs/*/*.log
-${INSTALL_DIR}/logs/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-LOGROTATE
-log "Host log rotation configured."
 
 # =============================================================================
 # SETUP STACK
