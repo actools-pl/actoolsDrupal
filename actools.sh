@@ -201,7 +201,7 @@ unset _hostmod
 # generator functions; setup_stack delegates to them (and the golden-capture
 # harness sources them too). Extracted incrementally — this list grows as each
 # generated file moves out of setup_stack into modules/stack/*.
-for _stackmod in mycnf images; do
+for _stackmod in mycnf images caddyfile; do
   # shellcheck source=/dev/null
   source "${INSTALL_DIR}/modules/stack/${_stackmod}.sh" \
     || error "Cannot load modules/stack/${_stackmod}.sh"
@@ -457,83 +457,7 @@ setup_stack() {
   build_worker_image
 
   # ── Caddyfile ───────────────────────────────────────────────────────────────
-  # [v9.2 fix5] log block expanded to multi-line to avoid Caddy 2.8 parse error.
-  cat > "$INSTALL_DIR/Caddyfile" <<CADDY
-{
-    email ${DRUPAL_ADMIN_EMAIL}
-    log {
-        level INFO
-    }
-}
-
-(drupal_base) {
-    encode zstd gzip
-
-    @static {
-        file
-        path *.css *.js *.png *.jpg *.jpeg *.gif *.svg *.woff2 *.woff *.ico *.pdf
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    header {
-        Strict-Transport-Security        "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options           "nosniff"
-        X-Frame-Options                  "SAMEORIGIN"
-        Referrer-Policy                  "strict-origin-when-cross-origin"
-        Permissions-Policy               "camera=(), microphone=(), geolocation=()"
-        Content-Security-Policy-Report-Only "default-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https:; report-uri /csp-violations"
-        -Server
-        -X-Powered-By
-        -X-Generator
-    }
-
-    handle /health {
-        respond "OK" 200
-    }
-
-    handle /csp-violations {
-        respond "logged" 204
-    }
-
-    @login {
-        path /user/login /user/password
-    }
-    rate_limit @login {
-        zone login_protect {
-            key {remote_host}
-            events 5
-            window 60s
-        }
-    }
-
-    file_server
-}
-
-$(if [[ "$ENVIRONMENT_MODE" == "all-in-one" ]]; then
-cat <<ALLINONE
-dev.${BASE_DOMAIN} {
-    root * /var/www/html/dev/web
-    php_fastcgi php_dev:9000
-    import drupal_base
-    tls ${DRUPAL_ADMIN_EMAIL}
-}
-
-stg.${BASE_DOMAIN} {
-    root * /var/www/html/stg/web
-    php_fastcgi php_stg:9000
-    import drupal_base
-    tls ${DRUPAL_ADMIN_EMAIL}
-}
-ALLINONE
-fi)
-
-${BASE_DOMAIN} {
-    root * /var/www/html/prod/web
-    php_fastcgi php_prod:9000
-    import drupal_base
-    tls ${DRUPAL_ADMIN_EMAIL}
-}
-CADDY
+  generate_caddyfile
 
   # ── Docker Compose ──────────────────────────────────────────────────────────
   local WEB_MEM="${PHP_MEMORY_LIMIT:-512m}"
