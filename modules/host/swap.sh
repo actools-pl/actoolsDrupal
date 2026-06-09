@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
 # modules/host/swap.sh — Swap File Configuration
-# Extracted from actools.sh v9.2 during Phase 1 modular refactor
+#
+# LIVE AUTHORITY (P0-G): carries the monolith's exact Swap Configuration logic,
+# extracted verbatim from actools.sh. Sourced by actools.sh, driven by the
+# `host` install stage (installer/dispatch.sh::actools::install::stage_host).
 # =============================================================================
 
 configure_swap() {
