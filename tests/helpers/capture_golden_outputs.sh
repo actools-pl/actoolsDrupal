@@ -49,8 +49,8 @@ readonly FIXED_DRUPAL_ADMIN_PASS="TEST_DRUPAL_ADMIN_PASS_FIXED"
 readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 
 # ── Line ranges in actools.sh (verified against current source) ──────────────
-# setup_stack starts at line 431, closes at line 877
-# setup_cli   starts at line 1096, closes at line 1111
+# setup_stack starts at line 430, closes at line 826
+# setup_cli   starts at line 1045, closes at line 1060
 #
 # P0-G: the host block was extracted to modules/host/* and the stack generators
 # are being extracted to modules/stack/* one file at a time. setup_stack is now
@@ -67,8 +67,8 @@ readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 # if a future edit moves it (drift guard). The range is no longer sed-extracted
 # to generate a CLI fixture; the CLI is validated directly by
 # tests/installer/cli_authority_test.bats (installed == cli/actools).
-readonly SS_START=431  SS_END=877
-readonly SC_START=1096 SC_END=1111
+readonly SS_START=430  SS_END=826
+readonly SC_START=1045 SC_END=1060
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(
@@ -216,8 +216,7 @@ capture_variant() {
     # setup_stack now delegates each extracted generated file to a module
     # function, so those functions must be defined in this subshell before
     # setup_stack runs. This list grows as each file moves out of setup_stack.
-    # shellcheck disable=SC2043  # one item now; this list grows per extracted file
-    for _sm in mycnf; do
+    for _sm in mycnf images; do
       # shellcheck source=/dev/null
       source "${REPO_ROOT}/modules/stack/${_sm}.sh" \
         || _err "capture: cannot source modules/stack/${_sm}.sh"

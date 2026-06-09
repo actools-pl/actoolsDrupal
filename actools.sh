@@ -201,8 +201,7 @@ unset _hostmod
 # generator functions; setup_stack delegates to them (and the golden-capture
 # harness sources them too). Extracted incrementally — this list grows as each
 # generated file moves out of setup_stack into modules/stack/*.
-# shellcheck disable=SC2043  # one item now; this list grows per extracted file
-for _stackmod in mycnf; do
+for _stackmod in mycnf images; do
   # shellcheck source=/dev/null
   source "${INSTALL_DIR}/modules/stack/${_stackmod}.sh" \
     || error "Cannot load modules/stack/${_stackmod}.sh"
@@ -452,60 +451,10 @@ setup_stack() {
   # ── MariaDB my.cnf ──────────────────────────────────────────────────────────
   generate_mycnf
 
-  # ── Dockerfile.caddy ────────────────────────────────────────────────────────
-  cat > "$INSTALL_DIR/Dockerfile.caddy" <<'CADDY_DOCKERFILE'
-FROM caddy:2.8-builder AS builder
-RUN xcaddy build \
-    --with github.com/mholt/caddy-ratelimit
-
-FROM caddy:2.8-alpine
-COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-CADDY_DOCKERFILE
-
-  log "Building custom Caddy image with caddy-ratelimit plugin..."
-  docker build -t actools_caddy:custom -f "$INSTALL_DIR/Dockerfile.caddy" "$INSTALL_DIR" \
-    || error "Caddy image build failed. Check Docker build output above."
-  log "Custom Caddy image built."
-
-  # ── Dockerfile.php ─────────────────────────────────────────────────────────
-  # Dockerfile.php — use repo version if available, otherwise generate
-  if [[ ! -f "$INSTALL_DIR/Dockerfile.php" ]]; then
-  cat > "$INSTALL_DIR/Dockerfile.php" <<PHP_DOCKERFILE
-FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
-RUN apt-get update -qq && apt-get install -y -qq git unzip && rm -rf /var/lib/apt/lists/*
-RUN pecl install redis && docker-php-ext-enable redis
-PHP_DOCKERFILE
-  fi
-  docker build -t actools_php:custom     -f "$INSTALL_DIR/Dockerfile.php"     "$INSTALL_DIR"     2>&1 | tail -5 || warn "PHP image build failed"
-  log "PHP image with phpredis built."
-
-  # ── Dockerfile.worker ───────────────────────────────────────────────────────
-  cat > "$INSTALL_DIR/Dockerfile.worker" <<WORKER_DOCKERFILE
-FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
-
-RUN apt-get update -qq && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-      texlive-xetex \
-      texlive-fonts-recommended \
-      texlive-latex-extra \
-      poppler-utils \
-      ghostscript \
-      default-mysql-client && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN xelatex --version
-WORKER_DOCKERFILE
-
-  log "Building custom worker image with XeLaTeX toolchain..."
-  docker build \
-    -t actools_worker:latest \
-    -f "$INSTALL_DIR/Dockerfile.worker" \
-    --build-arg DRUPAL_VERSION="${DRUPAL_VERSION:-11}" \
-    --build-arg PHP_VERSION="${PHP_VERSION:-8.3}" \
-    "$INSTALL_DIR" \
-    || error "Worker image build failed. Check Docker build output above."
-  log "Worker image built -- XeLaTeX self-contained inside container."
+  # ── Container images: Caddy / PHP / worker (modules/stack/images.sh) ─────────
+  build_caddy_image
+  build_php_image
+  build_worker_image
 
   # ── Caddyfile ───────────────────────────────────────────────────────────────
   # [v9.2 fix5] log block expanded to multi-line to avoid Caddy 2.8 parse error.
