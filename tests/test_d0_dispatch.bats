@@ -5,11 +5,15 @@
 # Consolidates ALL D.0 verification into one file (consolidation
 # discipline: one test file per phase, named for the phase).
 #
-# Test count target: ≥ 31 (brief floor). This suite contains 33 tests.
+# Test count target: ≥ 31 (brief floor). This suite contains 48 tests
+# (33 from D.0 + 15 added at P0-E: blocks 9/10/11 below).
 # Dispatch shapes: community (default) / test (fixture) / adversarial (unknown).
 #
 # Coverage:
 #   - Resolver dispatch correctness (12 tests: 4 resolvers × 3 profiles)
+#       NOTE (P0-E): resolve_feature_handler is now PATH-based (3-tier), so its
+#       community-plus case asserts a resolved cli/commands/*.sh path, not a
+#       plus_* token. The preflight/doctor/handoff resolvers stay token-based.
 #   - profile_is_valid correctness (5 tests)
 #   - actools::cli::resolve_profile (8 tests)
 #   - Fixture profile activation (3 tests)
@@ -17,6 +21,10 @@
 #   - Community-install regression (2 tests)
 #   - Module guard (1 test)
 #   - Unknown profile stderr warning (1 test)
+#   - [P0-E] resolve_feature_handler 3-tier order (5 tests: override > module >
+#     default > empty, plus the community short-circuit byte-identical guard)
+#   - [P0-E] resolve_profile_check umbrella delegation (6 tests)
+#   - [P0-E] side-effect-free profile loading (4 tests incl. a negative control)
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -57,9 +65,15 @@ _dispatch_in_subshell() {
     [ "$result" = "" ]
 }
 
-@test "resolve_feature_handler: community-plus returns plus_ token" {
+@test "resolve_feature_handler: community-plus resolves to a tier-3 default handler path" {
+    # P0-E §4.1: resolve_feature_handler now returns a PATH via 3-tier resolution
+    # (active-profile override -> profile module -> default), not a token. No
+    # community-plus override or module ships, so 'doctor_deep' falls through to
+    # the default cli/commands handler, which exists. INSTALL_DIR is REPO_DIR in
+    # _dispatch_in_subshell, so the resolved path points at the real repo file.
     result="$(_dispatch_in_subshell "community-plus" "actools::dispatch::resolve_feature_handler" "doctor_deep")"
-    [ "$result" = "plus_doctor_deep" ]
+    [[ "$result" == *"cli/commands/doctor_deep.sh" ]]
+    [ -f "$result" ]
 }
 
 @test "resolve_feature_handler: unknown profile returns empty and warns to stderr" {
@@ -311,4 +325,148 @@ _dispatch_in_subshell() {
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^$ ]] || [[ "$output" = "" ]] || [[ "$output" == *"WARN"* ]]  # stdout empty OR merged-with-WARN
     [[ "$stderr" == *"WARN"* ]] || [[ "$output" == *"WARN"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# BLOCK 9 — resolve_feature_handler 3-tier path resolution (P0-E §4.1)
+#
+# resolve_feature_handler now returns the PATH of the FIRST existing handler in
+# the LOCKED order: active-profile override -> profile module -> default. These
+# tests stage a sandbox INSTALL_DIR with selected tiers present and assert which
+# one wins. The community short-circuit (empty even with a staged override) is
+# the byte-identical guarantee and is non-negotiable.
+# ---------------------------------------------------------------------------
+
+# Stage a sandbox INSTALL_DIR containing the requested tiers, resolve FEATURE for
+# PROFILE, print the resolved handler, then remove the sandbox. TIERS is a
+# space-separated subset of {override, module, default}.
+_feat_in_sandbox() {
+    local profile="$1" feature="$2" tiers="$3"
+    local sb result
+    sb="$(mktemp -d)"
+    mkdir -p "${sb}/profiles.d/${profile}/commands" "${sb}/modules/mod_x" "${sb}/cli/commands"
+    [[ " ${tiers} " == *" override "* ]] && echo '# override' > "${sb}/profiles.d/${profile}/commands/${feature}.sh"
+    [[ " ${tiers} " == *" module "*   ]] && echo '# module'   > "${sb}/modules/mod_x/${feature}.sh"
+    [[ " ${tiers} " == *" default "*  ]] && echo '# default'  > "${sb}/cli/commands/${feature}.sh"
+    result="$(bash -c '
+        INSTALL_DIR="$1"; ACTOOLS_PROFILE="$2"; PROFILE_FEATURE_MODULES=(mod_x)
+        source "$3"
+        actools::dispatch::resolve_feature_handler "$4"
+    ' _ "${sb}" "${profile}" "${DISPATCH_SH}" "${feature}")"
+    rm -rf "${sb}"
+    printf '%s\n' "${result}"
+}
+
+@test "resolve_feature_handler (3-tier): tier-1 profile override wins over module and default" {
+    result="$(_feat_in_sandbox test feat "override module default")"
+    [[ "$result" == *"/profiles.d/test/commands/feat.sh" ]]
+}
+
+@test "resolve_feature_handler (3-tier): tier-2 profile module wins when no override exists" {
+    result="$(_feat_in_sandbox test feat "module default")"
+    [[ "$result" == *"/modules/mod_x/feat.sh" ]]
+}
+
+@test "resolve_feature_handler (3-tier): tier-3 default handler when no override or module" {
+    result="$(_feat_in_sandbox test feat "default")"
+    [[ "$result" == *"/cli/commands/feat.sh" ]]
+}
+
+@test "resolve_feature_handler (3-tier): empty when no tier provides the feature" {
+    result="$(_feat_in_sandbox test feat "")"
+    [ -z "$result" ]
+}
+
+@test "resolve_feature_handler (3-tier): community short-circuits to empty even with a staged override" {
+    # The byte-identical guarantee: community must never resolve a handler, even
+    # if a profiles.d/community override file is physically present on disk.
+    result="$(_feat_in_sandbox community feat "override module default")"
+    [ -z "$result" ]
+}
+
+# ---------------------------------------------------------------------------
+# BLOCK 10 — resolve_profile_check umbrella delegation (P0-E §4.2)
+#
+# The locked-named umbrella delegates to the existing per-surface resolvers,
+# which remain the implementations (kept as internals, still token-based).
+# ---------------------------------------------------------------------------
+
+@test "resolve_profile_check: preflight surface delegates to resolve_preflight_check" {
+    result="$(_dispatch_in_subshell "community-plus" "actools::dispatch::resolve_profile_check" "preflight" "disk")"
+    [ "$result" = "plus_preflight_disk" ]
+}
+
+@test "resolve_profile_check: doctor surface delegates to resolve_doctor_check" {
+    result="$(_dispatch_in_subshell "community-plus" "actools::dispatch::resolve_profile_check" "doctor" "tls")"
+    [ "$result" = "plus_doctor_tls" ]
+}
+
+@test "resolve_profile_check: handoff surface delegates to resolve_handoff_section" {
+    result="$(_dispatch_in_subshell "community-plus" "actools::dispatch::resolve_profile_check" "handoff" "site")"
+    [ "$result" = "plus_handoff_site" ]
+}
+
+@test "resolve_profile_check: community returns empty (delegated baseline preserved)" {
+    result="$(_dispatch_in_subshell "community" "actools::dispatch::resolve_profile_check" "preflight" "disk")"
+    [ -z "$result" ]
+}
+
+@test "resolve_profile_check: result equals the per-surface internal it delegates to" {
+    umbrella="$(_dispatch_in_subshell "test" "actools::dispatch::resolve_profile_check" "preflight" "disk")"
+    direct="$(_dispatch_in_subshell "test" "actools::dispatch::resolve_preflight_check" "disk")"
+    [ "$umbrella" = "$direct" ]
+}
+
+@test "resolve_profile_check: unknown surface warns to stderr and returns empty" {
+    run bash -c "ACTOOLS_PROFILE='community-plus'; source '${DISPATCH_SH}'; actools::dispatch::resolve_profile_check 'bogus' 'x'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"bogus"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# BLOCK 11 — side-effect-free profile loading (P0-E §4d / spec detail 4)
+#
+# Every shipped/fixture .profile must be pure data: sourcing it sets variables
+# only and performs NO executable side effects. The harness sources the profile
+# from an empty working directory with all output captured, then asserts: exit
+# 0, no stdout/stderr, and no files created. The negative-control test proves the
+# harness actually bites (a check that cannot fail is worthless).
+# ---------------------------------------------------------------------------
+
+# Source PROFILE_FILE (absolute path) in a clean bash subshell from an empty CWD.
+# Echo "<rc>|<captured-output>|<files-created>" for the test to assert on.
+_source_in_clean_subshell() {
+    local pf="$1"
+    local wd out rc produced created
+    wd="$(mktemp -d)"; out="$(mktemp)"
+    bash -c 'cd "$1" && set -u && . "$2"' _ "${wd}" "${pf}" >"${out}" 2>&1; rc=$?
+    produced="$(cat "${out}")"
+    created="$(find "${wd}" -mindepth 1 2>/dev/null)"
+    rm -rf "${wd}" "${out}"
+    printf '%s|%s|%s' "${rc}" "${produced}" "${created}"
+}
+
+@test "profile loading: community.profile sources with no executable side effects" {
+    res="$(_source_in_clean_subshell "${REPO_DIR}/profiles/community.profile")"
+    [ "$res" = "0||" ]
+}
+
+@test "profile loading: fake-actor fixture sources with no side effects" {
+    res="$(_source_in_clean_subshell "${REPO_DIR}/tests/fixtures/profiles/fake-actor.profile")"
+    [ "$res" = "0||" ]
+}
+
+@test "profile loading: fake-ticket fixture sources with no side effects" {
+    res="$(_source_in_clean_subshell "${REPO_DIR}/tests/fixtures/profiles/fake-ticket.profile")"
+    [ "$res" = "0||" ]
+}
+
+@test "profile loading (negative control): a profile with a side effect is detected" {
+    local evil; evil="$(mktemp)"
+    printf 'PROFILE_NAME="x"\nmkdir side_effect_dir\necho noise\n' > "${evil}"
+    res="$(_source_in_clean_subshell "${evil}")"
+    rm -f "${evil}"
+    # The harness MUST flag this — anything other than the clean "0||" signature.
+    [ "$res" != "0||" ]
 }

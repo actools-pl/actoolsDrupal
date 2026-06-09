@@ -1,5 +1,81 @@
 # Changelog
 
+## [Unreleased] — P0-E Profile Validation and Resolver Contract
+
+### Changed — runtime (community-preserving; the only live behaviour change is in `init`)
+- `installer/init.sh` now makes profile selection **safe at init time**. Before
+  persisting `actools.env` it (a) sources `installer/profile.sh` for the chosen
+  profile and **validates the `.profile` file exists**, failing *before* any
+  write if it does not; (b) enforces `PROFILE_REQUIRES_ACTOR` /
+  `PROFILE_REQUIRES_CHANGE_TICKET` via the existing `profile_requires_actor` /
+  `profile_requires_change_ticket` accessors; (c) consumes `PROFILE_INIT_FIELDS`
+  via `profile_init_fields`. This closes the latent `--profile community-plus`
+  break: `community-plus` is an allowed *name* but its profile file is a Phase-1
+  product that does not ship here, so `init` previously wrote an `actools.env`
+  the next run could not load. New flags `--actor-id` / `--change-ticket` are
+  **validated** when a profile requires them but are **not persisted** (recording
+  governance identity is a community-plus concern, deferred to P0-H).
+- **Community is unchanged:** `community.profile` sets both governance flags
+  `false` and `PROFILE_INIT_FIELDS=(domain email site-name)`, so
+  `init --domain … --email …` behaves exactly as before and writes
+  `ACTOOLS_PROFILE=community`.
+
+### Changed — resolver contract (`installer/dispatch.sh`)
+- `actools::dispatch::resolve_feature_handler` now implements the LOCKED **3-tier
+  path resolution** (alignment §4.1) and returns a **file PATH**, not a token:
+  Tier 1 `profiles.d/${ACTOOLS_PROFILE}/commands/${feature}.sh` (active-profile
+  override) → Tier 2 `modules/${module}/${feature}.sh` (a module the active
+  profile lists, via the internal `PROFILE_FEATURE_MODULES`) → Tier 3
+  `cli/commands/${feature}.sh` (default / gate). The **first existing path wins**;
+  if none exist, output is empty. **Community short-circuits to empty before the
+  search** — byte-identical, non-negotiable. This is a deliberate token→path
+  contract change, safe because `resolve_feature_handler` has **zero live call
+  sites** (its callers are wired in P0-H).
+- **Documented asymmetry:** only `resolve_feature_handler` goes path-based.
+  `resolve_preflight_check` / `resolve_doctor_check` / `resolve_handoff_section`
+  remain **token-based** until their live surfaces are wired (P0-H), so their
+  existing tests stay green.
+
+### Added — resolver (`installer/dispatch.sh`)
+- `actools::dispatch::resolve_profile_check <surface> <check_id>` — the
+  LOCKED-named umbrella (alignment §4.2) that **delegates** to the existing
+  per-surface resolvers (`preflight`→`resolve_preflight_check`,
+  `doctor`→`resolve_doctor_check`, `handoff`→`resolve_handoff_section`; unknown
+  surface → WARN + empty). The per-surface resolvers are kept as the internals.
+
+### Added — tests and fixtures
+- `tests/installer/init_profile_test.bats` — 10 tests: unknown profile fails
+  cleanly; `community-plus` fails **before persisting** (`actools.env` not
+  written); fake actor/ticket profiles prove the governance requirements fire
+  and that the identity values are **not** persisted; community requires neither.
+- `tests/test_d0_dispatch.bats` — +15 tests (33 → 48): 3-tier resolver order
+  (override > module > default > empty, plus the community short-circuit guard),
+  `resolve_profile_check` delegation, and side-effect-free profile loading
+  (with a negative control proving the harness bites). The single pre-existing
+  `resolve_feature_handler` community-plus test was updated from the old
+  `plus_doctor_deep` token to the new resolved tier-3 path.
+- `tests/fixtures/profiles/fake-actor.profile`, `…/fake-ticket.profile` —
+  **test-only** fixtures (never shipped), staged as `profiles/test.profile`.
+- `tests/installer/init_test.bats` — setup now stages `dispatch.sh`,
+  `profile.sh`, and `community.profile` into the sandbox so the 11 existing init
+  tests exercise the real (now profile-sourcing) init flow under `set -u`.
+
+### Behaviour / generated files
+- **No runtime install-path change:** the resolvers (`resolve_feature_handler`,
+  `resolve_profile_check`) remain uncalled on the live path (their callers are
+  P0-H). `actools.sh` is untouched. The only live behaviour change is the `init`
+  command's new pre-persist validation, which is a no-op for community.
+- **No generated-file change:** golden drift stays **6/6** (byte-identical).
+
+### Not changed
+- `actools.sh` (forbidden this phase), all generator heredocs, `cli/*`,
+  `modules/*`, `core/*`, `.github/workflows/*`.
+- `profiles/community.profile` — read via the loader, not modified.
+- No community-plus modules, no surface wiring (P0-H), no deep audit/doctor
+  features, no governance gates beyond validation scaffolding.
+
+---
+
 ## [Unreleased] — P0-D Install-Stage Dispatcher Skeleton
 
 ### Changed — runtime (behaviour-preserving)
