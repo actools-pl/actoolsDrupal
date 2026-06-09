@@ -13,7 +13,10 @@
 #   BLOCK 2 — Behaviour preservation + append-only stage guard.
 #             (a) The REAL community handlers reproduce the legacy call
 #                 sequence: host -> the modules/host/* functions in the
-#                 canonical monolith order (P0-G); stack -> setup_stack once;
+#                 canonical monolith order (P0-G); stack -> setup_stack once,
+#                 which itself now delegates to the modules/stack/* generators
+#                 (my.cnf, the three Dockerfiles, Caddyfile, docker-compose.yml)
+#                 in canonical order (P0-G);
 #                 drupal -> the per-env install_env loop (incl. the low-RAM
 #                 downgrade); db/worker are documented no-ops folded elsewhere
 #                 until a later phase.
@@ -34,7 +37,8 @@ setup() {
     REPO_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     DISPATCH_SH="${REPO_DIR}/installer/dispatch.sh"
     PROFILE_SH="${REPO_DIR}/profiles/community.profile"
-    export REPO_DIR DISPATCH_SH PROFILE_SH
+    ACTOOLS_SH="${REPO_DIR}/actools.sh"
+    export REPO_DIR DISPATCH_SH PROFILE_SH ACTOOLS_SH
 
     # Clean profile/guard state so each test sources fresh.
     unset ACTOOLS_PROFILE 2>/dev/null || true
@@ -173,6 +177,54 @@ setup() {
     [ "${lines[5]}" = "install_docker" ]
     [ "${lines[6]}" = "configure_logrotate" ]
     [ "${#lines[@]}" -eq 7 ]
+}
+
+@test "real orchestrator: setup_stack delegates to the stack generators in canonical order (P0-G)" {
+    run bash -c '
+        # Load the REAL setup_stack from actools.sh by function boundary (no line
+        # numbers): from its definition through its first column-0 close. P0-G
+        # left setup_stack a thin, heredoc-free orchestrator, so this is exact.
+        eval "$(sed -n "/^setup_stack() {/,/^}/p" "$ACTOOLS_SH")"
+
+        export INSTALL_DIR="$(mktemp -d)"
+        export REAL_USER="root"
+
+        # Recorder stubs for the six generators (the delegation under test).
+        generate_mycnf()       { echo "generate_mycnf"; }
+        build_caddy_image()    { echo "build_caddy_image"; }
+        build_php_image()      { echo "build_php_image"; }
+        build_worker_image()   { echo "build_worker_image"; }
+        generate_caddyfile()   { echo "generate_caddyfile"; }
+        generate_compose()     { echo "generate_compose"; }
+
+        # Neutralise everything else setup_stack touches: the mkdir/chown
+        # prologue, the docker compose pull/down/up orchestration, and the
+        # backup-user step. docker() returns success so the pull loop breaks
+        # on the first attempt without sleeping or erroring.
+        section()              { :; }
+        log()                  { :; }
+        warn()                 { :; }
+        error()                { echo "ERROR:$*" >&2; exit 1; }
+        mkdir()                { :; }
+        chown()                { :; }
+        docker()               { :; }
+        get_backup_pass()      { echo "FIXED_BACKUP_PASS"; }
+        setup_backup_db_user() { :; }
+        cd()                   { :; }
+
+        setup_stack
+    '
+    [ "$status" -eq 0 ]
+    # Exact canonical order: my.cnf -> caddy/php/worker images -> Caddyfile ->
+    # docker-compose.yml. The pull/down/up + backup-user steps emit nothing
+    # here, so the six recorder lines are the whole output.
+    [ "${lines[0]}" = "generate_mycnf" ]
+    [ "${lines[1]}" = "build_caddy_image" ]
+    [ "${lines[2]}" = "build_php_image" ]
+    [ "${lines[3]}" = "build_worker_image" ]
+    [ "${lines[4]}" = "generate_caddyfile" ]
+    [ "${lines[5]}" = "generate_compose" ]
+    [ "${#lines[@]}" -eq 6 ]
 }
 
 # ---------------------------------------------------------------------------
