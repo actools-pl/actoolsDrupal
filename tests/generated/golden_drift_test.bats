@@ -115,6 +115,9 @@ _assert_no_drift() {
 
 # ---------------------------------------------------------------------------
 # Meta test — the fixture directory must contain exactly the 5 expected variants
+# Each manifest lists the 6 generated STACK files. (P0-F: the CLI is no longer a
+# generated fixture — it is installed by copying cli/actools verbatim and is
+# verified by tests/installer/cli_authority_test.bats instead.)
 # ---------------------------------------------------------------------------
 
 @test "fixture directory contains all 5 expected variants" {
@@ -130,8 +133,8 @@ _assert_no_drift() {
         }
         local count
         count=$(wc -l < "${GOLDEN_DIR}/${v}/SHA256SUMS")
-        [[ "$count" -eq 7 ]] || {
-            echo "Expected 7 entries in SHA256SUMS for ${v}, got ${count}"
+        [[ "$count" -eq 6 ]] || {
+            echo "Expected 6 entries in SHA256SUMS for ${v}, got ${count}"
             return 1
         }
     done
