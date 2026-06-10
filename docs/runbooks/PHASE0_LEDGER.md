@@ -85,6 +85,184 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 013 — P0-H · Profile-Aware init, preflight, doctor, and handoff
+
+Date: 2026-06-10
+Branch: `phase0/P0-H-profile-aware-surfaces`
+Commit SHA: (operator records the merge SHA at apply time — applied from the supplied diff against `main`)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-H — Profile-aware init, preflight, doctor, and handoff
+Task prompt source: `P0-H-profile-aware-surfaces.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Wire the three remaining operator surfaces (`doctor`, `preflight`, `handoff`)
+through the P0-E resolver primitives so a non-default profile can supply
+extras, while `community` stays **byte-identical** (its resolvers short-circuit
+to empty). `init` was already made profile-aware in P0-E; P0-H only confirms it
+and adds a fake-profile init-field test. No resolver code changes — this phase
+consumes the seam P0-E built.
+
+### Files changed
+
+- `cli/commands/doctor.sh` — `run_doctor` reworked so the env file and
+  `installer/dispatch.sh` are sourced **at the top** (best-effort `|| true`),
+  making the resolver available to the deep gate. The `--deep` gate no longer
+  hard-sources `doctor_deep.sh`; it resolves via
+  `actools::dispatch::resolve_feature_handler doctor_deep` (guarded by
+  `declare -F`), sources the resolved handler when present, and **falls back to
+  the built-in `cli/commands/doctor_deep.sh`** when the resolver is empty
+  (`community`) or unavailable. `output.sh` sourcing moved to after the deep
+  gate. Header `--deep` comment updated to describe resolver routing.
+- `installer/preflight.sh` — the profile-extra loop (was a `print_skip`) now
+  routes each `PROFILE_PREFLIGHT_EXTRA` entry through
+  `actools::dispatch::resolve_profile_check "preflight"`. A resolved+installed
+  handler runs (`"$handler" "$extra"`; non-zero return → `((fails++)) || true`);
+  an extra **declared but with no installed handler is a hard FAIL**
+  (`print_fail` + `print_fix` + `((fails++)) || true`) for a non-default
+  profile. The stale trailing "not called in D.0" comment was removed.
+- `installer/handoff.sh` — the silent `*)` arm now routes non-built-in sections
+  through `actools::dispatch::resolve_handoff_section` (guarded by `declare -F`):
+  a resolved+installed handler renders the section; an **unresolved section
+  emits a visible, non-fatal notice**. The in-function "not called in D.0"
+  comment was updated.
+- `tests/fixtures/profiles/fake-surfaces.profile` — **new** pure-data fixture
+  (staged as `profiles/test.profile`) that declares a non-default value at each
+  surface: an extra `PROFILE_INIT_FIELDS` entry, `PROFILE_PREFLIGHT_EXTRA=(check
+  missing)` (one resolvable, one unknown), `PROFILE_HANDOFF_SECTIONS` with one
+  extra section, and `PROFILE_DOCTOR_EXTRA=()` (loop deferred).
+- `tests/fixtures/profiles/test/commands/doctor_deep.sh` — **new** Tier-1
+  override fixture; its `run_doctor_deep` echoes a sentinel and returns 7.
+- `tests/test_p0h_dispatch.bats` — **new** consolidated phase suite (9 tests):
+  doctor override-wins (status 7 + sentinel), doctor community→built-in gate
+  (status 2, override ignored), preflight resolved+unknown-fails (status 1),
+  preflight community→no profile-check output, handoff resolved (sentinel),
+  handoff community→no dispatch/notice + built-ins render, init fake-profile
+  extra-field succeeds + not persisted, resolver-level community-all-empty
+  (`"|||"`), and fixture side-effect-free. Reuses the existing
+  `plus_preflight_check.sh` / `plus_handoff_section.sh` stubs.
+- `docs/architecture/runtime-authority-map.md` (Preflight/Doctor/Handoff rows
+  flipped to **consumed (P0-H)**; resolver-layer row updated; Init status
+  updated; surface-blindness note closed; test count 135 → 144; P0-H answer
+  added), `docs/architecture/phase0-seam-contract.md` (P0-H status note),
+  `docs/CHANGELOG.md`, `docs/releases/P0-H-profile-aware-surfaces.md`,
+  `docs/tests/P0-H-profile-aware-surfaces.md`,
+  `docs/runbooks/HANDOFF-P0-H.md`, and this ledger entry (Entry 013).
+
+### Files intentionally not changed
+
+- `installer/dispatch.sh` — **byte-identical.** No resolver code changed; P0-H
+  only consumes the P0-E primitives.
+- `installer/init.sh` — **byte-identical.** Already profile-aware (P0-E);
+  confirmed by the new fake-profile init-field test, not edited.
+- `actools.sh` — **byte-identical.** Install-spine profile *selection* (sourcing
+  the selected profile vs hardcoded `community.profile`) is a separate concern,
+  out of P0-H scope.
+- `installer/profile.sh`, `installer/output.sh`, `cli/commands/doctor_deep.sh`
+  — **byte-identical** (the built-in deep gate is unchanged; community falls
+  back to it).
+- `modules/audit/audit.sh` — **out of scope** (a `--deep` *mode flag*, not a
+  hardcoded source; modules are forbidden scope). Verified, nothing to do.
+- No golden fixture modified; drift 6/6.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| doctor `--deep` handler | hard `source cli/commands/doctor_deep.sh` | `resolve_feature_handler doctor_deep` (3-tier) with baseline fallback to the built-in gate; `community` short-circuits to the built-in (byte-identical) |
+| preflight profile extras | `print_skip` (never fails) | `resolve_profile_check "preflight"`: resolved runs; **unknown is a hard fail** for a non-default profile; `community` list empty (loop body never runs) |
+| handoff non-built-in sections | silent `*)` | `resolve_handoff_section`: resolved renders; unresolved is a **visible non-fatal notice**; `community` never hits `*)` |
+| init | profile-aware (P0-E) | **unchanged**; extra-init-field consumption now test-covered (collected as a no-op, not persisted) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Unchanged | golden drift 6/6 |
+| Caddyfile | Unchanged | golden drift 6/6 |
+| my.cnf | Unchanged | golden drift 6/6 |
+| Dockerfiles | Unchanged | golden drift 6/6 |
+| CLI | Not touched | `cli/actools` unchanged; `cli_authority_test.bats` 14/14 |
+
+### Tests run
+
+```bash
+export PATH="$PWD/../bats-core-1.11.0/bin:$PATH"
+# new phase suite
+bats tests/test_p0h_dispatch.bats                       # 9/9
+# community-unchanged regression
+bats tests/installer/doctor_test.bats                   # 5/5
+bats tests/installer/preflight_test.bats                # 6/6
+bats tests/installer/init_profile_test.bats             # 10/10
+bats tests/test_d0_dispatch.bats                        # 48/48
+bats tests/generated/golden_drift_test.bats             # 6/6
+# whole tree
+bats -r tests/                                          # 144/144
+# syntax + lint
+bash -n actools.sh; for f in $(find installer cli core modules -name '*.sh'); do bash -n "$f"; done
+shellcheck installer/preflight.sh installer/handoff.sh installer/init.sh cli/commands/doctor.sh installer/dispatch.sh
+```
+
+### Test result
+
+PASS — 144/144 across the tree (9 new). Community behavior suites unchanged
+(doctor 5, preflight 6, init_profile 10, d0_dispatch 48); **golden drift 6/6**.
+shellcheck shows only pre-existing info-level `SC2012` (`ls -t` on untouched
+lines) and a pre-existing `SC2034` in the unedited `init.sh`; no new findings.
+
+### Documentation updated
+
+- [x] Runtime authority map
+- [x] Generated-file contract (no change; drift 6/6 noted)
+- [x] CLI authority contract (no change; CLI untouched)
+- [x] Operator target docs (seam-contract status note)
+- [x] Test plan (test report added)
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-H-profile-aware-surfaces.md`)
+- [x] Test report added (`docs/tests/P0-H-profile-aware-surfaces.md`)
+- [x] Review notes added (P0-H answer in the authority map; HANDOFF-P0-H.md)
+
+### Known risks
+
+- **`PROFILE_DOCTOR_EXTRA` per-check loop deliberately deferred (recorded scope
+  call):** doctor deep handler wired via `resolve_feature_handler` + baseline
+  fallback; per-check `PROFILE_DOCTOR_EXTRA` dispatch loop deliberately
+  deferred — `resolve_doctor_check` primitive exists and is tested, consumer
+  loop to be added when a profile defines doctor extras
+  (community-plus/Phase-1). Spec #3's "deep/extra" is satisfied at the deep
+  handler; the extra loop has no consumer in Phase 0. (Consistent with the
+  LOCKED-alignment §4.1 pin, which scopes doctor to replacing the hard
+  `source doctor_deep.sh` with `resolve_feature_handler`.)
+- Profile preflight-extra handlers are expected to print their own OK/WARN/FAIL
+  line and return non-zero to register a failure; this convention is documented
+  in the surface comment and the release note.
+- The handoff fail/skip **asymmetry** with preflight is deliberate: handoff is a
+  post-install display surface, so an unresolved section is a visible notice,
+  not a hard failure (documented in the release note).
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Approved — pending operator re-run of the test + lint gate on the devbox after
+applying the diff against `main`.
+
+### Next safe task
+
+P0-I — extend the resolver-bypass guard (sibling-scope audit) to `actools.sh`
+and add the fake-profile e2e; then P0-J phase-0 closure review.
+
+### Forbidden next scope
+
+Install-spine profile **selection** (sourcing the selected profile in
+`actools.sh::main`) and any community-plus handler implementation — both are
+Phase-1 / later-phase scope, not P0-H.
+
 ## Entry 012 — P0-G · Extract Host and Stack Logic
 
 Date: 2026-06-09

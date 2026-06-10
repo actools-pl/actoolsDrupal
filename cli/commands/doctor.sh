@@ -10,8 +10,12 @@
 #   2  warnings only
 #
 # Flags:
-#   --deep   Not available in this edition. Deep mode is in development.
-#            Delegates to doctor_deep.sh which prints the gate message.
+#   --deep   Resolved through the profile resolver, not a hardcoded path (P0-H).
+#            resolve_feature_handler "doctor_deep" returns a non-community
+#            profile's override when one ships; community short-circuits to
+#            empty, so the gate falls back to the built-in cli/commands/
+#            doctor_deep.sh (the "in development" notice, exit 2). Community
+#            behaviour is therefore byte-identical to the previous hard source.
 #
 # Sourced from cli/actools. Required globals:
 #   INSTALL_DIR  — repository / installation root
@@ -27,11 +31,44 @@ db_exec_root() {
 
 
 run_doctor() {
-  # Deep gate — single flag, matches `actools audit --deep` pattern.
+  # Make the active profile and the dispatch layer available BEFORE the deep
+  # gate so the deep handler is resolved through the profile resolver instead
+  # of a hardcoded path. The live CLI (cli/actools) already sources both; this
+  # makes the standalone path consistent. Both are best-effort: when the env
+  # file or dispatch.sh is absent (e.g. a minimal sandbox), the deep gate falls
+  # back to the built-in handler and community behaviour is unchanged.
+  local env_file="${INSTALL_DIR}/actools.env"
+  if [[ -f "$env_file" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$env_file"
+    set +a
+  fi
+  # shellcheck source=/dev/null
+  source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
+
+  # Deep gate — single flag, matches `actools audit --deep` pattern. The deep
+  # handler is resolved via resolve_feature_handler (P0-H): a non-community
+  # profile may override doctor_deep through the 3-tier lookup; community
+  # short-circuits to empty, so we fall back to the built-in
+  # cli/commands/doctor_deep.sh — byte-identical to the previous hard source.
   for arg in "$@"; do
     if [[ "$arg" == "--deep" ]]; then
-      # shellcheck source=/dev/null
-      source "${INSTALL_DIR}/cli/commands/doctor_deep.sh"
+      local _deep_handler=""
+      if declare -F actools::dispatch::resolve_feature_handler >/dev/null 2>&1; then
+        _deep_handler="$(actools::dispatch::resolve_feature_handler doctor_deep)"
+      fi
+      if [[ -n "$_deep_handler" && -f "$_deep_handler" ]]; then
+        # Profile-resolved deep handler (tier-1 override / tier-2 module /
+        # tier-3 default).
+        # shellcheck source=/dev/null
+        source "$_deep_handler"
+      else
+        # Baseline: community (resolver returned empty) or dispatch.sh
+        # unavailable — run the built-in in-development gate, unchanged.
+        # shellcheck source=/dev/null
+        source "${INSTALL_DIR}/cli/commands/doctor_deep.sh"
+      fi
       run_doctor_deep
       return $?
     fi
@@ -42,20 +79,6 @@ run_doctor() {
     echo "Cannot load installer/output.sh" >&2
     return 3
   }
-
-  # Load env file for credentials and BASE_DOMAIN
-  local env_file="${INSTALL_DIR}/actools.env"
-  if [[ -f "$env_file" ]]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "$env_file"
-    set +a
-  fi
-
-  # D.0: Source dispatch.sh after env file has made ACTOOLS_PROFILE available.
-  # Resolvers are available for D.1+ doctor-check dispatch; not called in D.0.
-  # shellcheck source=/dev/null
-  source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
 
   print_title "ACTOOLS DOCTOR"
 
