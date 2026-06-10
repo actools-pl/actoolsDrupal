@@ -5,8 +5,9 @@
 # Consolidates ALL D.0 verification into one file (consolidation
 # discipline: one test file per phase, named for the phase).
 #
-# Test count target: ≥ 31 (brief floor). This suite contains 48 tests
-# (33 from D.0 + 15 added at P0-E: blocks 9/10/11 below).
+# Test count target: ≥ 31 (brief floor). This suite contains 49 tests
+# (33 from D.0 + 15 added at P0-E: blocks 9/10/11 below + 1 added at P0-I:
+# the resolver-bypass audit in block 5).
 # Dispatch shapes: community (default) / test (fixture) / adversarial (unknown).
 #
 # Coverage:
@@ -18,6 +19,8 @@
 #   - actools::cli::resolve_profile (8 tests)
 #   - Fixture profile activation (3 tests)
 #   - Sibling-scope audit meta-test (1 test)
+#   - [P0-I] resolver-bypass audit: no source/. of ${INSTALL_DIR}/modules/plus_*
+#     outside the resolver (1 test; LOCKED §10 Risk 2 / alignment §4.4)
 #   - Community-install regression (2 tests)
 #   - Module guard (1 test)
 #   - Unknown profile stderr warning (1 test)
@@ -231,10 +234,12 @@ _dispatch_in_subshell() {
 }
 
 # ---------------------------------------------------------------------------
-# BLOCK 5 — Sibling-scope audit meta-test (1 test)
+# BLOCK 5 — Sibling-scope + resolver-bypass audit meta-tests (2 tests)
 # Guards the internal-verification-scope-must-enumerate-sibling-files
 # held candidate. Every file reading ACTOOLS_PROFILE must either source
-# dispatch.sh or carry a DISPATCH_EXEMPT comment.
+# dispatch.sh or carry a DISPATCH_EXEMPT comment. [P0-I] adds the resolver-
+# bypass audit: only the resolver may source a ${INSTALL_DIR}/modules/plus_*
+# path (LOCKED §10 Risk 2; alignment §4.4).
 # ---------------------------------------------------------------------------
 
 @test "sibling-scope audit: every ACTOOLS_PROFILE reader sources dispatch.sh or is DISPATCH_EXEMPT" {
@@ -266,6 +271,37 @@ _dispatch_in_subshell() {
 
     if [ "${#offenders[@]}" -gt 0 ]; then
         echo "Files reading ACTOOLS_PROFILE without dispatch.sh sourcing or DISPATCH_EXEMPT comment:"
+        printf '  %s\n' "${offenders[@]}"
+        return 1
+    fi
+}
+
+@test "resolver-bypass audit: no source/. of \${INSTALL_DIR}/modules/plus_* outside the resolver" {
+    # LOCKED §10 Risk 2 / alignment §4.4: once the resolver layer exists, the
+    # resolver (installer/dispatch.sh) is the ONLY place allowed to turn a
+    # plus_* module path into a sourced/executed handler. Any OTHER file that
+    # source/. -includes a ${INSTALL_DIR}/modules/plus_* path is a hardcoded
+    # resolver bypass and must fail CI, so "we can hardcode this one path just
+    # this once" cannot creep in during Phases 1–6. Mirrors the offenders-
+    # collection shape of the sibling-scope audit above.
+    local offenders=()
+    while IFS= read -r filepath; do
+        # The resolver itself is the allowed site (it constructs module paths).
+        [[ "$filepath" == *"installer/dispatch.sh" ]] && continue
+        # Tests reference paths intentionally (fixtures, this guard's own grep).
+        [[ "$filepath" == *"/tests/"* ]] && continue
+
+        # A statement that STARTS (after optional indent) with `source` or `.`
+        # and references a modules/plus_ path is a bypass. Anchoring at line
+        # start avoids matching comments that merely mention the phrase.
+        if grep -Eq '^[[:space:]]*(source|\.)[[:space:]].*modules/plus_' "$filepath"; then
+            offenders+=("$filepath")
+        fi
+    done < <(grep -rl 'modules/plus_' "${REPO_DIR}" \
+        --include="*.sh" --include="*.bats" 2>/dev/null)
+
+    if [ "${#offenders[@]}" -gt 0 ]; then
+        echo "Resolver bypass — files sourcing a \${INSTALL_DIR}/modules/plus_* path outside the resolver:"
         printf '  %s\n' "${offenders[@]}"
         return 1
     fi

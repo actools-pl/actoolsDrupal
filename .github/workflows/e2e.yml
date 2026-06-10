@@ -80,8 +80,18 @@ jobs:
           # Create env file
           $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\nMARIADB_VERSION=11.4\nENVIRONMENT_MODE=production-isolated\nENABLE_REDIS=true\nREDIS_MEM=256mb\nWORKER_MEMORY_LIMIT=2g\nPHP_MEMORY_LIMIT=512m\nDB_MEMORY_LIMIT=2g\n' > /root/actoolsDrupal/actools.env"
 
-          # Run installer (using the new 'install' name; 'fresh' still works)
-          $SSH -t "cd /root/actoolsDrupal && sudo DEBIAN_FRONTEND=noninteractive ./actools.sh install" 2>&1 | tee install.log
+          # Run the installer, preserving the log, WITHOUT letting `tee` mask a
+          # non-zero install — the bug being that a pipeline's exit status is
+          # tee's (0), not the installer's. pipefail plus an `if !` guard
+          # propagate the installer's OWN failure regardless of the runner's
+          # default shell flags (errexit is ignored inside an `if` condition,
+          # so this is robust either way). The install.log artifact is still
+          # uploaded by the "Upload logs" step below.
+          set -o pipefail
+          if ! $SSH -t "cd /root/actoolsDrupal && sudo DEBIAN_FRONTEND=noninteractive ./actools.sh install" 2>&1 | tee install.log; then
+            echo "Installer exited non-zero — see the install.log artifact for details"
+            exit 1
+          fi
 
       - name: Verify settings.php injection (container-path regression guard)
         run: |
@@ -148,3 +158,40 @@ jobs:
           hcloud ssh-key delete "ci-key-${{ github.run_id }}" || true
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+  # Hermetic end-to-end for the Phase-0 dispatch SEAMS — honors spec §S2 ("add
+  # the fake-downstream-profile e2e to e2e.yml") and keeps the conceptual home
+  # of the fake-profile e2e here, alongside the live community fresh-install.
+  # It loads the REAL profiles/test.profile and drives every dispatch point
+  # under ACTOOLS_PROFILE=test through the real dispatch.sh/profile.sh + the
+  # real surfaces, asserting a marker per seam. That is the right shape of
+  # "e2e" for what Phase 0 actually hardened (the seams, not the Drupal
+  # install), so it needs no VM and no secrets and runs on every push.
+  #
+  # This invokes the SAME single artifact (tests/test_p0i_fake_profile_e2e.bats)
+  # that rides the lint.yml bats suite as the fast PR merge gate — the
+  # assertions live in exactly one place, so the two guarantees (suite gate +
+  # e2e-workflow coverage) cannot silently diverge.
+  fake-profile-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install bats
+        run: sudo apt-get install -y bats
+      - name: Run fake-profile dispatch e2e
+        run: |
+          # pipefail + `if !` so a bats failure fails the job (tee would
+          # otherwise mask it), while the log is still captured for upload.
+          set -o pipefail
+          if ! bats --print-output-on-failure tests/test_p0i_fake_profile_e2e.bats 2>&1 | tee fake-profile-e2e.log; then
+            echo "Fake-profile dispatch e2e failed — see the fake-profile-e2e.log artifact"
+            exit 1
+          fi
+      - name: Upload e2e log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fake-profile-e2e-log-${{ github.run_id }}
+          path: fake-profile-e2e.log

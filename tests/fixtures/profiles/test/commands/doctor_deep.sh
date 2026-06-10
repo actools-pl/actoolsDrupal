@@ -11,9 +11,14 @@
 #
 # The sentinel string and the distinctive exit code (7) let the test assert
 # both that this handler ran and that its return propagated through run_doctor.
+#
+# P0-I: also touches a marker when ACTOOLS_MARKER_DIR is set, so the fake-profile
+# e2e can assert the doctor-deep dispatch point fired. No-op when unset (the P0-H
+# tests assert only the sentinel + exit 7, which are preserved unchanged).
 # =============================================================================
 
 run_doctor_deep() {
+  [[ -n "${ACTOOLS_MARKER_DIR:-}" ]] && : > "${ACTOOLS_MARKER_DIR}/doctor_deep.marker"
   echo "TEST_DOCTOR_DEEP_OVERRIDE_DISPATCHED"
   return 7
 }
