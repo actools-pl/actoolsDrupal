@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] — P0-H Profile-Aware init, preflight, doctor, and handoff
+
+### Changed — runtime authority (operator surfaces now route through the resolver; community byte-identical)
+- `cli/commands/doctor.sh` — `doctor --deep` no longer hard-sources
+  `cli/commands/doctor_deep.sh`. The deep handler is resolved through
+  `actools::dispatch::resolve_feature_handler doctor_deep` (3-tier lookup); a
+  non-`community` profile may ship its own deep handler, and `community`
+  short-circuits to empty so the gate **falls back to the built-in
+  `doctor_deep.sh`** (the in-development notice, exit 2). The env file and
+  `installer/dispatch.sh` are now sourced at the top of `run_doctor` so the
+  resolver is available to the gate. **No hardcoded deep-handler path remains.**
+- `installer/preflight.sh` — each `PROFILE_PREFLIGHT_EXTRA` entry is routed
+  through `actools::dispatch::resolve_profile_check "preflight"`. A resolved,
+  installed handler runs (and a non-zero return counts as a failure); an extra a
+  profile **declares but does not install a handler for is now a hard FAILURE**
+  for a non-default profile (previously a silent skip). `community` declares no
+  extras, so the loop body never runs — byte-identical.
+- `installer/handoff.sh` — the previously **silent** catch-all for non-built-in
+  sections now routes through `actools::dispatch::resolve_handoff_section`. A
+  resolved, installed handler renders the section; an **unresolved section emits
+  a visible (non-fatal) notice**. handoff is a display surface, so — unlike
+  preflight — an unresolved section is reported, not failed. `community`'s
+  sections all match explicit arms, so the catch-all never fires — byte-identical.
+- `installer/init.sh` is **unchanged** (it was made profile-aware in P0-E); P0-H
+  adds a fake-profile test confirming a profile-declared **extra**
+  `PROFILE_INIT_FIELDS` entry flows through init's consumption loop and is
+  collected as a no-op (not persisted).
+
+### Deliberately deferred
+- The per-check **`PROFILE_DOCTOR_EXTRA` dispatch loop** is intentionally **not**
+  added. The `resolve_doctor_check` primitive exists and is tested at the
+  resolver level, but no Phase-0 profile defines doctor extras, so a consumer
+  loop would be unexercised dead code. doctor's surface mandate is satisfied by
+  routing the deep handler through `resolve_feature_handler`; the per-check loop
+  lands when a profile (community-plus/Phase-1) actually defines doctor extras.
+
+### Added — tests
+- `tests/test_p0h_dispatch.bats` (9 tests) exercises every dispatch point with a
+  fake profile (doctor override-wins + community baseline-fallback, preflight
+  resolved + unknown-fails + community no-op, handoff resolved + community no-op,
+  init extra-field, resolver-level community-all-empty, fixture hygiene).
+- `tests/fixtures/profiles/fake-surfaces.profile` and
+  `tests/fixtures/profiles/test/commands/doctor_deep.sh` — new test-only
+  fixtures (pure-data profile + a Tier-1 doctor-deep override).
+
+### Unchanged — proof
+- `actools.sh`, `installer/dispatch.sh`, `installer/init.sh`,
+  `installer/profile.sh`, `installer/output.sh`, and `cli/commands/doctor_deep.sh`
+  are **byte-identical**. Golden drift **6/6** with no fixture modified; the
+  `community` behavior suites (doctor 5, preflight 6, init_profile 10,
+  d0_dispatch 48) are unchanged. Whole tree: 144/144.
+
 ## [Unreleased] — P0-G Extract Host and Stack Logic
 
 ### Changed — runtime authority (host + stack logic relocated into modules; output byte-identical)

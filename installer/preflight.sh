@@ -141,17 +141,36 @@ run_preflight() {
   fi
 
   # ── Profile-extra checks (community defines none) ──────────────────────
+  # community.profile sets PROFILE_PREFLIGHT_EXTRA=(), so profile_preflight_extra
+  # yields nothing and this loop body never executes — community is byte-identical.
+  # A non-default profile routes each declared extra through the resolver
+  # (resolve_profile_check "preflight"): a check that resolves to an INSTALLED
+  # handler runs it (the handler prints its own status line; a non-zero return
+  # counts as a failure); a check the profile DECLARES but whose handler is NOT
+  # installed is a hard FAILURE for a non-default profile (P0-H) — a promised
+  # readiness check the deployment cannot run must not pass as a silent skip.
   if [[ -f "${INSTALL_DIR}/installer/profile.sh" ]]; then
     # shellcheck source=/dev/null
     source "${INSTALL_DIR}/installer/profile.sh"
-    # D.0: Source dispatch.sh after profile.sh has set ACTOOLS_PROFILE.
-    # Resolvers are available for D.1+ preflight-check dispatch; not called in D.0.
+    # Source dispatch.sh after profile.sh has set ACTOOLS_PROFILE. P0-H: the
+    # preflight-extra resolver is now consumed here (was "available, not called").
     # shellcheck source=/dev/null
     source "${INSTALL_DIR}/installer/dispatch.sh" 2>/dev/null || true
-    local extra
+    local extra handler
     while IFS= read -r extra; do
       [[ -z "$extra" ]] && continue
-      print_skip "Profile check" "${extra} — defined by profile but no handler installed"
+      handler="$(actools::dispatch::resolve_profile_check "preflight" "$extra" 2>/dev/null)"
+      if [[ -n "$handler" ]] && declare -F "$handler" >/dev/null 2>&1; then
+        if "$handler" "$extra"; then
+          : # handler emitted its own OK/WARN line
+        else
+          ((fails++)) || true
+        fi
+      else
+        print_fail "Profile check" "${extra} — declared by profile but no handler installed"
+        print_fix "Install the profile's preflight handler for '${extra}', or remove it from PROFILE_PREFLIGHT_EXTRA."
+        ((fails++)) || true
+      fi
     done < <(profile_preflight_extra)
   fi
 
@@ -173,6 +192,3 @@ run_preflight() {
     return 1
   fi
 }
-
-# D.0: Source dispatch.sh after profile.sh has set ACTOOLS_PROFILE.
-# Resolvers are available for D.1+ preflight-check dispatch; not called in D.0.
