@@ -85,6 +85,158 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 014 — P0-I · Fake-Profile End-to-End + CI Hardening
+
+Date: 2026-06-10
+Branch: `phase0/P0-I-fake-profile-e2e`
+Commit SHA: (operator records the merge SHA at apply time — applied from the supplied diff against `main`)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-I — Fake-profile end-to-end + CI hardening
+Task prompt source: `P0-I-fake-profile-e2e.md` + coding-window prompt (filled, archived)
+
+### Objective
+
+Deliver the end-to-end test the acceptance criteria require (acceptance #8/#9 and
+LOCKED §11 build-trigger #1: "e2e with a **fake downstream profile**", "fake
+profile exercises **every dispatch point**") and close the two CI gaps the
+authority map flagged as P0-I scope (`actools.sh` never shellchecked; `e2e.yml`
+install never driven through a non-default profile). Add tests and CI only — no
+runtime change, `community` byte-identical.
+
+### Scope decision (this phase)
+
+The window surfaced a real tension between the spec (§S2: "add the
+fake-downstream-profile e2e to `e2e.yml`") and the reconciliation note, and
+resolved it (Conductor-approved): the e2e is a **hermetic harness for the
+dispatch SEAMS** (what Phase 0 hardened), defined **once** as a single bats file
+and invoked from **both** workflows — `e2e.yml` (a dedicated hermetic job,
+honouring §S2 and keeping the conceptual home) and the `lint.yml` suite (the fast
+PR merge gate, free because the e2e is a suite member). Two guarantees, not
+duplication; one artifact, so the assertions cannot diverge. A "VM-live"
+fake-profile install was rejected because it would force the deferred
+install-spine profile selection plus stub handlers that cannot build a working
+Drupal. Going hermetic is precisely **why `actools.sh` is not touched** (the
+guardrail is honoured by the interpretation, not bypassed).
+
+### Files changed
+
+- **New** `profiles/test.profile` — loadable test-only seam profile; inherits the
+  community base via `source "${INSTALL_DIR}/profiles/community.profile"` and
+  **appends** with `+=` (passes the append-only stage guard); one extra in every
+  profile array (`+seam` stage, `PROFILE_PREFLIGHT_EXTRA=(check missing)`,
+  `+section` handoff, `+seam_field` init); `PROFILE_REQUIRES_ACTOR`/`_CHANGE_TICKET=true`.
+  `community`'s live install never selects it (selection deferred), so it is inert
+  for community operators.
+- **New** `tests/test_p0i_fake_profile_e2e.bats` (13 tests) — the single e2e
+  artifact (integration test asserting all 10 handler markers + granular per-seam
+  tests + failure paths + exec-bit guard + community-routes-through-NONE).
+- **New** `tests/fixtures/profiles/test/stage_handlers.sh` (`test_host`…`test_worker`,
+  `test_seam`) and `tests/fixtures/profiles/test/commands/seam_feature.sh`
+  (generic feature-handler Tier-1 override).
+- **Extended** (guarded `ACTOOLS_MARKER_DIR` marker writes; sentinels + exit codes
+  preserved) `tests/fixtures/profiles/test/manifest.sh`, `.../commands/doctor_deep.sh`,
+  `.../plus_preflight_check.sh`, `.../plus_handoff_section.sh`, `.../plus_doctor_check.sh`.
+- `.github/workflows/lint.yml` — bats job → full recursive suite
+  (`bats --print-output-on-failure -r tests/`); shellcheck job → `actools.sh`
+  added with `--exclude=SC2034,SC2015,SC2164,SC1091` (documented; no `actools.sh`
+  edit).
+- `.github/workflows/e2e.yml` — install step `tee` exit-masking fixed
+  (`pipefail` + `if !`; `install.log` artifact preserved); new hermetic
+  `fake-profile-e2e` job invoking the single e2e artifact.
+- `tests/test_d0_dispatch.bats` — §4.4 sibling-scope audit preserved; companion
+  **resolver-bypass audit** added (LOCKED §10 Risk 2). 48 → 49 tests.
+
+### Files intentionally not changed
+
+- `actools.sh` (flag-don't-edit guardrail; the hermetic e2e needs no change to
+  it), `installer/dispatch.sh`, `installer/profile.sh`, `installer/preflight.sh`,
+  `installer/handoff.sh`, `installer/init.sh`, `installer/output.sh`,
+  `cli/commands/doctor.sh`, `cli/commands/doctor_deep.sh` — all byte-identical.
+- All six golden fixtures — unchanged (drift 6/6).
+- `profiles/README.md` — out of the allowed scope; `test.profile` is documented in
+  the test report + this entry instead.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| (none) | — | No authority moved. P0-I adds tests + CI only; the seam, the surfaces, and `actools.sh` are byte-identical. |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Unchanged | golden drift 6/6 |
+| Caddyfile | Unchanged | golden drift 6/6 |
+| my.cnf | Unchanged | golden drift 6/6 |
+| Dockerfiles | Unchanged | golden drift 6/6 |
+| CLI | Not touched | `cli/actools` untouched; `cli_authority_test.bats` unchanged |
+
+### Tests run
+
+```bash
+bats tests/test_p0i_fake_profile_e2e.bats     # 13/13 (new)
+bats tests/test_d0_dispatch.bats              # 49/49 (48 + resolver-bypass audit)
+bats tests/generated/golden_drift_test.bats   # 6/6   (community byte-identical)
+bats -r tests/                                # 158/158 (whole tree)
+bash -n actools.sh
+shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 actools.sh   # clean
+```
+
+### Test result
+
+PASS — 158/158 (144 baseline + 13 e2e + 1 resolver-bypass audit); community drift
+6/6; `shellcheck actools.sh` clean with documented exclusions; no runtime change.
+
+### Documentation updated
+
+- [x] Runtime authority map (resolver-bypass guard + CI-gap bullets updated; P0-I answer added)
+- [ ] Generated-file contract (no change — no generated file touched)
+- [ ] CLI authority contract (no change — CLI untouched)
+- [ ] Operator target docs (no operator-facing behaviour change)
+- [x] Test plan (`docs/tests/P0-I-fake-profile-e2e.md` added)
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-I-fake-profile-e2e.md`, incl. Rollback)
+- [x] Test report added (`docs/tests/P0-I-fake-profile-e2e.md`)
+- [x] Handoff added (`docs/runbooks/HANDOFF-P0-I.md`)
+
+### Known risks
+
+- The e2e is hermetic by design (seams, not a live install). The live full-install
+  path is covered for `community` by `fresh-install`; a fake-profile *VM* install
+  is deliberately out of scope (would need the deferred install-spine selection +
+  stub handlers that cannot build a working site).
+- Shipping a `test.profile` under `profiles/` is mitigated: it is clearly
+  test-only, never selected by the community install, and the only scanner of
+  `profiles/*.profile` (the append-only guard) passes it (`+=`).
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending cross-model (Opus) review. The scope decision above is recorded for the
+Conductor to ratify alongside the verdict.
+
+### Next safe task
+
+Phase 0 closure review (LOCKED §11): with P0-I, the build-trigger #1 conditions
+("Phase 0 PRs merged, green CI, e2e with a fake downstream profile") are
+implemented pending review; confirm green CI on the PR, then proceed to the
+closure decision / community-plus Phase-1 unblock evaluation.
+
+### Forbidden next scope
+
+No real community-plus feature work (stubs only); no runtime behaviour change; do
+**not** edit `actools.sh` (flag instead); no new `modules/plus_*` live code; do
+not modify any golden fixture or `community.profile`.
+
+---
+
 ## Entry 013 — P0-H · Profile-Aware init, preflight, doctor, and handoff
 
 Date: 2026-06-10

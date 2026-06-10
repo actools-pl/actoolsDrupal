@@ -1,5 +1,67 @@
 # Changelog
 
+## [Unreleased] — P0-I Fake-Profile End-to-End + CI Hardening
+
+### Added — tests (the seam, exercised end-to-end; no runtime change)
+- `profiles/test.profile` — a **loadable** test-only seam-exercise profile
+  (selectable via `ACTOOLS_PROFILE=test`). It inherits the community base via
+  `source "${INSTALL_DIR}/profiles/community.profile"` and **appends** with `+=`
+  (so it passes the append-only stage guard), declares one extra in every profile
+  array (`PROFILE_INSTALL_STAGES += seam`, `PROFILE_PREFLIGHT_EXTRA=(check
+  missing)`, `PROFILE_HANDOFF_SECTIONS += section`, `PROFILE_INIT_FIELDS +=
+  seam_field`), and turns on `PROFILE_REQUIRES_ACTOR`/`_CHANGE_TICKET`. It ships
+  no real features; `community`'s live install never selects it (selection is
+  deferred — `main()` sources `community.profile` directly), so it is **inert for
+  community operators**.
+- `tests/test_p0i_fake_profile_e2e.bats` (13 tests) — the **single** fake-profile
+  e2e artifact. It loads the real `test.profile`, sets `ACTOOLS_PROFILE=test`, and
+  drives **every dispatch point** through the real `dispatch.sh`/`profile.sh` +
+  surfaces, asserting a uniquely-named marker per seam: 6 install stages
+  (incl. the **appended** `seam`), the generic feature handler, the doctor deep
+  handler (+ exit 7), the preflight extra, and the handoff section; plus the
+  behavioural init dispatch point (success persists `ACTOOLS_PROFILE=test`; the
+  extra field and identity are not persisted) and the failure paths (unknown
+  profile → exit 3; missing actor/ticket → exit 1; unknown preflight extra → hard
+  FAIL). Includes the `actools.sh` **exec-bit** standing guard and a
+  community-routes-through-NONE marker invariant.
+- New fixtures `tests/fixtures/profiles/test/stage_handlers.sh` (install-stage
+  marker stubs) and `.../commands/seam_feature.sh` (a generic feature-handler
+  Tier-1 override). Existing fixtures (`manifest.sh`, `commands/doctor_deep.sh`,
+  `plus_preflight_check.sh`, `plus_handoff_section.sh`, `plus_doctor_check.sh`)
+  gain **`ACTOOLS_MARKER_DIR`-guarded** marker writes — a no-op when the var is
+  unset and at call time only, so the D-0/P0-H suites are unaffected.
+
+### Changed — CI (suite-in-CI, `actools.sh` lint, e2e hardening)
+- `.github/workflows/lint.yml` — the bats job now runs the **full recursive
+  suite** (`bats --print-output-on-failure -r tests/`, auto-discovering future
+  suites) instead of a 6-file subset, so the fake-profile e2e, the golden
+  community-drift gate, the append-only stage guard, and the resolver-bypass +
+  exec-bit guards all gate every PR. The shellcheck job adds **`actools.sh`** (the
+  largest live file, previously unlinted) with
+  `--exclude=SC2034,SC2015,SC2164,SC1091` — the established sibling idioms,
+  documented inline. `actools.sh` is **not edited** to satisfy the linter
+  (flag-don't-edit guardrail): idioms are excluded, not rewritten.
+- `.github/workflows/e2e.yml` — the install step's **`tee` exit-masking is fixed**
+  (`set -o pipefail` + an `if !` guard so the installer's own non-zero
+  propagates; the `install.log` artifact upload is preserved). A new hermetic
+  **`fake-profile-e2e`** job runs the same single e2e artifact (no VM, no secrets,
+  runs on every push, log uploaded on completion) — honouring spec §S2 while the
+  same file rides the lint suite as the fast PR gate. The Hetzner `fresh-install`
+  job and the workflow triggers are unchanged.
+
+### Changed — tests (resolver-bypass guard)
+- `tests/test_d0_dispatch.bats` — the §4.4 sibling-scope audit is **preserved**;
+  a companion **resolver-bypass audit** encodes LOCKED §10 Risk 2: no file other
+  than the resolver (`installer/dispatch.sh`) may `source`/`.` a
+  `${INSTALL_DIR}/modules/plus_*` path. Clean at baseline (49 tests total).
+
+### Not changed (verified byte-identical)
+- `actools.sh`, `installer/dispatch.sh`, `installer/profile.sh`,
+  `installer/preflight.sh`, `installer/handoff.sh`, `installer/init.sh`,
+  `installer/output.sh`, `cli/commands/doctor.sh`, `cli/commands/doctor_deep.sh`,
+  and all six golden fixtures. `community` is byte-identical — golden drift
+  **6/6**; whole-tree suite **158/158**.
+
 ## [Unreleased] — P0-H Profile-Aware init, preflight, doctor, and handoff
 
 ### Changed — runtime authority (operator surfaces now route through the resolver; community byte-identical)
