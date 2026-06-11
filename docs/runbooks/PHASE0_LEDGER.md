@@ -86,6 +86,128 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 016 — P0-K · Guards + Stateless Core Extraction
+
+Date: 2026-06-11
+Branch: `phase0/P0-K-guards-stateless-core` (operator records the applied branch + `main` SHA)
+Commit SHA: six implementation commits + one docs commit (sandbox sequence: `11ea38d` guards → `c8e32b7` behavior capture → `3efc1d5` bootstrap → `6200979` state → `0f012c5` secrets → `9018a0c` validate + guard hardening → docs)
+Actor / Claude session (model): Coding Window (Opus)
+Phase: P0-K — Guards + Stateless Core Extraction
+Task prompt source: `P0-K-guard-and-stateless-extraction.md` + coding-window prompt (filled)
+
+### Objective
+
+Install two anti-regression CI guards, then extract the stateless core — bootstrap, state, secrets, validate — from the live inline v14 code in `actools.sh` into `core/*.sh` modules, retiring the stale v9.2 orphan twins, with **zero install-behavior change** (golden drift 6/6 at every commit). The authority rule held throughout: when in doubt, copy from `actools.sh`, never from the orphans.
+
+### Guards (commit 1; CI-gated by the existing recursive bats job — no `lint.yml` edit needed)
+
+- **Live-authority guard** (`tests/guards/live_authority_guard_test.bats`) — every file declaring the P0-G `LIVE AUTHORITY` marker must be on the live install path (the transitive source-closure of `actools.sh`, computed by `tests/guards/live_closure.bash`: static + loop-expanded `${INSTALL_DIR}`-anchored sources; resolves the known 20-file path, now 24 with the core modules). Catches authoritative-looking orphans — the Entry-015 failure mode.
+- **Duplicate-function guard** (`tests/guards/duplicate_function_guard_test.bats`) — each of the ten risky names (`validate_env rand_pass gen_if_empty init_state set_state get_state is_installed mark_installed get_db_pass get_backup_pass`) must be defined **exactly once** on the live path; an explicit second arm names the exact regression (inline + sourced-core dual = the wrong wiring the Entry-015 review rejected, which would flip `ENABLE_S3_STORAGE` off). **Hardened in the final commit** with an unconditional twin ban (never in both `actools.sh` and any `core/*.sh`, sourced or not) — satisfiable only once the stale twins were retired, which is why it lands at 6/6 rather than 1/6.
+- **Non-vacuity proven three times** (outputs verbatim in the test report): an orphan claiming authority fails guard 1; wiring `core/validate.sh` while inline `validate_env` exists fails both arms of guard 2; a reintroduced inline `validate_env(){ :; }` at end-state fails all three arms including the twin ban.
+
+### Extractions (one unit per commit; every function body verbatim — per-function byte-identity to the inline block verified with the test extractor)
+
+- **bootstrap → `core/bootstrap.sh`** (`log warn error section dryrun`; the `DRY_RUN=false` / dry-run flip stays inline — spine state, not unit functions). The orphan's `INSTALL_DIR="$REAL_HOME"`, `$REAL_HOME`-anchored `ENV_FILE`/`STATE_FILE`/`LOG_*`, `ACTOOLS_VERSION="9.2"`, and its own lock/exec-redirect logic did **not** survive.
+- **state → `core/state.sh`** (`init_state set_state get_state is_installed mark_installed`). jq/state-file semantics unchanged (atomic tmp+mv, literal `"null"`, `INSTALL_DIR`-anchored `STATE_FILE`). The orphan's `get_db_pass`/`get_backup_pass` twins did **not** survive here — they belong to the secrets unit.
+- **secrets → `core/secrets.sh`** (`rand_pass gen_if_empty get_db_pass get_backup_pass`). The top-level secret flow stays inline in its original order — `gen_if_empty DB_ROOT_PASS` / `DRUPAL_ADMIN_PASS`, then the v9.2-fix7 writeback loop (**secret-writeback order unchanged**). The orphan's `writeback_secrets()` twin did **not** survive.
+- **validate → `core/validate.sh`** (`validate_env` only). The S3 gate stays **top-level inline** with the v14 default `${ENABLE_S3_STORAGE:-true}` (4 occurrences in `actools.sh`, zero `:-false` anywhere), as do provider auto-detection and the XeLaTeX/env-mode/disk checks. The orphan's `validate_s3` (`:-false`), `detect_s3_provider`, `validate_xelatex`, `validate_environment_mode`, `validate_disk` twins did **not** survive.
+
+Each module carries a `LIVE AUTHORITY (P0-K)` header documenting its required globals/collaborators (`set -u` handled: function definitions only, no module-level variable reads or assignments).
+
+### Files changed
+
+- `core/bootstrap.sh`, `core/state.sh`, `core/secrets.sh`, `core/validate.sh` — overwritten with the live v14 implementations (stale v9.2 content retired in full)
+- `actools.sh` — 871 → 835 lines: the four inline definition blocks replaced by four `source "${INSTALL_DIR}/core/<x>.sh"` lines at the exact spots the definitions occupied; all calls, top-level spine code, and `main()` untouched
+- `tests/guards/live_closure.bash`, `tests/guards/live_authority_guard_test.bats`, `tests/guards/duplicate_function_guard_test.bats` — new
+- `tests/core/extract_inline.bash` (new), `tests/core/bootstrap_test.bats` (new, 12), `tests/core/state_test.bats` (new, 10), `tests/core/secrets_test.bats` (rewritten, 17), `tests/core/validate_test.bats` (rewritten, 11) — behavior captured against the inline code at commit 2, re-pointed at each live module in its extraction commit (same assertions = faithfulness proof); orphan-content ban statics added per unit
+- `tests/helpers/capture_golden_outputs.sh` — the `setup_cli` line canary only (`SC_START/SC_END` 702-717 → 666-681 across the four extractions; the helper's own documented maintenance step — capture logic untouched, no fixture modified)
+- Docs: this ledger, `runtime-authority-map.md`, `CHANGELOG.md`, `docs/releases/P0-K-guards-and-stateless-core.md`, `docs/tests/P0-K-guards-and-stateless-core.md`, `docs/runbooks/HANDOFF-P0-K.md`
+
+### Files intentionally not changed
+
+- `main()`'s hardcoded `source profiles/community.profile` (P0-P scope)
+- DB layer / `install_env` / cron / CLI (P0-L / P0-M / P0-N scope)
+- All standalone feature orphans (P0-O audit first)
+- `.github/workflows/lint.yml` — the recursive bats job auto-discovers `tests/guards/`, so the guards are CI-gated with zero workflow edit
+- Golden fixtures — drift 6/6 with **no fixture modified**
+- `ACTOOLS_VERSION` stays `14.0` — this phase allows no behavior change
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Bootstrap helpers (log/warn/error/section/dryrun) | inline `actools.sh` | `core/bootstrap.sh` (**live module**) |
+| State (init/set/get/is_installed/mark_installed) | inline `actools.sh` | `core/state.sh` (**live module**) |
+| Secrets (rand_pass/gen_if_empty/get_db_pass/get_backup_pass) | inline `actools.sh` | `core/secrets.sh` (**live module**) |
+| Validation (validate_env) | inline `actools.sh` | `core/validate.sh` (**live module**) |
+| Path semantics, S3 gate, secret flow order, spine | inline `actools.sh` | **unchanged** (inline) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Unchanged | golden drift 6/6 at every commit |
+| Caddyfile | Unchanged | golden drift 6/6 |
+| my.cnf | Unchanged | golden drift 6/6 |
+| Dockerfiles | Unchanged | golden drift 6/6 |
+| CLI | Not touched | `cli_authority_test.bats` green in the full suite |
+
+### Tests run
+
+```bash
+bash -n actools.sh && bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n
+bats tests/core/                              # 50/50 against the live modules + inline spine
+bats tests/guards/                            # 5/5 (both guards incl. the twin-ban arm)
+bats tests/generated/golden_drift_test.bats   # 6/6
+bats -r tests/                                # 192/192
+shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 actools.sh
+shellcheck --exclude=SC2034,SC2015,SC2164 core/*.sh
+```
+
+### Test result
+
+PASS — full suite 192/192 (158 → 192: +5 guard tests; `tests/core/*` rebuilt 21 → 50); golden drift 6/6 at each of the six commits; both guards non-vacuous (three captured failure demos).
+
+### Documentation updated
+
+- [x] Runtime authority map (Bootstrap row reworked; new stateless-core row; P0-K answer; test-surface addendum)
+- [ ] Generated-file contract — no change needed (no generated output changed)
+- [ ] CLI authority contract — untouched
+- [ ] Operator target docs — no operator-visible change
+- [x] Test plan / test report
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-K-guards-and-stateless-core.md`)
+- [x] Test report added (`docs/tests/P0-K-guards-and-stateless-core.md`)
+- [x] Review notes — for the Review Gate, see the handoff (`docs/runbooks/HANDOFF-P0-K.md`)
+
+### Known risks
+
+- The `setup_cli` line canary in the capture helper now reads 666–681; any future edit above `setup_cli` in `actools.sh` must update it. The helper fails loudly with self-describing instructions — that is the canary working, not breaking.
+- The closure builder expands `${INSTALL_DIR}`-anchored static sources and single-level `for`-loop interpolations — the only live patterns. A future exotic sourcing pattern would need a builder extension; the closure-sanity test pins the known path shape so silent under-resolution fails CI instead of passing vacuously.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a separate session verifies: golden drift held 6/6; both guards bite (three non-vacuity demos in the test report); each extracted module matches inline behavior — **especially the S3 default** (`:-true` ×4 in `actools.sh`, `:-false` ×0 anywhere on the live path) **and path semantics** (`INSTALL_DIR` BASH_SOURCE-relative; `ENV_FILE`/`STATE_FILE` INSTALL_DIR-anchored); and no stale orphan content survived (orphan-ban statics in `tests/core/*`).
+
+### Next safe task
+
+**P0-L — DB layer extraction** (post-closure track order). Still NOT community-plus feature work.
+
+### Forbidden next scope
+
+No `install_env`/cron/CLI extraction before P0-M/P0-N; no standalone-feature-orphan wiring before P0-O's audit; `main()`'s hardcoded profile source stays until P0-P; no generated-file change.
+
+---
+
+
 ## Entry 015 — P0-J · Closure Review + Documentation Truth Pass
 
 Date: 2026-06-11

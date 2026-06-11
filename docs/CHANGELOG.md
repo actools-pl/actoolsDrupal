@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] — P0-K Guards + Stateless Core Extraction
+
+### Added — anti-regression CI guards (gated by the existing recursive bats job; no workflow edit)
+- `tests/guards/live_authority_guard_test.bats` + `tests/guards/live_closure.bash` —
+  a file declaring the P0-G **`LIVE AUTHORITY`** marker must be reachable on the
+  live install path (the transitive source-closure of `actools.sh`; the engine
+  expands both static and `for`-loop `${INSTALL_DIR}`-anchored sources, and a
+  closure-sanity test pins the known path shape so the guard cannot pass
+  vacuously). Catches authoritative-looking orphans — the Entry-015 failure mode.
+- `tests/guards/duplicate_function_guard_test.bats` — each of the ten risky
+  stateless-core functions (`validate_env rand_pass gen_if_empty init_state
+  set_state get_state is_installed mark_installed get_db_pass get_backup_pass`)
+  must be defined **exactly once** on the live path; a second arm explicitly
+  names the inline + sourced-core dual (the "wire the orphans" mistake that
+  would flip `ENABLE_S3_STORAGE` off); a third arm (added at the final P0-K
+  commit, once the twins were retired) bans a risky name from **ever** existing
+  in both `actools.sh` and any `core/*.sh`, sourced or not. All three arms
+  proven **non-vacuous** (failure demos in the P0-K test report).
+
+### Changed — the stateless core is now four live modules (behavior-preserving)
+- `core/bootstrap.sh`, `core/state.sh`, `core/secrets.sh`, `core/validate.sh` —
+  each **overwritten** with the verbatim inline v14 implementation and sourced
+  by `actools.sh` at the exact spot its inline block occupied (one unit per
+  commit: bootstrap → state → secrets → validate; per-function byte-identity
+  verified; inline copies deleted in the same commit — no dual definition ever
+  existed on the live path). Each module carries a `LIVE AUTHORITY (P0-K)`
+  header documenting its required globals and is **functions only** (inert
+  under `set -u`).
+- The stale v9.2 orphan content is **retired in full**: the orphan
+  `INSTALL_DIR="$REAL_HOME"` path semantics, `ACTOOLS_VERSION="9.2"`,
+  `writeback_secrets()`, the state-side `get_db_pass`/`get_backup_pass` twins,
+  and `validate_s3()` with `${ENABLE_S3_STORAGE:-false}` plus
+  `detect_s3_provider`/`validate_xelatex`/`validate_environment_mode`/
+  `validate_disk` — none survives. The live spine keeps the v14 values:
+  `INSTALL_DIR` BASH_SOURCE-relative, the S3 gate **top-level** with
+  `${ENABLE_S3_STORAGE:-true}`, the secret-gen calls + v9.2-fix7 writeback loop
+  inline in their original order.
+- `actools.sh` 871 → 835 lines; all calls, top-level spine code and `main()`
+  untouched. **No install-behavior change**: golden drift 6/6 at every commit
+  with no fixture modified; full suite 158 → **192** green.
+
+### Changed — tests
+- `tests/core/*` rebuilt 21 → **50** tests: behavior of all four units captured
+  against the **inline v14 code first** (via `tests/core/extract_inline.bash`),
+  then each suite re-pointed at its live module in the unit's extraction commit
+  with the same assertions; per-unit statics ban stale-orphan content (no
+  `REAL_HOME` assignment, no `writeback_secrets`, no `ENABLE_S3_STORAGE` code
+  reference in `core/validate.sh`, `:-true`-only in `actools.sh`). The live
+  top-level writeback loop stays pinned where it lives, in `actools.sh`.
+- `tests/helpers/capture_golden_outputs.sh` — `setup_cli` line canary updated
+  702-717 → 666-681 across the four extractions (the helper's own documented
+  maintenance step; capture logic untouched).
+
 ## [Unreleased] — P0-I Fake-Profile End-to-End + CI Hardening
 
 ### Added — tests (the seam, exercised end-to-end; no runtime change)
