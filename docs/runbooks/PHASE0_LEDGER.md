@@ -6,8 +6,9 @@ This ledger is the durable memory of the project. Update it after every phase, e
 
 ## Current status
 
-Phase 0 status: NOT CLOSED  
-Community-plus Phase 1 status: BLOCKED
+Phase 0 status: CLOSED — GO (see `PHASE0_UNLOCK_MEMO.md`)  
+Post-closure track (P0-K…P0-P): UNLOCKED  
+community-plus feature work: gated behind P0-K…P0-P
 
 ## Ledger entry template
 
@@ -85,11 +86,57 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 015 — P0-J · Closure Review + Documentation Truth Pass
+
+Date: 2026-06-11
+Branch: `phase0/P0-J-doc-closure` (+ direct doc commits to `main`)
+Commit SHA: (operator records the P0-J doc-closure commit on `main`; prior doc commits `1404fc3` / `f7dbac1` / `112c845` — command-reference / enterprise / privacy)
+Actor / Claude session (model): Review Gate (Opus) + Conductor
+Phase: P0-J — Phase 0 closure review
+
+### Objective
+
+Render the Phase 0 closure decision and correct the documentation falsehoods the review surfaced, so the operator docs match the code before unlocking the post-closure track. No runtime change.
+
+### Closure review outcome
+
+Three-way external review (Closure Report, executed 158/158; ChatGPT; Gemini) plus independent verification. The architecture is sound; every blocker was documentation, not runtime: phantom operator commands taught across the docs; the two-CLI problem described as unsolved though P0-F resolved it; stale architecture counts; orphan modules described as live. Gemini's inverted recommendation (wire the orphan `core/*.sh`; treat `cron/backup.sh` as safe) was rejected on the evidence (it would flip `ENABLE_S3_STORAGE` off and deploy an argv-password cron). Verdict: **Needs Revision (doc-only)** -> **Approved** after the doc-truth pass below.
+
+### Documentation truth pass (12 files)
+
+- Phantom/experimental command relabeling: `command-reference`, `advanced`, `enterprise`, `privacy`, `hardening`, `README` — `gdpr` / `immortalize` / `resurrect` / `ai` / `branch` / `ci` / `cost-optimize` and `migrate --point-in-time` relabeled experimental/not-wired or removed (none has a branch in `cli/actools`).
+- CLI authority: `ROADMAP` + `operations` rewritten — single canonical `cli/actools`, copied by `setup_cli()` (`actools.sh:702-717`); heredoc generator removed; `cli_authority_test.bats` enforces no-heredoc.
+- Architecture: 76 -> 158 tests; observability/grafana marked optional-not-default; RBAC / per-invocation-logging marked planned-tier; directory tree annotated experimental/orphan + pointer to `runtime-authority-map.md`.
+- Backup: `ROADMAP` `cron/backup.sh` misattribution corrected (the basic gzip cron is generated inline; the file is an unwired duplicate).
+- Observability: nonexistent `modules/observability/alerts.yml` noted absent.
+- Profiles: `test.profile` noted CI-only.
+- CHANGELOG: v10.x "Phase 1 complete / 32 modules" + `migrate` / `cost-optimize` disclaimed historical-not-current (history kept).
+Deferred (recorded, not done here): orphan module "Extracted v9.2" headers and the broad stale-content reconcile -> **P0-O**.
+
+### Test result
+
+Doc-only; CI green on the push (lint + e2e). No runtime change; golden drift unaffected.
+
+### Review Gate decision
+
+**APPROVED** — Phase 0 closure conditions met. Decision recorded in `docs/runbooks/PHASE0_UNLOCK_MEMO.md` (**GO**; post-closure track P0-K unlocked).
+
+### Next safe task
+
+Post-closure track **P0-K** (guards + stateless core extraction). NOT "Phase 1" (term retired). community-plus feature work gated behind P0-K…P0-P.
+
+### Forbidden next scope
+
+No runtime behavior change outside the per-phase allowed files; no wiring of standalone feature orphans before P0-O's audit; do not adopt stale orphan content (the inline v14 code is authoritative).
+
+---
+
+
 ## Entry 014 — P0-I · Fake-Profile End-to-End + CI Hardening
 
 Date: 2026-06-10
 Branch: `phase0/P0-I-fake-profile-e2e`
-Commit SHA: (operator records the merge SHA at apply time — applied from the supplied diff against `main`)
+Commit SHA: `457f3b4` (merged via #44)
 Actor / Claude session (model): Coding Window (Opus)
 Phase: P0-I — Fake-profile end-to-end + CI hardening
 Task prompt source: `P0-I-fake-profile-e2e.md` + coding-window prompt (filled, archived)
@@ -219,8 +266,9 @@ None.
 
 ### Review Gate decision
 
-Pending cross-model (Opus) review. The scope decision above is recorded for the
-Conductor to ratify alongside the verdict.
+**APPROVED** — cross-model (Opus) Review Gate session. Verified: golden drift 6/6 (community byte-identical), whole tree 158/158, `shellcheck actools.sh` clean (documented exclusions), exec-bit guard non-vacuous, resolver-bypass audit encodes LOCKED §10 Risk 2, `actools.sh`/surfaces/`community.profile` byte-identical.
+Scope decision **RATIFIED**: the hermetic seam-e2e — a single bats artifact invoked from both `e2e.yml` (dedicated job, honours §S2) and `lint.yml` (fast PR gate) — is the correct interpretation of §S2; a VM-live fake-profile install was rightly rejected (it would force the deferred install-spine selection plus stub handlers that cannot build a working Drupal), which is precisely why `actools.sh` is untouched.
+Merged at `457f3b4` (#44).
 
 ### Next safe task
 
