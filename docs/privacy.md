@@ -1,8 +1,10 @@
 # Privacy & Data Policy
 
-## AI Assistant
+## AI Assistant *(experimental — not shipped)*
 
-The Actools AI assistant (`actools ai`) runs entirely on your server.
+> The `actools ai` command is **not** registered in the CLI today; the code under `modules/ai/` is not wired in. The properties below describe the **intended** design for if/when it ships.
+
+The planned Actools AI assistant (`actools ai`) is designed to run entirely on your server.
 
 - **Local only** — powered by [Ollama](https://ollama.ai) running inside Docker
 - **No external calls** — zero data sent to any external API
@@ -10,8 +12,7 @@ The Actools AI assistant (`actools ai`) runs entirely on your server.
 - **No cloud dependency** — works without internet after initial model download
 - **Your code stays on your server** — always
 
-The AI has read access to your codebase context only. It cannot modify files,
-execute commands, or access credentials.
+The assistant would have read access to your codebase context only — no file modification, command execution, or credential access.
 
 ## Installer
 
