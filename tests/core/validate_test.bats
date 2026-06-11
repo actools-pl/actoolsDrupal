@@ -1,17 +1,33 @@
 #!/usr/bin/env bats
 # =============================================================================
-# tests/core/validate_test.bats — Tests for core/validate.sh
+# tests/core/validate_test.bats — behavior of the validate unit (validate_env)
+# + the live S3-default trap tests (the P0-K authority rule).
+#
+# P0-K extraction: the loader is RE-POINTED at core/validate.sh — the live
+# module — with the SAME assertions that captured the inline behavior, which
+# is what proves the move was faithful.
+#
+# History: this file previously sourced the stale orphan core/validate.sh and
+# tested its orphan-only twins (detect_s3_provider/validate_s3/...). P0-K
+# retired the stale orphans: the live v14 code keeps S3 detection and the S3
+# gate as TOP-LEVEL spine code (not functions), with the v14 default
+# ${ENABLE_S3_STORAGE:-true} — the orphan's :-false must never survive. The
+# statics below pin exactly that, and ban any S3 reference from the module.
 # =============================================================================
 
 setup() {
-  source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-  # Stub log/warn/error for testing
-  log()  { echo "LOG: $*"; }
-  warn() { echo "WARN: $*"; }
+  REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+
+  # ── P0-K loader (re-pointed) ── core/validate.sh is the live module.
+  source "$REPO/core/validate.sh"
+
+  # Logging stubs (the unit calls log/error; stub AFTER loading so they win)
+  log()   { echo "LOG: $*"; }
+  warn()  { echo "WARN: $*"; }
   error() { echo "ERROR: $*"; exit 1; }
 }
 
-# --- validate_env tests ---
+# --- validate_env: format rules --------------------------------------------------
 
 @test "PHP_MEMORY_LIMIT accepts 512m" {
   PHP_MEMORY_LIMIT=512m
@@ -40,7 +56,7 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
-@test "PHP_MEMORY_LIMIT rejects empty string" {
+@test "PHP_MEMORY_LIMIT rejects a non-size value" {
   PHP_MEMORY_LIMIT=bad
   WORKER_MEMORY_LIMIT=2g
   DB_MEMORY_LIMIT=2g
@@ -67,93 +83,42 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
-# --- detect_s3_provider tests ---
-
-@test "S3 provider auto-detected as backblaze" {
-  STORAGE_PROVIDER=""
-  S3_PROVIDER=""
-  S3_ENDPOINT_URL="https://s3.us-west-000.backblazeb2.com"
-  S3_ENDPOINT=""
-  run bash -c "
-    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-    log()  { echo \"LOG: \$*\"; }
-    warn() { echo \"WARN: \$*\"; }
-    error() { echo \"ERROR: \$*\"; exit 1; }
-    STORAGE_PROVIDER=''
-    S3_PROVIDER=''
-    S3_ENDPOINT_URL='https://s3.us-west-000.backblazeb2.com'
-    S3_ENDPOINT=''
-    detect_s3_provider
-    echo \"\$STORAGE_PROVIDER\"
-  "
+@test "validate_env passes on an empty environment (the :- defaults are valid)" {
+  unset PHP_MEMORY_LIMIT WORKER_MEMORY_LIMIT DB_MEMORY_LIMIT PHP_VERSION
+  run validate_env
   [ "$status" -eq 0 ]
-  [[ "$output" == *"backblaze"* ]]
+  [[ "$output" == *"validation passed"* ]]
 }
 
-@test "S3 provider auto-detected as wasabi" {
-  run bash -c "
-    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-    log()  { echo \"LOG: \$*\"; }
-    warn() { echo \"WARN: \$*\"; }
-    error() { echo \"ERROR: \$*\"; exit 1; }
-    STORAGE_PROVIDER=''
-    S3_PROVIDER=''
-    S3_ENDPOINT_URL='https://s3.wasabisys.com'
-    S3_ENDPOINT=''
-    detect_s3_provider
-    echo \"\$STORAGE_PROVIDER\"
-  "
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"wasabi"* ]]
+# --- v14 S3-default traps (the P0-K authority rule) -------------------------------
+
+@test "live S3 gate keeps the v14 default ENABLE_S3_STORAGE:-true, never :-false" {
+  grep -q 'ENABLE_S3_STORAGE:-true' "$REPO/actools.sh"
+  ! grep -q 'ENABLE_S3_STORAGE:-false' "$REPO/actools.sh"
 }
 
-@test "S3 provider auto-detected as aws" {
-  run bash -c "
-    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-    log()  { echo \"LOG: \$*\"; }
-    warn() { echo \"WARN: \$*\"; }
-    error() { echo \"ERROR: \$*\"; exit 1; }
-    STORAGE_PROVIDER=''
-    S3_PROVIDER=''
-    S3_ENDPOINT_URL='https://s3.amazonaws.com'
-    S3_ENDPOINT=''
-    detect_s3_provider
-    echo \"\$STORAGE_PROVIDER\"
-  "
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"aws"* ]]
+@test "every ENABLE_S3_STORAGE default in the live spine is :-true" {
+  total=$(grep -o 'ENABLE_S3_STORAGE:-[a-z]*' "$REPO/actools.sh" | wc -l)
+  trues=$(grep -o 'ENABLE_S3_STORAGE:-true'   "$REPO/actools.sh" | wc -l)
+  [ "$trues" -ge 1 ]
+  [ "$total" -eq "$trues" ]
 }
 
-@test "S3 provider defaults to aws when no endpoint set" {
-  run bash -c "
-    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-    log()  { echo \"LOG: \$*\"; }
-    warn() { echo \"WARN: \$*\"; }
-    error() { echo \"ERROR: \$*\"; exit 1; }
-    STORAGE_PROVIDER=''
-    S3_PROVIDER=''
-    S3_ENDPOINT_URL=''
-    S3_ENDPOINT=''
-    detect_s3_provider
-    echo \"\$STORAGE_PROVIDER\"
-  "
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"aws"* ]]
+# --- stale-orphan content ban (P0-K) ---------------------------------------------
+
+@test "core/validate.sh has no ENABLE_S3_STORAGE code reference — the orphan's :-false twin is retired" {
+  # The stale v9.2 orphan carried validate_s3() with ${ENABLE_S3_STORAGE:-false}.
+  # The live S3 gate is top-level spine code in actools.sh (:-true); the live
+  # module must contain no S3 logic at all. (Comment lines documenting the
+  # retirement are allowed; CODE lines are not.)
+  ! grep -vE '^[[:space:]]*#' "$REPO/core/validate.sh" | grep -q 'ENABLE_S3_STORAGE'
 }
 
-@test "S3 provider auto-detected as custom for unknown endpoint" {
-  run bash -c "
-    source ${BATS_TEST_DIRNAME}/../../core/validate.sh
-    log()  { echo \"LOG: \$*\"; }
-    warn() { echo \"WARN: \$*\"; }
-    error() { echo \"ERROR: \$*\"; exit 1; }
-    STORAGE_PROVIDER=''
-    S3_PROVIDER=''
-    S3_ENDPOINT_URL='https://minio.myserver.com'
-    S3_ENDPOINT=''
-    detect_s3_provider
-    echo \"\$STORAGE_PROVIDER\"
-  "
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"custom"* ]]
+@test "core/validate.sh defines exactly validate_env — orphan twins retired" {
+  run grep -cE '^[a-z_]+\(\)' "$REPO/core/validate.sh"
+  [ "$output" = "1" ]
+  grep -qE '^validate_env\(\)' "$REPO/core/validate.sh"
+  ! grep -qE '^(detect_s3_provider|validate_s3|validate_xelatex|validate_environment_mode|validate_disk)\(\)' "$REPO/core/validate.sh"
+  # ...and no variable assignments survive either.
+  ! grep -qE '^[[:space:]]*(export[[:space:]]+)?[A-Z_]+=' "$REPO/core/validate.sh"
 }

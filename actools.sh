@@ -119,18 +119,16 @@ touch "$RUN_LOG" 2>/dev/null || true
 chown "$REAL_USER:$REAL_USER" "$RUN_LOG" 2>/dev/null || true
 exec > >(tee -a "$LOG_FILE" | tee -a "$RUN_LOG") 2>&1
 
-log()     { echo -e "${G}[INFO ]${NC} $(date '+%F %T') $*"; }
-warn()    { echo -e "${Y}[WARN ]${NC} $(date '+%F %T') $*"; }
-error()   { echo -e "${R}[ERROR]${NC} $(date '+%F %T') $*"; exit 1; }
-section() {
-  echo -e "\n${C}══════════════════════════════════════════════════${NC}"
-  echo -e "${C}  $*${NC}"
-  echo -e "${C}══════════════════════════════════════════════════${NC}"
-}
+# P0-K: the bootstrap logging/dry-run helpers (log/warn/error/section/dryrun)
+# are defined in core/bootstrap.sh — the live module, extracted verbatim from
+# the inline v14 block (behavior unchanged). error() comes FROM the module, so
+# a load failure must report via plain echo.
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/core/bootstrap.sh" \
+  || { echo "FATAL: cannot load core/bootstrap.sh" >&2; exit 1; }
 
 DRY_RUN=false
 [[ "$MODE" == "dry-run" ]] && DRY_RUN=true
-dryrun() { "$DRY_RUN" && { echo -e "${Y}[DRY-RUN]${NC} Would run: $*"; return 0; } || "$@"; }
 
 log "Actools v${ACTOOLS_VERSION} started (mode=${MODE})"
 
@@ -277,17 +275,13 @@ if [[ "$MODE" == "handoff" ]]; then
   exit 0
 fi
 
-validate_env() {
-  [[ "${PHP_MEMORY_LIMIT:-512m}" =~ ^[0-9]+[mg]$ ]] || \
-    error "PHP_MEMORY_LIMIT format invalid ('${PHP_MEMORY_LIMIT}'). Use: 512m or 2g"
-  [[ "${WORKER_MEMORY_LIMIT:-2g}" =~ ^[0-9]+[mg]$ ]] || \
-    error "WORKER_MEMORY_LIMIT format invalid ('${WORKER_MEMORY_LIMIT}'). Use: 2g or 1024m"
-  [[ "${DB_MEMORY_LIMIT:-2g}" =~ ^[0-9]+[mg]$ ]] || \
-    error "DB_MEMORY_LIMIT format invalid ('${DB_MEMORY_LIMIT}'). Use: 2g or 1024m"
-  [[ "${PHP_VERSION:-8.3}" =~ ^[0-9]+\.[0-9]+$ ]] || \
-    error "PHP_VERSION format invalid: '${PHP_VERSION}'. Expected e.g. 8.3"
-  log ".env validation passed."
-}
+# P0-K: validate_env is defined in core/validate.sh — the live module,
+# extracted verbatim from the inline v14 block. The S3 gate below stays
+# top-level inline with the v14 default (ENABLE_S3_STORAGE:-true), as do the
+# provider auto-detection and XeLaTeX/env-mode/disk checks above — spine code,
+# not unit functions.
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/core/validate.sh" || error "Cannot load core/validate.sh"
 validate_env
 
 if [[ "${ENABLE_S3_STORAGE:-true}" == "true" ]]; then
@@ -363,18 +357,12 @@ log "Pre-flight complete."
 # =============================================================================
 section "Secret Guard"
 
-rand_pass() { while true; do p=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9'); [ ${#p} -ge 22 ] && echo "${p:0:22}" && break; done; }
-
-gen_if_empty() {
-  local var="$1"
-  local val="${!var:-}"
-  [[ "$val" == *"CHANGEME"* ]] && error "$var contains 'CHANGEME' -- set a real value."
-  if [[ -z "$val" ]]; then
-    log "$var empty -- auto-generating..."
-    printf -v "$var" '%s' "$(rand_pass)"
-    log "$var generated."
-  fi
-}
+# P0-K: rand_pass/gen_if_empty/get_db_pass/get_backup_pass are defined in
+# core/secrets.sh — the live module, extracted verbatim from the inline v14
+# blocks. The top-level secret-generation calls and the writeback loop below
+# stay inline (spine code; v9.2 fix7 writeback order unchanged).
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/core/secrets.sh" || error "Cannot load core/secrets.sh"
 
 gen_if_empty DB_ROOT_PASS
 gen_if_empty DRUPAL_ADMIN_PASS
@@ -394,35 +382,11 @@ log "Secrets ready."
 # =============================================================================
 # STATE MANAGEMENT
 # =============================================================================
-init_state() {
-  [[ -f "$STATE_FILE" ]] || echo '{"envs":{},"db_passes":{}}' > "$STATE_FILE"
-  chown "$REAL_USER:$REAL_USER" "$STATE_FILE" 2>/dev/null || true
-}
-
-set_state()      { local tmp; tmp=$(mktemp); jq "$1" "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"; }
-get_state()      { jq -r "$1" "$STATE_FILE" 2>/dev/null || echo "null"; }
-is_installed()   { jq -e ".envs.$1 == true" "$STATE_FILE" >/dev/null 2>&1; }
-mark_installed() { set_state ".envs.$1=true"; }
-
-get_db_pass() {
-  local env="$1" pass
-  pass=$(get_state ".db_passes.${env}")
-  if [[ "$pass" == "null" || -z "$pass" ]]; then
-    pass=$(rand_pass)
-    set_state ".db_passes.${env}=\"${pass}\""
-  fi
-  echo "$pass"
-}
-
-get_backup_pass() {
-  local pass
-  pass=$(get_state ".backup_user_pass")
-  if [[ "$pass" == "null" || -z "$pass" ]]; then
-    pass=$(rand_pass)
-    set_state ".backup_user_pass=\"${pass}\""
-  fi
-  echo "$pass"
-}
+# P0-K: init_state/set_state/get_state/is_installed/mark_installed are defined
+# in core/state.sh — the live module, extracted verbatim from the inline v14
+# block (jq/state-file semantics unchanged).
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/core/state.sh" || error "Cannot load core/state.sh"
 
 # =============================================================================
 # SETUP STACK
