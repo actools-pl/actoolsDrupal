@@ -1,162 +1,103 @@
-# Enterprise Hardening
+# Enterprise Hardening (planned / experimental)
 
-> **Version:** v11.2.0 · **RPO:** ~1 hour · **RTO:** <15 minutes  
-> Applies to: Actools v11.2.0+
+> **Status: design reference — NOT operational today.** This document describes **planned** enterprise and disaster-recovery features. The standard installer does **not** deploy them, and the commands shown throughout — `actools immortalize`, `actools resurrect`, `actools gdpr …`, `actools migrate --point-in-time …`, `actools backup status` — are **not registered** in the `actools` CLI: running them returns *unknown command*. The supporting scripts exist under `modules/backup/`, `modules/dr/`, and `modules/compliance/` but are unwired and unvalidated against the current stack. **Do not rely on the runbooks below in a real incident.** See [`../ROADMAP.md`](../ROADMAP.md) for status.
 
-Phase 4.5 closes the gap between a working Drupal platform and a production-grade enterprise system.
+The intent of this page: capture the target design for a future production-grade tier (~1 hour RPO, <15 minute RTO). Nothing here is part of the community installer today.
 
 ---
 
-## Point-in-Time Recovery
+## Point-in-Time Recovery *(planned — not deployed)*
 
-MariaDB records every write to binary logs. Combined with daily full dumps, this allows restoring to any point in time — down to the second.
+MariaDB records every write to binary logs. Combined with daily full dumps, this would allow restoring to any point in time. **The standard installer deploys daily gzip dumps only**; binary logging and encrypted dumps are planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
-### How it works
+### How it would work
 
 | Job | Schedule | What |
 |---|---|---|
-| `db-full-backup.sh` *(not deployed by standard installer)* | Daily 02:00 | Full encrypted dump with embedded binlog position |
-| `binlog-rotate.sh` *(not deployed by standard installer)* | Hourly :05 | Archive all closed binlogs, age-encrypted |
+| `db-full-backup.sh` *(not deployed)* | Daily 02:00 | Full encrypted dump with embedded binlog position |
+| `binlog-rotate.sh` *(not deployed)* | Hourly :05 | Archive all closed binlogs, age-encrypted |
 
-`--master-data=2` embeds the exact binlog file and position into the dump. The restore script uses this to know exactly where to start replaying logs.
+`--master-data=2` would embed the binlog file and position into the dump. Binlogs would live in a separate Docker volume (`mariadb_binlogs`).
 
-Binlogs live in a separate Docker volume (`mariadb_binlogs`) — independent of the data volume. They survive a container recreate from a fresh dump.
-
-### Restore to a point in time
+### Restore to a point in time *(planned syntax — these commands do not exist today)*
 
 ```bash
-# Always dry-run first
-actools migrate --point-in-time "2026-03-26 14:30:00" --dry-run
-
-# Actual restore — requires typing YES
-actools migrate --point-in-time "2026-03-26 14:30:00"
+# (planned — not available)
+actools <pitr-restore> "2026-03-26 14:30:00" --dry-run
+actools <pitr-restore> "2026-03-26 14:30:00"
 ```
 
-The restore (when deployed): finds the nearest full dump → decrypts → stops app containers → restores dump → replays binlogs to target time → restarts containers.
-
-The PITR scripts exist in `modules/backup/` but are not currently invoked by the standard installer. Encrypted backup deployment with PITR is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
-
-### Check status
-
-```bash
-actools backup status
-```
+The PITR scripts exist in `modules/backup/` but are not invoked by the standard installer.
 
 ---
 
-## DNA Resurrection
+## DNA Resurrection *(planned — not wired; do not run)*
 
-`actools immortalize` captures a complete server blueprint — OS, Docker versions, running containers, modules, binlog position, SSL expiry, redacted env keys — into an age-encrypted JSON snapshot. `actools resurrect` replays it on a fresh server.
-
-### Create a snapshot
+The design: `immortalize` would capture a complete server blueprint into an age-encrypted JSON snapshot, and `resurrect` would replay it on a fresh server. **Neither is a registered command.** The `modules/dr/resurrect.sh` script is unvalidated and would install a separate `actools-real` binary — **do not run it on a real server.**
 
 ```bash
+# (planned — not available)
 actools immortalize
-# → /home/actools/backups/dna/dna-YYYY-MM-DD-HHMMSS.json.age
-```
-
-Runs automatically daily at 03:00. Last 7 kept locally.
-
-### Inspect a snapshot
-
-```bash
+# inspect a snapshot, if one existed:
 age --decrypt -i ~/.age-key.txt backups/dna/dna-latest.json.age | python3 -m json.tool
 ```
 
-### Rebuild on a fresh server
-
-```bash
-# On a new Hetzner CX22 (Ubuntu 24.04), as root:
-curl -sSL https://raw.githubusercontent.com/actools-pl/actoolsDrupal/main/modules/dr/resurrect.sh \
-  | bash -s -- --dna /path/to/dna.json.age --key /path/to/age-key.txt
-
-# Preview without executing:
-bash resurrect.sh --dna dna.json.age --key age-key.txt --dry-run
-```
-
-The script runs 11 steps: install dependencies → create user → clone repo → restore secrets → start stack → restore database → install CLI + cron + RBAC → health check.
+The design's rebuild flow is 11 steps (install dependencies → create user → clone repo → restore secrets → start stack → restore database → install CLI + cron + RBAC → health check). It is **not** an operational procedure today.
 
 ### What to keep in secure off-server storage
+
+Independent of this feature, **keep these for any manual recovery:**
 
 | File | Why |
 |---|---|
 | `actools.env` | All credentials |
-| `.age-key.txt` | Decrypts all backups and DNA snapshots |
+| `.age-key.txt` | Decrypts all backups |
 | `certs/mariadb/*-key.pem` | MariaDB TLS private keys |
 
 Never commit these to git. Store in a password manager or encrypted vault.
 
 ---
 
-## GDPR Compliance
+## GDPR Compliance *(planned — not wired)*
+
+`actools gdpr …` is **not** a registered command. The code lives in `modules/compliance/gdpr.sh` and is unvalidated against the current Drupal version.
 
 ```bash
+# (planned — not available)
 actools gdpr export user@example.com   # Art.15 — Right of Access
 actools gdpr delete user@example.com   # Art.17 — Right to Erasure
 actools gdpr audit  user@example.com   # audit trail for a user
 actools gdpr report                    # full compliance status
 ```
 
-### Export format
-
-A JSON file in `backups/gdpr-exports/` containing profile, roles, content count, and all audit log entries referencing that user.
-
-### Delete protection
-
-UID 1 (superadmin) cannot be deleted. Deletion requires typing the full email address. A pre-deletion export is automatically created as an audit record.
-
-### Compliance report output
-
-```
-── GDPR Compliance Report ────────────────────────────
-User statistics:  Total: 12  Active: 11  Blocked: 1
-Data retention:   DB backups: 7 dumps · Binlogs: 168 files
-Encryption:       partial (DNA at rest ✓; backups planned · TLS 1.3 in transit ✓)
-Compliance:
-  ✓ Right of Access (Art.15)
-  ✓ Right to Erasure (Art.17)
-  ✓ Audit trail
-  ~ Encryption at rest — partial (DNA snapshots only; backup encryption planned — see ROADMAP.md#encrypted-backups)
-  ✓ Encryption in transit
-  ✓ Data retention policy (7 days)
-  ✓ Access control (RBAC)
-```
+Planned export format: JSON in `backups/gdpr-exports/`. Planned delete protection: UID 1 cannot be deleted; deletion requires typing the full email; a pre-deletion export is created.
 
 ---
 
-## Operational runbooks
+## Operational runbooks *(PLANNED DESIGN — not operational; commands shown are not available)*
 
-### Recover from accidental deletion
+> These illustrate the **intended** recovery design. They are **not** procedures you can run today — the `actools migrate --point-in-time`, `actools resurrect`, and `actools gdpr` commands do not exist. For real recovery today, use the shipped `actools backup` / `actools restore` / `actools restore-test` commands (see [`command-reference.md`](command-reference.md)).
+
+### Recover from accidental deletion *(planned)*
 
 ```bash
-# 1. Find when it happened (Drupal watchdog or estimate)
-# 2. Dry run
-actools migrate --point-in-time "2026-03-26 13:45:00" --dry-run
-# 3. Restore
-actools migrate --point-in-time "2026-03-26 13:45:00"
-# 4. Verify
-actools health --verbose && curl https://your-domain.com/health
+# (planned — not available)
+actools <pitr-restore> "2026-03-26 13:45:00" --dry-run
+actools <pitr-restore> "2026-03-26 13:45:00"
 ```
 
-### Server is dead — rebuild from scratch
+### Server is dead — rebuild from scratch *(planned)*
 
 ```bash
-# 1. Provision new Hetzner CX22 (Ubuntu 24.04)
-# 2. Copy secrets to new server
-scp actools.env age-key.txt root@new-server:/tmp/
-# 3. Run resurrect
-curl -sSL https://raw.githubusercontent.com/actools-pl/actoolsDrupal/main/modules/dr/resurrect.sh \
-  -o resurrect.sh
-sudo bash resurrect.sh --dna /path/to/dna-latest.json.age --key /tmp/age-key.txt
-# 4. Update DNS A record if IP changed
+# (planned — modules/dr/resurrect.sh is unwired/unvalidated; do not run on a real server)
 ```
 
-### Handle a GDPR erasure request
+### Handle a GDPR erasure request *(planned)*
 
 ```bash
-actools gdpr export user@example.com  # export first, for your records
-actools gdpr delete user@example.com  # confirm by typing email
-actools gdpr audit  user@example.com  # verify deletion logged
+# (planned — not available)
+actools gdpr export user@example.com
+actools gdpr delete user@example.com
 ```
 
 ### Add a new team member
@@ -164,17 +105,17 @@ actools gdpr audit  user@example.com  # verify deletion logged
 ```bash
 sudo useradd -m -s /bin/bash actools-dev
 echo "ssh-ed25519 AAAA..." | sudo tee -a /home/actools-dev/.ssh/authorized_keys
-# Sudoers rules already scope what they can run
+# Note: scoped sudoers/RBAC roles are part of the planned hardening tier, not the standard install.
 ```
 
 ---
 
-## Recovery targets
+## Recovery targets *(planned)*
 
-| Metric | Target | How |
+| Metric | Target | How (planned) |
 |---|---|---|
-| RPO | ~1 hour | Hourly binlog rotation |
-| RTO | <15 minutes | DNA snapshot + resurrect script |
+| RPO | ~1 hour | Hourly binlog rotation *(not deployed)* |
+| RTO | <15 minutes | DNA snapshot + resurrect script *(not deployed)* |
 | Backup retention | 7 days | `BACKUP_RETENTION_DAYS` in actools.env |
 | Audit retention | Unlimited | Append-only log files |
 
