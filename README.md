@@ -51,7 +51,7 @@ actools update       # pull + drush updb + caddy reload
 
 ## Advanced features
 
-The installer also ships DNA snapshot/resurrection, GDPR tools, preview environments, an AI assistant, Cloudflare tunnel support, and `actools audit`. Encrypted backup deployment with PITR is planned — see [`ROADMAP.md#encrypted-backups`](ROADMAP.md#encrypted-backups).
+The installer ships Cloudflare tunnel support and `actools audit`. DNA snapshot/resurrection, GDPR tools, preview environments, and an AI assistant exist in the source tree as **experimental/unwired** modules — they are not part of the standard installer or CLI; see [`docs/advanced.md`](docs/advanced.md). Encrypted backup deployment with PITR is planned — see [`ROADMAP.md#encrypted-backups`](ROADMAP.md#encrypted-backups).
 
 See [`docs/advanced.md`](docs/advanced.md) — none of it is required for a working site.
 
@@ -81,12 +81,12 @@ The default `community` profile is suitable for all standard installs. A `commun
 # Default — community profile (no flag needed)
 sudo ./actools.sh init --domain example.com --email admin@example.com
 
-# Community-plus (arriving in later phases)
+# Community-plus (reserved — its profile is not present yet; init will reject it until a later phase ships it)
 sudo ./actools.sh init --domain example.com --email admin@example.com \
   --profile community-plus
 ```
 
-The active profile is shown in `actools doctor`. Once set at init time the profile is pinned in `actools.env` for the lifetime of the deployment.
+The active profile is shown in `actools doctor`. Once set at init time the profile is pinned in `actools.env` for the lifetime of the deployment. (The fresh install currently always uses `community`; selectable profiles ship in later phases.)
 
 ## Security
 

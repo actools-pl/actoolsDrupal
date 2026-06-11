@@ -1,8 +1,8 @@
 # Advanced features
 
-Everything beyond the daily five commands. None of this is required to run a working Drupal site. Enable the pieces you actually need.
+Everything beyond the daily five commands. None of this is required to run a working Drupal site.
 
-The goal of this page is to keep the README and quick-start narrow. The features are real and useful — they just don't belong in the first install journey.
+This page mixes **shipped** capabilities with **experimental/planned** ones. Shipped commands are registered in the `actools` CLI today. Sections marked **Experimental — not wired** describe code that exists in the source tree but is **not** registered as an `actools` command: running those commands returns *unknown command*. They are documented here as design reference; see [`../ROADMAP.md`](../ROADMAP.md) for status.
 
 ---
 
@@ -31,58 +31,34 @@ See `modules/audit/docs/fix_catalog.md` for the full check catalogue.
 
 ## Point-in-time recovery
 
+> **Experimental — not wired.** The `actools migrate --point-in-time …` and `actools backup status` commands shown below **do not exist** in the current CLI (`actools migrate` is a read-only XeLaTeX guide). The scripts exist in `modules/backup/` but the standard installer does not wire them into cron. This section describes the planned design.
+
 MariaDB binary logging plus daily encrypted dumps would let you restore the database to any second within the retention window. The current installer deploys daily gzip dumps only; binary logging and encrypted dumps are planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
 
-```bash
-# Dry-run first — shows exactly what would happen
-actools migrate --point-in-time "2026-03-26 14:30:00" --dry-run
-
-# Real restore — requires typing YES
-actools migrate --point-in-time "2026-03-26 14:30:00"
-```
-
-How it works (planned): `db-full-backup.sh` runs daily at 02:00, dumping with `--master-data=2` so the binlog position is embedded. `binlog-rotate.sh` runs hourly, encrypting closed binlogs with age. The restore script finds the nearest full dump, decrypts, stops app containers, restores, replays binlogs to the target time, restarts.
-
-Target RPO ~1 hour (hourly binlog rotation), target RTO <15 minutes for in-place recovery.
-
-These scripts exist in `modules/backup/` but the standard installer does not currently wire them into cron. Encrypted backup deployment with PITR is planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups).
-
-Status:
+Planned syntax:
 
 ```bash
-actools backup status
+# (planned — not available today)
+actools <pitr-restore> "2026-03-26 14:30:00" --dry-run
+actools <pitr-restore> "2026-03-26 14:30:00"
 ```
+
+How it works (planned): `db-full-backup.sh` runs daily at 02:00, dumping with `--master-data=2` so the binlog position is embedded. `binlog-rotate.sh` runs hourly, encrypting closed binlogs with age. The restore script finds the nearest full dump, decrypts, stops app containers, restores, replays binlogs to the target time, restarts. Target RPO ~1 hour, target RTO <15 minutes for in-place recovery.
 
 ---
 
 ## DNA resurrection
 
-`actools immortalize` captures a complete server blueprint — OS, Docker versions, container manifests, modules, binlog position, redacted env keys — into an age-encrypted JSON snapshot. `actools resurrect` replays it on a fresh server.
+> **Experimental — not wired.** `actools immortalize` and `actools resurrect` are **not** registered commands. The scripts live in `modules/dr/`, are unvalidated against the current stack, and `resurrect.sh` would install a separate `actools-real` binary — do **not** run it on a live server. This section is design reference only.
 
-```bash
-# Create a snapshot — runs automatically daily at 03:00
-actools immortalize
-actools immortalize --upload     # also push to rclone remote
+The design: `immortalize` captures a complete server blueprint — OS, Docker versions, container manifests, modules, binlog position, redacted env keys — into an age-encrypted JSON snapshot. `resurrect` would replay it on a fresh server in 11 steps (install dependencies → create user → clone repo → restore secrets → start stack → restore database → install CLI + cron + RBAC → health check).
 
-# Inspect
-age --decrypt -i ~/.age-key.txt backups/dna/dna-latest.json.age | python3 -m json.tool
-
-# On a fresh Hetzner CX22, as root
-curl -sSL https://raw.githubusercontent.com/actools-pl/actoolsDrupal/main/modules/dr/resurrect.sh \
-  | bash -s -- --dna /path/to/dna.json.age --key /path/to/age-key.txt
-
-# Preview without executing
-bash resurrect.sh --dna dna.json.age --key age-key.txt --dry-run
-```
-
-The resurrect script runs 11 steps: install dependencies → create user → clone repo → restore secrets → start stack → restore database → install CLI + cron + RBAC → health check.
-
-**Keep these three things in secure off-server storage:**
+Regardless of this feature's status, **keep these three things in secure off-server storage** — they are needed for any manual recovery:
 
 | File | Why |
 |---|---|
 | `actools.env` | All credentials |
-| `~/.age-key.txt` | Decrypts every backup and every DNA snapshot |
+| `~/.age-key.txt` | Decrypts every backup |
 | `certs/mariadb/*-key.pem` | MariaDB TLS private keys |
 
 A password manager or encrypted vault is fine. **Do not commit these to git.**
@@ -91,68 +67,71 @@ A password manager or encrypted vault is fine. **Do not commit these to git.**
 
 ## GDPR compliance
 
+> **Experimental — not wired.** `actools gdpr …` is **not** a registered command. The code lives in `modules/compliance/gdpr.sh` and is not validated against the current Drupal version. Design reference only.
+
+Planned surface:
+
 ```bash
+# (planned — not available today)
 actools gdpr export user@example.com   # Art.15 — Right of Access
 actools gdpr delete user@example.com   # Art.17 — Right to Erasure
 actools gdpr audit  user@example.com   # audit trail for one user
 actools gdpr report                    # full compliance status
 ```
 
-Export format: JSON file in `backups/gdpr-exports/` with profile, roles, content count, and all audit log entries referencing that user.
-
-Deletion protection: UID 1 (superadmin) cannot be deleted. Deletion requires typing the full email address as confirmation. A pre-deletion export is automatically created as an audit record.
+Planned export format: JSON in `backups/gdpr-exports/` with profile, roles, content count, and audit-log entries. Planned deletion protection: UID 1 cannot be deleted; deletion requires typing the full email; a pre-deletion export is created as an audit record.
 
 ---
 
 ## Preview environments
 
-Per-branch isolated Drupal environments for PR previews, design reviews, and risky migrations.
+> **Experimental — not wired.** `actools branch …` is **not** a registered command. The code lives in `modules/preview/branch.sh`. Design reference only.
+
+The design: per-branch isolated Drupal environments for PR previews, design reviews, and risky migrations.
 
 ```bash
+# (planned — not available today)
 actools branch feature-payment            # create
 actools branch --list                     # list active
 actools branch --destroy feature-payment  # remove
 actools branch --cleanup                  # auto-remove previews >7 days old
 ```
 
-Each preview gets its own database, PHP container, and Caddy vhost with auto-TLS at `feature-payment.yourdomain.com`. Requires wildcard DNS (`*.yourdomain.com`).
-
-A daily cron sweeps abandoned previews.
+Each preview would get its own database, PHP container, and Caddy vhost with auto-TLS at `feature-payment.yourdomain.com`, requiring wildcard DNS (`*.yourdomain.com`).
 
 ---
 
 ## CI/CD generation
 
+> **Experimental — not wired.** `actools ci …` is **not** a registered command. The code lives in `cli/commands/ci_generate.sh` (unsourced). Design reference only.
+
+Planned surface:
+
 ```bash
+# (planned — not available today)
 actools ci --generate                      # GitHub Actions
 actools ci --generate --platform=gitlab    # GitLab CI
 ```
 
-Generates three workflows from templates:
-
-- **test** — runs on every PR (PHP CodeSniffer, PHPStan, composer validate)
-- **deploy** — runs on merge to main (backup + pull + drush updb + health)
-- **security** — weekly (composer audit + Drupal advisories)
-
-Output lands in `.github/workflows/` (or `.gitlab-ci.yml`) with your domain and paths filled in.
+Would generate three workflows from templates — **test** (PR: CodeSniffer, PHPStan, composer validate), **deploy** (merge: backup + pull + drush updb + health), **security** (weekly: composer audit + Drupal advisories) — into `.github/workflows/` or `.gitlab-ci.yml`.
 
 ---
 
 ## AI assistant
 
-A small local model with codebase context for "how does this script work" questions.
+> **Experimental — not wired.** `actools ai …` is **not** a registered command. The code lives in `modules/ai/assistant.sh`. Design reference only.
+
+The design: a small local model with codebase context for "how does this script work" questions.
 
 ```bash
+# (planned — not available today)
 actools ai "how does the queue worker handle timeouts?"
 actools ai explain modules/backup/db-full-backup.sh
 actools ai review --security
-actools ai review --performance
 actools ai context                # rebuild the codebase index
 ```
 
-Model: `deepseek-coder:1.3b` (776 MB) running locally via Ollama. No data leaves the server. The context builder indexes all `core/`, `modules/`, and `cli/` bash files, so answers reference real function names and line numbers — not hallucinated patterns.
-
-This is an opt-in feature. Disable Ollama if you don't want a 776 MB model on the box.
+Planned model: `deepseek-coder:1.3b` running locally via Ollama; no data leaves the server.
 
 ---
 
@@ -174,15 +153,15 @@ See `modules/network/cloudflare-setup.md` for the one-time setup.
 
 ## Observability
 
-Prometheus + Grafana on a separate compose file.
+> **Optional / standalone — not installed by default.** The standard installer does **not** deploy this stack. It is a separate compose file you bring up manually, and `actools cost-optimize` shown below is **not** a registered command.
+
+Prometheus + Grafana on a separate compose file:
 
 ```bash
 docker compose -f docker-compose.observability.yml up -d
 ```
 
-Three pre-built dashboards: Node Exporter Full, cAdvisor, Redis. Prometheus data source is auto-configured via API.
-
-`actools cost-optimize` reads real container memory usage versus configured limits and suggests changes.
+Three pre-built dashboards: Node Exporter Full, cAdvisor, Redis. (Verify the compose file and dashboards against your stack before relying on them — this path is not exercised by the standard install or tests.)
 
 ---
 

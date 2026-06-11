@@ -4,7 +4,7 @@ A profile defines what the staged installer journey (`init → preflight →
 install → handoff → doctor`) collects, checks, builds, and reports for a
 given product variant.
 
-The community installer ships exactly one profile: **`community`**.
+The community installer ships one product/operator profile: **`community`**. (`profiles/test.profile` also ships but is **CI-only** — it is not selectable for a real install.)
 
 Other products that build on this installer pattern — DrupalFortress
 Standard and DrupalFortress Institutional, for example — live in

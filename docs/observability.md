@@ -29,7 +29,9 @@ Login: `admin` / value of `GRAFANA_ADMIN_PASS` in `actools.env`
 
 ## Pre-built dashboards
 
-Three dashboards are installed automatically:
+> Observability is an **optional, manually-deployed** stack (`docker compose -f docker-compose.observability.yml up -d`). The standard installer does **not** deploy it or install dashboards.
+
+Three dashboards are available in this optional stack:
 
 **Node Exporter Full** — server-level metrics
 - CPU usage, load average, context switches
@@ -73,7 +75,7 @@ node_filesystem_size_bytes > 0.85
 
 ## Alerting
 
-Prometheus alerting rules live in `modules/observability/alerts.yml`. To add an alert:
+Prometheus alerting rules would live in `modules/observability/alerts.yml`. *(Note: this file is not present in the repo yet.)* To add an alert:
 
 ```yaml
 # modules/observability/alerts.yml

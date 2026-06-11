@@ -13,7 +13,7 @@ These run before or during install. Most operators use them once, in order.
 | Command | What it does |
 |---|---|
 | `sudo ./actools.sh init --domain <d> --email <e> [--site-name "<n>"] [--force]` | Creates `actools.env` from the template. Refuses to overwrite without `--force`. |
-| `sudo ./actools.sh preflight` | Eight readiness checks (OS, env, RAM, disk, ports, DNS, install state). |
+| `sudo ./actools.sh preflight` | Readiness checks (OS, env, RAM, disk, ports, DNS, install state). |
 | `sudo ./actools.sh install` | Build the full stack. Calls `fresh` internally; both work. |
 | `sudo ./actools.sh fresh` | Legacy alias of `install`. Prints a soft deprecation hint. |
 | `sudo ./actools.sh update` | Pre-snapshot → pull → `drush updb` → caddy reload. |
@@ -59,7 +59,7 @@ Exit codes for `preflight`: `0` ready, `1` failures, `2` warnings only.
 | `actools restore-test` | Verify the latest backup actually restores. |
 | `actools restore <env> [file]` | Restore with overwrite confirmation. |
 
-For PITR and DNA resurrection see [`advanced.md`](advanced.md#point-in-time-recovery).
+Encrypted backups, point-in-time recovery (PITR), and DNA resurrection are **planned/experimental and not available in the standard install** — see [`../ROADMAP.md`](../ROADMAP.md) and the design notes under [Experimental](#experimental--not-yet-shipped).
 
 ---
 
@@ -107,17 +107,26 @@ For PITR and DNA resurrection see [`advanced.md`](advanced.md#point-in-time-reco
 
 ---
 
-## Advanced (separate docs)
+## Advanced (shipped)
 
 | Surface | Doc |
 |---|---|
 | `actools audit` | [`advanced.md`](advanced.md#audit) |
-| `actools migrate --point-in-time` | [`advanced.md`](advanced.md#point-in-time-recovery) |
-| `actools immortalize` / `actools resurrect` | [`advanced.md`](advanced.md#dna-resurrection) |
-| `actools gdpr export/delete/audit/report` | [`advanced.md`](advanced.md#gdpr-compliance) |
-| `actools branch` (preview environments) | [`advanced.md`](advanced.md#preview-environments) |
-| `actools ci --generate` | [`advanced.md`](advanced.md#cicd-generation) |
-| `actools ai` | [`advanced.md`](advanced.md#ai-assistant) |
+
+---
+
+## Experimental — not yet shipped
+
+The modules below exist in the source tree as future/experimental work. They are **not** registered as `actools` commands: running them returns *unknown command*. They are listed here for design reference only; see [`../ROADMAP.md`](../ROADMAP.md) for status.
+
+| Planned surface | Design notes |
+|---|---|
+| Encrypted backups / point-in-time recovery | [`advanced.md`](advanced.md#point-in-time-recovery) |
+| DNA snapshot / resurrection (`immortalize` / `resurrect`) | [`advanced.md`](advanced.md#dna-resurrection) |
+| GDPR tooling (`gdpr export/delete/audit/report`) | [`advanced.md`](advanced.md#gdpr-compliance) |
+| Preview environments (`branch`) | [`advanced.md`](advanced.md#preview-environments) |
+| CI/CD generation (`ci --generate`) | [`advanced.md`](advanced.md#cicd-generation) |
+| AI assistant (`ai`) | [`advanced.md`](advanced.md#ai-assistant) |
 
 ---
 

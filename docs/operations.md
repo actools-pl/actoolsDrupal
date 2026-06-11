@@ -79,7 +79,7 @@ actools health
 
 ### Updating Actools itself
 
-Actools currently has two CLI surfaces with overlapping but divergent implementations: a heredoc-generated CLI installed at `/usr/local/bin/actools` (written during `sudo ./actools.sh install`), and a static CLI at `cli/actools` in the repository.
+Actools has a single canonical CLI, `cli/actools`, installed verbatim to `/usr/local/bin/actools` by `setup_cli()` (`actools.sh:702-717`). There is no heredoc-generated CLI; `tests/installer/cli_authority_test.bats` enforces that no generation path exists.
 
 Self-update of Actools is not yet a supported flow. To incorporate upstream changes, re-run the installer:
 

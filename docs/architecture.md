@@ -46,9 +46,11 @@ Actools is a bash platform with a staged install spine (`actools.sh`) and a sepa
 ├── cron/                   scheduled jobs (backup, binlog, DNA snapshots)
 ├── certs/                  TLS certificates (private keys gitignored)
 ├── templates/              Dockerfiles, CI workflows, settings.php template
-├── tests/                  76 bats tests
+├── tests/                  158 bats tests
 └── docs/                   this documentation
 ```
+
+> Note: this tree lists every directory in the repo, including **experimental/unwired and orphan** modules (e.g. `observability/`, `preview/`, `migrate/`, `backup/`, `compliance/`, `dr/`, `ai/`) that are **not** wired into the standard install. The authoritative map of what actually runs is [`architecture/runtime-authority-map.md`](architecture/runtime-authority-map.md).
 
 ---
 
@@ -70,8 +72,8 @@ Internet → Caddy (80/443) → php_prod (9000) → db (3306)
 | `actools_worker_prod` | actools_worker:latest | XeLaTeX PDF generation, Drupal queue |
 | `actools_db` | mariadb:11.4 | database, binary logging, TLS |
 | `actools_redis` | redis:7-alpine | cache, session storage |
-| `actools_prometheus` + exporters | prom/* | metrics collection |
-| `actools_grafana` | grafana/grafana | dashboards |
+| `actools_prometheus` + exporters *(optional observability stack — not in the default install)* | prom/* | metrics collection |
+| `actools_grafana` *(optional — not in the default install)* | grafana/grafana | dashboards |
 
 ---
 
@@ -97,8 +99,8 @@ The installer is idempotent — re-running `actools.sh fresh` on an already-inst
 - **No secrets in images** — credentials injected at runtime via Docker environment
 - **No secrets in Drupal config** — S3, Redis credentials use `getenv()` in `settings.php`
 - **Daily backups** — daily database dumps with checksum verification (encrypted backup deployment planned — see [`../ROADMAP.md#encrypted-backups`](../ROADMAP.md#encrypted-backups))
-- **RBAC** — three role users (`actools-dev`, `actools-ops`, `actools-viewer`) with scoped sudo rules
-- **Audit trail** — every CLI invocation logged to `logs/audit.log`
+- **RBAC** *(planned hardening tier — not the standard install)* — three role users (`actools-dev`, `actools-ops`, `actools-viewer`) with scoped sudo rules
+- **Audit trail** — the `actools audit` command is shipped; per-invocation logging to `logs/audit.log` is part of the planned hardening tier, not the standard install
 
 ---
 

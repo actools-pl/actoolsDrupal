@@ -212,9 +212,6 @@ When Cloudflare Tunnel is configured, ports 2–4 will be removed — the server
 ```bash
 # Drupal security advisories
 actools drush prod pm:security
-
-# AI-powered security review of the codebase
-actools ai review --security
 ```
 
 Weekly automated scan via cron (installs via `modules/security/`):

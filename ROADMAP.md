@@ -26,7 +26,7 @@ The code for these features exists in the repository; install-time deployment wi
 **What's missing:**
 - ✅ The standard installer now generates a per-deployment age keypair (`.age-key.txt` mode 600 + `.age-public-key`, owned by the install operator) at install time — done. (No backup consumer is wired yet; the key is generated and stored, not yet read by any running job.)
 - The standard installer does not invoke `deploy-pitr.sh` to install the encrypted backup cron entries
-- The standard install deploys `cron/backup.sh` (gzip-only, no encryption) via `/etc/cron.daily/actools-backup` instead
+- The standard install generates a basic gzip backup cron **inline** (in `actools.sh`), installed at `/etc/cron.daily/actools-backup`. (The `cron/backup.sh` file in the repo is an unwired duplicate and is not deployed.)
 
 **What's needed to complete:**
 1. ✅ Add age keypair generation step to the installer (per-deployment keypair) — **done**
@@ -104,22 +104,7 @@ Current state: `docs/operations.md` describes the update flow and names manual r
 
 ### Two-CLI architecture collapse <a id="two-cli-collapse"></a>
 
-**Status:** Two CLI implementations exist with overlapping but divergent code paths
-
-**What exists:**
-- Heredoc-generated CLI at `/usr/local/bin/actools` (written by the installer)
-- Static modular CLI at `cli/actools` + `cli/commands/*.sh` in the repository
-
-**What's missing:**
-- A decision on which CLI is canonical going forward
-- The architectural collapse itself (merge code paths, eliminate divergence)
-
-**What's needed to complete:**
-1. Decide on the canonical CLI (likely the modular `cli/actools` + `cli/commands/`)
-2. Update the installer to deploy from the canonical source instead of the heredoc generator
-3. Remove the heredoc generation entirely
-
-Current state: `docs/operations.md` describes this divergence in the "Updating Actools itself" section.
+**Resolved (P0-F).** `cli/actools` is the single canonical CLI, installed verbatim by `setup_cli()` (`actools.sh:702-717`). The heredoc CLI generator was removed; `tests/installer/cli_authority_test.bats` enforces that no generation path remains. (Kept here as a historical note.)
 
 ### Audit-wrapper topology in standard install <a id="audit-wrapper"></a>
 

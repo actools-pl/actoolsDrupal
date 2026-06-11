@@ -472,6 +472,7 @@ The two intent documents (Community UX Architecture and DrupalFortress Community
 ### Added
 - Phase 1 complete: 32 modules extracted from monolith
 - 21 bats tests — all passing (core/validate, core/secrets)
+  > Historical entry — many of these modules are not wired into the live installer and carry v9.2-era logic; see `docs/architecture/runtime-authority-map.md` for what is actually live.
 - GitHub Actions CI: ShellCheck + bats on every push
 - modules/preflight/: dns.sh, disk.sh, ram.sh
 - tests/core/: validate_test.bats, secrets_test.bats
@@ -583,6 +584,7 @@ The two intent documents (Community UX Architecture and DrupalFortress Community
 - `actools migrate --plan` — shows pending Drupal updates + table sizes
 - `actools migrate --apply` — pre-backup + drush updb + health check
 - `actools migrate --rollback` — one-command rollback to pre-migration snapshot
+  > Disclaimer — these `migrate` subcommands are not in the canonical CLI; the live `actools migrate` is a read-only XeLaTeX guide.
 - gh-ost 1.1.8 installed — online schema changes for tables >100k rows
 - modules/migrate/migrate.sh — zero-downtime migration module
 
@@ -629,6 +631,6 @@ The two intent documents (Community UX Architecture and DrupalFortress Community
 ### Added
 - `actools health --verbose` — full system health report
 - `actools health --cost` — memory optimization report
-- `actools cost-optimize` — reads real Docker stats, suggests memory changes
+- `actools cost-optimize` — reads real Docker stats, suggests memory changes *(not in the canonical CLI)*
 - modules/health/checks.sh — container, TLS, disk, MariaDB, Redis checks
 - Worker container stable — loop with sleep instead of crash-restart
