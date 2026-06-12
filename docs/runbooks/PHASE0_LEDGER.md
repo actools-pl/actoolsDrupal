@@ -86,6 +86,143 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 017 — P0-L · Backup-Cron Extraction + Orphan Purge
+
+Date: 2026-06-11
+Branch: `phase0/P0-L-backup-cron-extraction` (operator records the applied branch + `main` SHA)
+Commit SHA: four implementation commits + one docs commit (sandbox sequence: `24f722e` golden capture → `2e33f66` security-shape guard → `09c5575` extraction → `e6aa398` orphan deletion → docs)
+Actor / Claude session (model): Coding Window
+Phase: P0-L — Backup-Cron Extraction + Orphan Purge
+Task prompt source: `P0-L-backup-cron-extraction.md` + coding-window prompt (filled)
+
+> Numbering note: Entry 016's "Next safe task" line predicted "P0-L — DB layer
+> extraction". The post-closure plan renumbered: P0-L is the backup-cron phase
+> (this entry, per the `P0-L-backup-cron-extraction.md` spec); the DB layer /
+> `install_env` / CLI extractions are P0-M / P0-N. The spec governs.
+
+### Objective
+
+Lock the secure backup-cron shape behind a golden capture and a security guard, extract the inline `setup_backup_cron` generator **verbatim** from `actools.sh` into `modules/backup/cron.sh`, and delete the insecure orphan `cron/backup.sh` — with **no change to the generated cron's bytes**. The security rule held throughout: the live inline generator (umask-077 temp defaults file inside the container, `mariadb-dump --defaults-extra-file="$t"`, password read from `.actools-state.json` at cron runtime — never on argv, never baked into the script) is authoritative; the orphan's argv-password form (`-ubackup -p"${BACKUP_PASS}"`, visible in `ps`) was deleted, never adopted.
+
+### Capture + guard (commits 1–2; CI-gated by the existing recursive bats job — no `lint.yml` edit needed)
+
+- **Backup-cron golden capture** — `tests/helpers/capture_backup_cron.sh` renders the LIVE `setup_backup_cron` (locates `modules/backup/cron.sh` post-extraction, the inline `actools.sh` block before it — the same renderer across the move is the faithfulness proof) under fixed deterministic inputs (`INSTALL_DIR=/opt/actools-golden`, `ENVIRONMENTS=prod`, S3 defaults explicit: `true`/`""`/`""`/`aws`, retention 7, rclone empty). It **pins** the real install target (`cat > /etc/cron.daily/actools-backup <<BACKUP` + `chmod +x`) and substitutes ONLY the output location in its in-memory copy — the heredoc bytes and every render-time expansion are untouched; no repo file is modified at render. Fixture: `tests/fixtures/golden/backup-cron/{actools-backup,SHA256SUMS}` (sha `bdfaa0c6…`); **no secret baked** (the password is fetched from state at cron runtime — pinned by a test). Drift test: `tests/generated/backup_cron_drift_test.bats` (3 tests: byte-compare re-render, manifest self-consistency, no-secret pin). Render proven deterministic against a hostile ambient env (exported `ENABLE_S3_STORAGE=false`/`BACKUP_RETENTION_DAYS=30`/`RCLONE_REMOTE=junk`/`ENVIRONMENTS=dev,stg` → identical sha).
+- **Cron security-shape guard** — `tests/guards/cron_security_shape_guard_test.bats`, four arms: (1) the rendered cron MUST contain `mariadb-dump --defaults-extra-file=`; (2) the rendered cron MUST NOT carry any argv-password form (`-p"…"`/`-p'…'`/`-p$…`/`--password=`) and MUST read `backup_user_pass` from state at runtime; (3) **permanent non-vacuity arm**: a doctored copy of the live generator re-introducing the orphan's `-ubackup -p"$BK"` invocation is rendered through the SAME pipeline and the same oracle must FAIL it (the arm also self-checks that the doctoring took); (4) the generator SOURCE carries the secure `umask 077` heredoc and no argv-password text. **Non-vacuity additionally proven live** (outputs verbatim in the test report): injecting the orphan form into `actools.sh` failed guard arms 1/2/4 **and** the new cron drift test (the diff showing the insecure rendered line); reverted byte-identical, all green.
+
+### Extraction (commit 3; function body verbatim — per-function byte-identity verified twice)
+
+- `setup_backup_cron` → **`modules/backup/cron.sh`** (live module, `LIVE AUTHORITY (P0-L)` header documenting required globals — `INSTALL_DIR`, `ENVIRONMENTS`, the S3/retention/rclone optionals — and collaborators `section`/`log` (core/bootstrap.sh), `get_backup_pass` (core/secrets.sh); functions only, inert under `set -u`). Byte-identity proof: `diff` of the extracted function text (via the P0-K `extract_inline_fn` brace-counting primitive, verified heredoc-safe against the raw line range) against the pre-extraction inline block — identical; and the re-rendered cron sha matches the fixture captured from the inline generator (`bdfaa0c6…`).
+- `actools.sh` 835 → 763 lines: the inline block (`:584-661`) replaced by `source "${INSTALL_DIR}/modules/backup/cron.sh" || error …` at the exact spot the function occupied (P0-K source-line style; the DAILY BACKUP CRON section banner retained). The `main()` call site, the spine, and everything else untouched.
+- `tests/helpers/capture_golden_outputs.sh` — the `setup_cli` line canary only (`SC_START/SC_END` 666-681 → 594-609; the helper's own documented maintenance step — capture logic untouched, no fixture modified).
+- The new module is on the live source-closure (live-authority guard green with its `LIVE AUTHORITY` marker); `setup_backup_cron` is not among the ten duplicate-guard names, but the capture helper itself hard-fails on a dual definition (module + inline) as belt-and-braces.
+
+### Orphan purge (commit 4)
+
+- **`cron/backup.sh` deleted.** Its `:27` `-ubackup -p"${BACKUP_PASS}"` put the DB password on argv. It was unwired (sourced/copied/executed by nothing — verified before deletion). Grep proof: `grep -rn "cron/backup.sh" . --include='*.sh' --include='*.yml' --include='*.bats'` → **no references** (module/guard comments describe the retirement without the literal path so the proof grep stays empty). `cron/stats.sh` remains, so `lint.yml`'s `cron/*.sh` shellcheck glob stays non-empty — no workflow edit.
+- `ROADMAP.md:29` — one-line doc-truth correction of the parenthetical made false by the deletion ("the `cron/backup.sh` file in the repo is an unwired duplicate" — the file no longer exists). ROADMAP was not on the phase's allowed-files list; the edit is deliberate, minimal, and flagged here for the Review Gate.
+
+### The other heredocs — untouched (forbidden scope held)
+
+The `db_exec_root <<SQL` DB-user heredocs (now `actools.sh:492,563`) and the help/version `<<EOF` (`:59`) are unchanged; no DB-layer / `install_env` / CLI extraction (P0-M/P0-N); no feature-orphan wiring; `main()` untouched (P0-P).
+
+### Files changed
+
+- `modules/backup/cron.sh` — **new live module**: `LIVE AUTHORITY (P0-L)` header + the verbatim `setup_backup_cron`
+- `actools.sh` — 835 → 763 lines: inline block → `source` line (only the `setup_backup_cron` block; nothing else)
+- `cron/backup.sh` — **deleted**
+- `tests/helpers/capture_backup_cron.sh` (new), `tests/generated/backup_cron_drift_test.bats` (new, 3), `tests/fixtures/golden/backup-cron/{actools-backup,SHA256SUMS}` (new fixture), `tests/guards/cron_security_shape_guard_test.bats` (new, 4)
+- `tests/helpers/capture_golden_outputs.sh` — `setup_cli` canary 666-681 → 594-609 only
+- `ROADMAP.md` — the one-line orphan-parenthetical correction (flagged above)
+- Docs: this ledger, `runtime-authority-map.md`, `CHANGELOG.md`, `docs/releases/P0-L-backup-cron-extraction.md`, `docs/tests/P0-L-backup-cron-extraction.md`, `docs/runbooks/HANDOFF-P0-L.md`
+
+### Files intentionally not changed
+
+- The `db_exec_root <<SQL` heredocs and the help/version `<<EOF` (out of scope; small, idiomatic)
+- DB layer / `install_env` / CLI (P0-M / P0-N); `main()`'s hardcoded profile source (P0-P); all standalone feature orphans incl. the rest of `modules/backup/*` (P0-O audit first)
+- `.github/workflows/lint.yml` — the recursive bats job auto-discovers the new suites; the `cron/*.sh` shellcheck glob still matches `cron/stats.sh`
+- Golden compose fixtures — drift 6/6 with **no fixture modified**
+- `ACTOOLS_VERSION` stays `14.0` — no behavior change
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Backup-cron generator (`setup_backup_cron`) | inline `actools.sh:584-661` | `modules/backup/cron.sh` (**live module**) |
+| Insecure orphan backup cron (`cron/backup.sh`) | orphan (unwired, argv-password) | **deleted** |
+| Generated `/etc/cron.daily/actools-backup` | inline heredoc output | **byte-identical** (golden capture `bdfaa0c6…`) |
+| Cron security shape | convention only | **CI-locked** (security-shape guard, non-vacuous) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Unchanged | golden drift 6/6 at every commit |
+| Caddyfile | Unchanged | golden drift 6/6 |
+| my.cnf | Unchanged | golden drift 6/6 |
+| Dockerfiles | Unchanged | golden drift 6/6 |
+| CLI | Not touched | `cli_authority_test.bats` green in the full suite |
+| /etc/cron.daily/actools-backup | Unchanged | new cron golden capture: re-render sha == fixture sha (`bdfaa0c6…`) at every commit since capture |
+
+### Tests run
+
+```bash
+bash -n actools.sh && bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n
+bats tests/generated/                          # 9/9: cron capture (3) + compose drift (6)
+bats tests/guards/                             # 9/9: cron security shape (4, incl. non-vacuity) + P0-K guards (5)
+bats -r tests/                                 # 199/199
+shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 actools.sh
+shellcheck --exclude=SC2034,SC2015,SC2164 modules/backup/cron.sh
+shellcheck --exclude=SC2034,SC2015,SC2164 cron/*.sh
+grep -rn "cron/backup.sh" . --include='*.sh' --include='*.yml' --include='*.bats'   # no references
+```
+
+### Test result
+
+PASS — full suite 199/199 (192 → 199: +3 cron drift, +4 security-shape guard); golden drift 6/6 at every commit (no fixture modified); the new cron fixture byte-identical across the extraction; the security-shape guard non-vacuous (permanent in-CI arm + live injection demo in the test report).
+
+### Documentation updated
+
+- [x] Runtime authority map (new backup-cron row; P0-L answer; test-surface addendum 192 → 199)
+- [ ] Generated-file contract — no change needed (the contract already lists "generated backup/cron/systemd helper files, if present"; the cron now has its golden fixture per that contract)
+- [ ] CLI authority contract — untouched
+- [ ] Operator target docs — no operator-visible change (the installed cron is byte-identical)
+- [x] Test plan / test report
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-L-backup-cron-extraction.md`)
+- [x] Test report added (`docs/tests/P0-L-backup-cron-extraction.md`)
+- [x] Review notes — for the Review Gate, see the handoff (`docs/runbooks/HANDOFF-P0-L.md`)
+
+### Known risks
+
+- The `setup_cli` canary in `tests/helpers/capture_golden_outputs.sh` now reads 594-609; any future edit above `setup_cli` in `actools.sh` must update it (the helper fails loudly with self-describing instructions — the canary working, not breaking).
+- The cron capture interposes ONLY the output location (`/etc/cron.daily/actools-backup` → sandbox path) in its in-memory copy of the function, after pinning the real target strings; the heredoc bytes are untouched. If a future phase renames the install target, the helper hard-fails with instructions rather than silently capturing the wrong artifact.
+- `lint.yml` does not shellcheck `modules/backup/*.sh` (pre-existing — the directory holds unaudited P0-O orphans that predate this phase). The new `modules/backup/cron.sh` is shellcheck-clean locally (command above) and behavior-gated by three bats suites; adding the directory to CI shellcheck belongs to the P0-O orphan audit.
+- **Pre-existing argv exposure, out of scope (P0-M candidate):** `wait_db()` (`actools.sh:510`, v9.2-fix4) probes readiness with `mariadb -uroot -p"${_wp}"` — the DB root password on argv inside the `docker compose exec`. Unchanged since before this phase (P0-L's only `actools.sh` hunk is `:584-661`); hardening it is a behavior change belonging to the DB-layer extraction. The **backup** password is on argv nowhere.
+- `ROADMAP.md` one-line correction is outside the spec's allowed-files list (see Orphan purge above) — deliberate doc-truth fix for a claim the deletion falsified; Review Gate to confirm or revert.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a separate session verifies: the generated cron is **byte-identical** (re-render sha == fixture sha `bdfaa0c6…`; the fixture was captured from the pre-extraction inline generator and the renderer now sources the module); the security guard **bites** (the in-CI non-vacuity arm + the live injection demo in `docs/tests/P0-L-backup-cron-extraction.md`); the orphan is **gone and unreferenced** (the grep proof); golden drift 6/6 with no fixture modified; the other heredocs (`:492,563` SQL — now at those lines post-shift — and the help/version `<<EOF`) byte-unchanged; and no argv-password form exists anywhere on the **backup path** (the generated cron, `modules/backup/cron.sh`, `cli/actools` backup, `cli/commands/update.sh` — all `--defaults-extra-file`). NOTE for the sweep: the pre-existing `wait_db()` readiness probe (`actools.sh:510`, v9.2-fix4) passes the DB **root** password on argv — byte-identical to baseline, outside P0-L scope, flagged below as a P0-M candidate.
+
+### Next safe task
+
+**P0-M — DB layer extraction** (post-closure track, per the renumbered plan). Still NOT community-plus feature work.
+
+### Forbidden next scope
+
+No `install_env`/CLI extraction before its own phase (P0-M/P0-N split per the phase files); no standalone-feature-orphan wiring before P0-O's audit; `main()`'s hardcoded profile source stays until P0-P; no generated-file change; no edit to the backup-cron module or its fixture without an explicit re-capture + release note.
+
+---
+
+
 ## Entry 016 — P0-K · Guards + Stateless Core Extraction
 
 Date: 2026-06-11
