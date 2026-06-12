@@ -26,7 +26,7 @@ The code for these features exists in the repository; install-time deployment wi
 **What's missing:**
 - ✅ The standard installer now generates a per-deployment age keypair (`.age-key.txt` mode 600 + `.age-public-key`, owned by the install operator) at install time — done. (No backup consumer is wired yet; the key is generated and stored, not yet read by any running job.)
 - The standard installer does not invoke `deploy-pitr.sh` to install the encrypted backup cron entries
-- The standard install generates a basic gzip backup cron **inline** (in `actools.sh`), installed at `/etc/cron.daily/actools-backup`. (The `cron/backup.sh` file in the repo is an unwired duplicate and is not deployed.)
+- The standard install generates a basic gzip backup cron from the live `setup_backup_cron` generator (`modules/backup/cron.sh` since P0-L, previously inline in `actools.sh`), installed at `/etc/cron.daily/actools-backup`. (The former `cron/backup.sh` orphan — an unwired, insecure argv-password duplicate — was deleted at P0-L.)
 
 **What's needed to complete:**
 1. ✅ Add age keypair generation step to the installer (per-deployment keypair) — **done**
