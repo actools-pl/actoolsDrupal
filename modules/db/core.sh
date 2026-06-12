@@ -11,6 +11,15 @@
 # issues BEFORE the move and stayed green across it). Sourced by actools.sh
 # on the live install path.
 #
+# ONE intentional post-extraction change (the isolated P0-M hardening
+# commit): wait_db()'s readiness probe no longer passes the DB root password
+# on argv (`mariadb -uroot -p"…"`); it uses a umask-077
+# --defaults-extra-file temp file inside the container, fed over stdin by
+# the printf builtin — same probe SQL, same 50×3s bounds, same outcome.
+# Locked by tests/guards/wait_db_security_guard_test.bats (non-vacuous) and
+# the updated wait_db contract tests; e2e-gated (real install must still
+# reach DB-ready). The other five functions remain byte-identical.
+#
 # The stale v9.2 twins modules/db/{backup_user,credentials,wait}.sh were
 # retired at P0-M; their content (including a divergent check_db_creds error
 # message and a wait_db with `cd || exit`) did NOT survive — the inline v14
@@ -87,8 +96,24 @@ wait_db() {
   log "Waiting for MariaDB (write-check)..."
   local _wp="${DB_ROOT_PASS}"
   local _tries=0
-  until docker compose exec -T db mariadb -uroot -p"${_wp}" \
-    -e "CREATE TABLE IF NOT EXISTS mysql.actools_write_check (id INT); DROP TABLE IF EXISTS mysql.actools_write_check;" \
+  # [P0-M hardening] The root password reaches the client through a umask-077
+  # --defaults-extra-file temp file INSIDE the container, fed over stdin by
+  # the printf BUILTIN — no process on the host or in the container ever
+  # carries it on argv (the retired form, `mariadb -uroot -p"${_wp}"`, was
+  # visible to every local user via ps). Mirrors the backup-cron pattern
+  # (modules/backup/cron.sh). The probe SQL, the 50×3s bounds, the log lines
+  # and the outcome are unchanged; _wp stays local per the v9.2-fix4 set -u
+  # rationale (the expansion happens in THIS shell, no spawned subshell).
+  # Locked by tests/guards/wait_db_security_guard_test.bats (non-vacuous).
+  until printf '%s\n' '[client]' 'user=root' "password=${_wp}" \
+    | docker compose exec -T db sh -c '
+        umask 077
+        t="$(mktemp /tmp/actools-wait.XXXXXX.cnf)"
+        trap "rm -f \"$t\"" EXIT
+        cat > "$t"
+        mariadb --defaults-extra-file="$t" "$@"
+      ' _ \
+      -e "CREATE TABLE IF NOT EXISTS mysql.actools_write_check (id INT); DROP TABLE IF EXISTS mysql.actools_write_check;" \
     &>/dev/null 2>&1; do
     _tries=$(( _tries + 1 ))
     [[ $_tries -ge 50 ]] && error "MariaDB did not become ready within 150s."

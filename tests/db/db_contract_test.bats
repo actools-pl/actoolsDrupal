@@ -228,10 +228,14 @@ SQL
 # ---------------------------------------------------------------------------
 # wait_db — the readiness poll: shape, bounds, outcome
 # ---------------------------------------------------------------------------
-# _assert_wait_db_probe_shape pins the probe's COMMAND SHAPE in ONE place so
-# the P0-M hardening commit updates exactly this oracle (argv-password form ->
-# secure --defaults-extra-file form) together with the security test, while
-# the polling OUTCOME assertions below stay untouched.
+# _assert_wait_db_probe_shape pins the probe's COMMAND SHAPE in ONE place.
+# P0-M hardening (the one intentional behavior change of the phase): the
+# probe no longer passes the root password on argv (`mariadb -uroot -p"…"`);
+# it pipes a [client] defaults file from the printf BUILTIN into a umask-077
+# temp file inside the container and runs
+# `mariadb --defaults-extra-file="$t"` — the backup-cron pattern. The probe
+# SQL, the 50×3s bounds and the polling OUTCOME assertions below are the
+# SAME ones that pinned the pre-hardening behavior.
 # ---------------------------------------------------------------------------
 
 _assert_wait_db_probe_shape() {
@@ -241,12 +245,31 @@ _assert_wait_db_probe_shape() {
   [ "${MOCK_ARGV[1]}" = "exec" ]
   [ "${MOCK_ARGV[2]}" = "-T" ]
   [ "${MOCK_ARGV[3]}" = "db" ]
-  [ "${MOCK_ARGV[4]}" = "mariadb" ]
-  [ "${MOCK_ARGV[5]}" = "-uroot" ]
-  [ "${MOCK_ARGV[6]}" = "-p${DB_ROOT_PASS}" ]
-  [ "${MOCK_ARGV[7]}" = "-e" ]
-  [ "${MOCK_ARGV[8]}" = "$WRITE_CHECK_SQL" ]
-  [ "${#MOCK_ARGV[@]}" -eq 9 ]
+  [ "${MOCK_ARGV[4]}" = "sh" ]
+  [ "${MOCK_ARGV[5]}" = "-c" ]
+  # The container-side body: umask-077 temp defaults file, cleaned on EXIT,
+  # filled from stdin, consumed by the mariadb client.
+  [[ "${MOCK_ARGV[6]}" == *'umask 077'* ]]
+  [[ "${MOCK_ARGV[6]}" == *'mktemp /tmp/actools-wait.XXXXXX.cnf'* ]]
+  [[ "${MOCK_ARGV[6]}" == *'trap "rm -f \"$t\"" EXIT'* ]]
+  [[ "${MOCK_ARGV[6]}" == *'cat > "$t"'* ]]
+  [[ "${MOCK_ARGV[6]}" == *'mariadb --defaults-extra-file="$t" "$@"'* ]]
+  [ "${MOCK_ARGV[7]}" = "_" ]
+  [ "${MOCK_ARGV[8]}" = "-e" ]
+  [ "${MOCK_ARGV[9]}" = "$WRITE_CHECK_SQL" ]
+  [ "${#MOCK_ARGV[@]}" -eq 10 ]
+  # The password is NOT on the host argv (in any form) …
+  local a
+  for a in "${MOCK_ARGV[@]}"; do
+    [[ "$a" != *"${DB_ROOT_PASS}"* ]]
+    [[ "$a" != --password=* ]]
+  done
+  # … it arrives on the container client's stdin as the defaults file.
+  diff "$MOCK_DOCKER_DIR/stdin.$n" - <<CNF
+[client]
+user=root
+password=${DB_ROOT_PASS}
+CNF
 }
 
 @test "wait_db: polls the write-check until the DB answers, then returns 0" {
