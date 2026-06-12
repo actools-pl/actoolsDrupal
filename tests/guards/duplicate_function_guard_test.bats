@@ -100,8 +100,8 @@ setup() {
   # inline definition still exists. Redundant with exactly-once above, but
   # stated explicitly so the failure message names the exact mistake.
   # P0-M: the scan covers sourced modules/db/*.sh too — wiring a stale DB
-  # twin (e.g. modules/db/wait.sh) against the live inline layer is the same
-  # Entry-015 wrong-wiring shape.
+  # twin (the retired v9.2 wait/credentials/backup_user files) against the
+  # live inline layer is the same Entry-015 wrong-wiring shape.
   local fn f n_inline n_mod
   local -a violations=()
 
@@ -129,16 +129,18 @@ setup() {
   # sourced or not. (Before P0-K completed, the unsourced stale twins made
   # this unsatisfiable; the exactly-once closure arm covered the runtime
   # hazard. This arm now also bans dormant orphan twins from ever returning.)
-  # P0-M note: the analogous unconditional DB twin ban (actools.sh +
-  # modules/db/*.sh) lands with the P0-M orphan retirement — the same
-  # sequencing P0-K used: unsatisfiable while the stale twins still exist.
+  # P0-M: the ban now also scans modules/db/*.sh — enabled by the P0-M orphan
+  # retirement (the stale v9.2 wait/credentials/backup_user twins are gone),
+  # exactly the sequencing P0-K used. A DB-layer name (or any risky name)
+  # appearing in BOTH actools.sh and a core/ or modules/db/ file — sourced or
+  # not — fails CI.
   local fn f n_inline n_core
   local -a violations=()
 
-  for fn in "${RISKY_FUNCTIONS[@]}"; do
+  for fn in "${ALL_RISKY_FUNCTIONS[@]}"; do
     n_inline=$(grep -cE "^[[:space:]]*(function[[:space:]]+)?${fn}[[:space:]]*\(\)" "$REPO/actools.sh" 2>/dev/null || true)
     (( n_inline > 0 )) || continue
-    for f in "$REPO"/core/*.sh; do
+    for f in "$REPO"/core/*.sh "$REPO"/modules/db/*.sh; do
       [[ -f "$f" ]] || continue
       n_core=$(grep -cE "^[[:space:]]*(function[[:space:]]+)?${fn}[[:space:]]*\(\)" "$f" 2>/dev/null || true)
       (( n_core > 0 )) && violations+=("$fn: inline in actools.sh AND in ${f#"$REPO"/}")
