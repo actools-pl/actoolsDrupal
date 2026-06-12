@@ -1,5 +1,70 @@
 # Changelog
 
+## [Unreleased] — P0-M Stateful DB Layer Extraction + `wait_db` Hardening
+
+### Added — DB-layer contract/mock tests + security guard (gated by the existing recursive bats job; no workflow edit)
+- `tests/db/db_contract_test.bats` (13) over `tests/db/mock_docker.bash` (a
+  PATH-interposed `docker` stub: NUL-separated argv capture, stdin capture,
+  fail-N/fixed-rc knobs) and `tests/db/db_layer_loader.bash` (auto-locates the
+  live layer — inline before the extraction, `modules/db/core.sh` after — so
+  the same assertions across the move are the faithfulness proof). Pins, per
+  function: the `db_exec_root` container-env root-exec shape (password never
+  on host argv; heredoc stdin reaches the client), the `db_exec_root_stdin`
+  positional-database pipe, the `db_dump_container` umask-077
+  `--defaults-extra-file` dump (password stdin-only), `setup_backup_db_user`'s
+  exact least-privilege SQL (`CREATE USER … 'backup'@'%'`; `GRANT SELECT,
+  LOCK TABLES, SHOW VIEW ON *.*`; `FLUSH PRIVILEGES`) after `wait_db`,
+  `wait_db`'s write-check polling (return 0 on success; bounded give-up at
+  exactly 50 tries / `sleep 3` via `error`), and `check_db_creds`' `SELECT 1`
+  probe with its failure message.
+- `tests/guards/wait_db_security_guard_test.bats` (4) — the live `wait_db`
+  source MUST carry the umask-077 `--defaults-extra-file` probe and MUST NOT
+  carry any argv-password form (executable text; comments may describe the
+  retired form); a permanent non-vacuity arm doctors the live text back to the
+  retired `-p"${_wp}"` probe and the same oracle must fail it; a behavioral
+  arm runs the live `wait_db` against the mock and proves the root password is
+  on no host argv (stdin-only) while the write-check is still issued.
+- The duplicate-function guard now covers the six DB names
+  (`db_exec_root db_exec_root_stdin db_dump_container setup_backup_db_user
+  wait_db check_db_creds`): the closure exactly-once arm and the wired-twin
+  arm (commit 2; non-vacuity demo'd by wiring the stale `wait.sh` twin), and
+  the unconditional twin ban extended to `modules/db/*.sh` (commit 4, enabled
+  by the orphan retirement — the P0-K sequencing; end-state demo: a
+  reintroduced inline `wait_db(){ :; }` fails all three arms).
+
+### Changed — DB layer extracted verbatim (no install-behavior change)
+- `modules/db/core.sh` — new **live module** (`LIVE AUTHORITY (P0-M)`),
+  carrying `actools.sh`'s `:450-530` region byte-for-byte (per-function
+  byte-identity verified with the P0-K extractor). `actools.sh` 763 → 690
+  lines: the inline region replaced by a retained banner + one
+  `source "${INSTALL_DIR}/modules/db/core.sh"` line; every call site
+  untouched. Golden drift 6/6 + cron fixture unchanged at every commit.
+- `tests/helpers/capture_golden_outputs.sh` — the `setup_cli` line canary
+  only (594-609 → 521-536; the helper's documented maintenance step).
+
+### Changed — `wait_db` hardened (the one intentional behavior change; isolated, e2e-gated final commit)
+- `wait_db`'s readiness probe no longer passes the DB **root** password on
+  argv (`mariadb -uroot -p"${_wp}"`, the Entry-017 `wait_db:510` known risk —
+  visible to every local user via `ps`). The probe now mirrors the
+  backup-cron pattern: the printf **builtin** pipes a `[client]` defaults
+  file into a **umask-077 temp file inside the container**
+  (`mariadb --defaults-extra-file="$t"`); no process on the host or in the
+  container ever carries the password on argv. Probe SQL
+  (`mysql.actools_write_check` write-check), 50×3s bounds, `_wp` local
+  (v9.2-fix4 `set -u` rationale) and log/error lines unchanged; old-vs-new
+  outcome equivalence proven against the mock (identical rc/attempts/naps/
+  logs in all scenarios) and the container-side mechanics under real `sh`
+  (600-perm file, stdin→defaults, args pass-through, EXIT cleanup).
+  **e2e-gated:** the CI real install must still reach DB-ready; the commit is
+  isolated and droppable if it does not (the spec's split rule).
+
+### Removed — stale v9.2 DB twins
+- `modules/db/backup_user.sh`, `modules/db/credentials.sh`,
+  `modules/db/wait.sh` — unwired orphans; their divergent content (incl. the
+  argv-password `wait_db`) did **not** survive. Grep-proof: no references on
+  any `.sh`/`.yml`/`.bats` surface. `lint.yml`'s `modules/db/*.sh` shellcheck
+  glob still matches (`core.sh`) — no workflow edit.
+
 ## [Unreleased] — P0-L Backup-Cron Extraction + Orphan Purge
 
 ### Added — backup-cron golden capture + security-shape guard (gated by the existing recursive bats job; no workflow edit)

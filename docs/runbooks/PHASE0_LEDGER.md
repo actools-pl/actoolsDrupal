@@ -86,6 +86,147 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 018 — P0-M · Stateful DB Layer Extraction (tests-first) + `wait_db` Hardening
+
+Date: 2026-06-12
+Branch: `phase0/P0-M-db-layer-extraction` (operator records the applied branch + `main` SHA)
+Commit SHA: five implementation commits + one docs commit (sandbox sequence: `f8830bf` contract/mock tests → `37bf3cd` guard extension → `7b5347a` extraction → `496ca42` orphan retirement + twin-ban hardening → `e9471ce` `wait_db` hardening → docs)
+Actor / Claude session (model): Coding Window
+Phase: P0-M — Stateful DB Layer Extraction (tests-first) + `wait_db` Hardening
+Task prompt source: `P0-M-db-layer-extraction.md` + coding-window prompt (filled)
+
+### Objective
+
+Pin the inline DB layer with contract/mock tests, extract the six DB functions **verbatim** from `actools.sh` into `modules/db/core.sh` (retiring the stale v9.2 `modules/db/*` twins and extending the duplicate-function guard to cover the six names), then harden `wait_db`'s readiness probe so the DB **root** password is no longer passed on argv — closing the Entry-017 `wait_db:510` known risk — with **no install-behavior change except that one isolated, e2e-gated security fix**. The authority rule held throughout: the live inline v14 code was copied; the stale twins' content (a divergent `check_db_creds` error message, a `wait_db` with `cd || exit`) did **not** survive.
+
+### Contract/mock tests (commit 1; CI-gated by the existing recursive bats job — no `lint.yml` edit needed)
+
+The layer is **stateful** (every function execs against a live MariaDB container), so there is no rendered output to golden-capture. Behavior is pinned instead by `tests/db/db_contract_test.bats` (13 tests) over a mock `docker` interposed on PATH (`tests/db/mock_docker.bash`: NUL-separated argv capture per invocation — the `sh -c` bodies contain newlines — stdin capture, and fail-N-then-succeed / fixed-rc knobs). Pinned contracts: `db_exec_root` → `docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ …` (password from container env, never on host argv; heredoc stdin reaches the client); `db_exec_root_stdin` → same shape with `"$1"` as the positional target database, SQL piped; `db_dump_container` → the umask-077 `--defaults-extra-file` dump inside the container, `[mariadb-dump]`/user/password fed over stdin, dump args passed through, password on **no** argv; `setup_backup_db_user` → `wait_db` **first**, then the exact least-privilege SQL (`CREATE USER IF NOT EXISTS 'backup'@'%' …; GRANT SELECT, LOCK TABLES, SHOW VIEW ON *.* …; FLUSH PRIVILEGES;`); `wait_db` → polls the `mysql.actools_write_check` readiness probe (the v9.2-fix4 write-check — the spec's "poll until the DB answers" is THIS statement, pinned verbatim) until success then returns 0, bounded give-up via `error` at exactly 50 tries / `sleep 3`; `check_db_creds` → the `SELECT 1` probe through `db_exec_root`, `error "Cannot authenticate…"` on rejection. The loader (`tests/db/db_layer_loader.bash`) auto-locates the live layer — inline pre-extraction, the module after — so the **same assertions running green across the move is the faithfulness proof** (the P0-L `capture_backup_cron.sh` pattern, adapted for a stateful unit).
+
+### Guard extension (commit 2) + twin-ban hardening (commit 4)
+
+- `tests/guards/duplicate_function_guard_test.bats` now also covers the six DB names (`DB_RISKY_FUNCTIONS`, merged into `ALL_RISKY_FUNCTIONS`): the closure exactly-once arm iterates all sixteen names; the wired-twin arm scans sourced `modules/db/*.sh` alongside sourced `core/*.sh`. **Non-vacuity proven live (commit-2 state, output verbatim in the test report):** wiring `modules/db/wait.sh` into `actools.sh` while the inline `wait_db` existed failed arm 1 (`wait_db: defined 2x on the live path [actools.sh(x1) modules/db/wait.sh(x1)]`) and arm 2 (named wrong wiring); reverted byte-identical (sha-verified).
+- The **unconditional twin ban** (arm 3) was extended to `modules/db/*.sh` in commit 4 — the P0-K sequencing: unsatisfiable while the stale twins existed, enabled by their retirement. **End-state non-vacuity (output verbatim in the test report):** a reintroduced inline `wait_db(){ :; }` failed **all three arms** including the twin ban; reverted byte-identical.
+
+### Extraction (commit 3; function bodies verbatim — per-function byte-identity verified)
+
+- The six functions → **`modules/db/core.sh`** (live module, `LIVE AUTHORITY (P0-M)` header documenting required globals — `INSTALL_DIR`, `DB_ROOT_PASS` — and collaborators `log`/`error` (core/bootstrap.sh); functions only, inert under `set -u`). The module carries `actools.sh`'s `:450-530` region (the four section banners + doc comments + six definitions) byte-for-byte; byte-identity proof: `diff` of each function's text (the P0-K `extract_inline_fn` primitive) pre- vs post-extraction — all six identical.
+- `actools.sh` 763 → 690 lines: the inline region (`:450-530`) replaced by a retained DB LAYER banner + `source "${INSTALL_DIR}/modules/db/core.sh" || error …` at the exact spot the definitions occupied. The call sites (`:446` `setup_backup_db_user`; the pre-extraction `:490,:560` `wait_db`; `:708,:734` `check_db_creds` — now shifted by −73 where below the region) are **byte-untouched**; only the definitions moved.
+- `tests/helpers/capture_golden_outputs.sh` — the `setup_cli` line canary only (`SC_START/SC_END` 594-609 → 521-536; the helper's own documented maintenance step — capture logic untouched, no fixture modified).
+- The new module is on the live source-closure (live-authority guard green with its `LIVE AUTHORITY` marker); the contract suite re-ran green against the module with zero assertion edits (loader origin flipped inline → module).
+
+### Orphan purge (commit 4)
+
+- **`modules/db/backup_user.sh`, `modules/db/credentials.sh`, `modules/db/wait.sh` deleted** (stale v9.2 twins; unwired — sourced/copied/executed by nothing, verified before deletion; their divergent content did not survive). Grep proof: `grep -rn "modules/db/backup_user.sh\|modules/db/credentials.sh\|modules/db/wait.sh" . --include='*.sh' --include='*.yml' --include='*.bats'` → **no references** (guard/module comments describe the retirement without the literal paths so the proof grep stays empty — the P0-L convention). `modules/db/core.sh` keeps `lint.yml`'s `modules/db/*.sh` shellcheck glob non-empty — no workflow edit.
+
+### `wait_db` hardening (commit 5 — the one intentional behavior change, isolated and droppable)
+
+- **Before** (`actools.sh:510` pre-extraction; v9.2-fix4): `docker compose exec -T db mariadb -uroot -p"${_wp}" -e "<write-check>"` — the DB root password on argv inside the container, visible to every local user via `ps`.
+- **After** (`modules/db/core.sh::wait_db`): `printf '%s\n' '[client]' 'user=root' "password=${_wp}" | docker compose exec -T db sh -c '<umask 077; t=$(mktemp /tmp/actools-wait.XXXXXX.cnf); trap rm EXIT; cat > $t; mariadb --defaults-extra-file="$t" "$@">' _ -e "<write-check>"` — the backup-cron pattern: the password is fed by the printf **builtin** (no host process carries it on argv either), lands in a **umask-077** temp defaults file **inside the container**, and is removed on exit. The probe SQL, the 50×3s bounds, the `_wp` local (the v9.2-fix4 `set -u` rationale — expansion in the current shell, no spawned subshell) and the log/error lines are **unchanged**.
+- **Security test:** `tests/guards/wait_db_security_guard_test.bats` (4 arms): (1) the live `wait_db` source MUST carry `--defaults-extra-file=` + `umask 077` (executable text only — a comment cannot vacuously satisfy it); (2) MUST NOT carry any argv-password form (`-p"…"`/`-p'…'`/`-p$…`/`--password=`; comment lines stripped — the in-function comment legitimately *describes* the retired form); (3) **permanent non-vacuity arm**: a doctored copy re-introducing the retired `-p"${_wp}"` probe MUST FAIL the same oracle (self-checks the doctoring took); (4) behavioral: the live `wait_db` run against the mock puts the password on **no** host argv — it travels only on the client's stdin — and still issues the unchanged write-check. **Non-vacuity additionally proven live** (output verbatim in the test report): injecting the argv probe into the live module failed security arms 1/2/4 **and** the `wait_db` contract test; reverted byte-identical (sha == the hardening commit).
+- **Outcome equivalence (local, mock):** old vs new `wait_db` run against identical mock scenarios (immediate success / fail-3-then-succeed / always-fail) produced **identical** rc, attempt counts (1/4/50), nap counts (0/3/49) and log/error lines. **Container-side mechanics proven** under real `sh` with a fake `mariadb`: the defaults file is created mode **600**, holds the stdin-fed `[client]` credentials, the `-e <SQL>` args pass through `"$@"`, and the temp file is removed on exit.
+- **e2e gate — PENDING CI (flagged, not guessed):** the real-install e2e (`e2e.yml`, Hetzner VM) cannot run in the coding sandbox (no docker daemon / cloud token). The hardening is therefore shipped as the **isolated final implementation commit**: if the CI e2e does not reach DB-ready, the operator drops/reverts that one commit (steps 1–4 stand alone) per the spec's split rule. The Review Gate must confirm the e2e before Approve.
+
+### Files changed
+
+- `modules/db/core.sh` — **new live module**: `LIVE AUTHORITY (P0-M)` header + the verbatim six functions (then the isolated `wait_db` hardening in commit 5)
+- `actools.sh` — 763 → 690 lines: inline region `:450-530` → banner + `source` line (nothing else)
+- `modules/db/backup_user.sh`, `modules/db/credentials.sh`, `modules/db/wait.sh` — **deleted**
+- `tests/db/db_layer_loader.bash`, `tests/db/mock_docker.bash`, `tests/db/db_contract_test.bats` (new, 13)
+- `tests/guards/duplicate_function_guard_test.bats` — extended to the six DB names (all three arms)
+- `tests/guards/wait_db_security_guard_test.bats` (new, 4)
+- `tests/helpers/capture_golden_outputs.sh` — `setup_cli` canary 594-609 → 521-536 only
+- Docs: this ledger, `runtime-authority-map.md`, `docs/CHANGELOG.md`, `docs/releases/P0-M-db-layer-extraction.md`, `docs/tests/P0-M-db-layer-extraction.md`, `docs/runbooks/HANDOFF-P0-M.md`
+
+### Files intentionally not changed
+
+- `install_env` (its inline DB-provisioning SQL and the `db_exec_root <<SQL` call sites `:492,:563` pre-shift) and the CLI's own DB helpers (`cli/commands/*`) — **P0-N**
+- `main()` (P0-P); all standalone feature orphans (P0-O audit first)
+- `.github/workflows/lint.yml` — the recursive bats job auto-discovers `tests/db/` and the new guard; the `modules/db/*.sh` shellcheck glob still matches `modules/db/core.sh`
+- Golden fixtures — drift 6/6 + cron fixture with **no fixture modified**
+- `ACTOOLS_VERSION` stays `14.0` — the phase-0 convention (the hardening changes the auth *method*, not any generated byte or install outcome)
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| DB access layer (`db_exec_root`/`db_exec_root_stdin`/`db_dump_container`/`setup_backup_db_user`/`wait_db`/`check_db_creds`) | inline `actools.sh:450-530` | `modules/db/core.sh` (**live module**) |
+| Stale v9.2 DB twins (`modules/db/{backup_user,credentials,wait}.sh`) | orphans (unwired, divergent content; `wait.sh` carried the argv-password probe) | **deleted** |
+| `wait_db` readiness probe auth | root password on argv (`mariadb -uroot -p"…"`, `actools.sh:510`) | umask-077 `--defaults-extra-file` inside the container; **no argv password anywhere** (CI-locked, non-vacuous) |
+| DB provisioning SQL in `install_env` | inline `actools.sh` | **unchanged** (inline; P0-N+) |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Unchanged | golden drift 6/6 at every commit |
+| Caddyfile | Unchanged | golden drift 6/6 |
+| my.cnf | Unchanged | golden drift 6/6 |
+| Dockerfiles | Unchanged | golden drift 6/6 |
+| CLI | Not touched | `cli_authority_test.bats` green in the full suite |
+| /etc/cron.daily/actools-backup | Unchanged | cron drift 3/3 (re-render sha == fixture `bdfaa0c6…`) at every commit |
+
+### Tests run
+
+```bash
+bash -n actools.sh && bash -n cli/actools
+find installer core modules cli -name '*.sh' -print0 | xargs -0 -n1 bash -n
+bats tests/db/                                 # 13/13 contract/mock
+bats tests/guards/                             # 13/13: dup-fn (3, DB-extended) + wait_db security (4) + cron shape (4) + live-authority/closure (2)
+bats tests/generated/                          # 9/9: compose drift 6 + cron 3 — no fixture modified
+bats -r tests/                                 # 216/216
+shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 actools.sh
+shellcheck --exclude=SC2034,SC2015,SC2164 modules/db/core.sh
+shellcheck --exclude=SC2034,SC2015,SC2164,SC2119,SC2120 modules/db/*.sh   # the CI glob — still non-empty
+grep -rn "modules/db/backup_user.sh\|modules/db/credentials.sh\|modules/db/wait.sh" . --include='*.sh' --include='*.yml' --include='*.bats'   # no references
+```
+
+### Test result
+
+PASS — full suite 216/216 (199 → 216: +13 DB contracts, +4 `wait_db` security); golden drift 6/6 + cron fixture at every commit (no fixture modified); the DB-extended duplicate-function guard non-vacuous (commit-2 wired-twin demo + end-state three-arm demo) and the `wait_db` security test non-vacuous (permanent in-CI arm + live injection demo); old-vs-new `wait_db` outcome-identical across all mock scenarios.
+
+### Documentation updated
+
+- [x] Runtime authority map (new DB-layer row; DB-provisioning row corrected; P0-M test-surface addendum 199 → 216)
+- [ ] Generated-file contract — no change needed (no generated output changed)
+- [ ] CLI authority contract — untouched
+- [ ] Operator target docs — no operator-visible change (install logs identical; only the probe's auth method changed)
+- [x] Test plan / test report
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-M-db-layer-extraction.md`)
+- [x] Test report added (`docs/tests/P0-M-db-layer-extraction.md`)
+- [x] Review notes — for the Review Gate, see the handoff (`docs/runbooks/HANDOFF-P0-M.md`)
+
+### Known risks
+
+- **The `wait_db` hardening is e2e-gated and the e2e has not run yet** (sandbox has no docker daemon / cloud credentials). Outcome equivalence is proven at the mock level (identical rc/attempts/logs in all scenarios) and the container-side mechanics under real `sh`, but the authoritative gate is the CI real install reaching DB-ready (`e2e.yml`). The hardening is the **isolated final implementation commit** so it can be dropped without touching steps 1–4 if the e2e fails — the spec's split rule, exercised as a flag rather than a guess.
+- The spec's shorthand "poll until the DB answers `SELECT 1`" was interpreted against the authoritative inline code: `wait_db`'s probe is the v9.2-fix4 **write-check** (`CREATE TABLE … actools_write_check; DROP TABLE …`), preserved byte-identically; `SELECT 1` is `check_db_creds`' probe, also pinned. No probe SQL was changed.
+- The `setup_cli` canary now reads 521-536; any future edit above `setup_cli` in `actools.sh` must update it (the helper fails loudly with self-describing instructions — the canary working, not breaking).
+- The `wait_db` security oracle checks **executable** text (comment lines stripped): a future refactor hiding an argv password inside a string built across lines would evade a static grep — the behavioral arm (mock argv scan) and the contract stdin pin are the backstop.
+- Closing Entry-017's known-risk item: **`wait_db:510` argv exposure — CLOSED by this phase** (subject to the e2e gate above).
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a separate session verifies: the extracted functions issue the **same** commands (contracts 13/13 green across the move; per-function byte-identity diffs; the five non-`wait_db` functions byte-identical to the inline originals **after** the hardening commit too); golden drift 6/6 + cron fixture unchanged with no fixture modified; the DB-extended duplicate-function guard **bites** (both captured demos in the test report); the `wait_db` security test **bites** (permanent arm + the live injection demo); `wait_db` uses the secure `--defaults-extra-file` form with **no argv password and still polls** — mock-equivalence is in the test report, and the Review Gate must see the **CI e2e green (real install reaches DB-ready)** before Approve, or direct the operator to split off commit `e9471ce` per the spec; the orphan twins are **gone and unreferenced** (the grep proof); and no behavior changed beyond the `wait_db` hardening (the only `actools.sh` hunk is `:450-530` → the source block).
+
+### Next safe task
+
+**P0-N — `install_env` / CLI extraction** (post-closure track order). Still NOT community-plus feature work.
+
+### Forbidden next scope
+
+No standalone-feature-orphan wiring before P0-O's audit; `main()`'s hardcoded profile source stays until P0-P; no generated-file change; no edit to `modules/db/core.sh` (or its guards/contracts) without an explicit release note; the retired `modules/db` twins must never be restored (the twin ban bites).
+
+---
+
+
 ## Entry 017 — P0-L · Backup-Cron Extraction + Orphan Purge
 
 Date: 2026-06-11
