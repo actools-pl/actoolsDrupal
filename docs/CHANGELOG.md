@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] — P0-N CLI DB-Layer Convergence (live `doctor.sh`)
+
+### Changed — doctor's DB layer converged onto the P0-M authority (verbatim-equivalent swap; no behavior change)
+- `cli/commands/doctor.sh` no longer carries its own `db_exec_root` copy
+  (`:27`, byte-identical to `modules/db/core.sh:45` — re-verified, comment
+  included). The def + comment (`:24-29`) are replaced **in place, 6-for-6
+  lines**, by a pointer comment + a best-effort source of the authority
+  (`source "${INSTALL_DIR}/modules/db/core.sh" 2>/dev/null || true`), so the
+  one call site stays byte-untouched at `:160` and `db_exec_root` keeps its
+  old source-time definition timing. The DB layer now has exactly **one
+  authority across both runtimes** (installer and CLI): a future fix to the
+  module reaches `doctor` instead of silently missing its private copy.
+  The best-effort form (vs the spec snippet's bare `source`) preserves
+  doctor.sh's documented minimal-sandbox sourceability (its `dispatch.sh`
+  source pattern; a bare source broke 9 sandbox-staged tests) and is made
+  typo-proof by the new focused test's resolution arms. Doctor output is
+  unchanged; the existing e2e doctor-smoke is the integration backstop —
+  this is not a behavior change, so there is no new e2e gate.
+
+### Added — live-CLI-path guard + focused authority test (gated by the existing recursive bats job; no workflow edit)
+- `tests/guards/cli_db_authority_guard_test.bats` (7) — derives the **live
+  CLI path** statically (`cli/actools` + every
+  `source "${INSTALL_DIR}/cli/commands/<f>.sh"` target parsed from
+  `cli/actools`; today: `doctor.sh`) and fails if any of the six canonical
+  DB names is **defined** (`^name()`) on it. The authority
+  `modules/db/core.sh` is excluded by construction (not a `cli/commands`
+  file; no recursion into live files' source lines). Permanent non-vacuity
+  arms: an injected `db_exec_root` on a live command file, an injected
+  `wait_db` on `cli/actools`, and a missing live source target all fail the
+  same oracle. The eight dead twins are not in `cli/actools`'s source set —
+  naturally excluded, so the guard is green before P0-O deletes them (and
+  after: the exclusion arm is existence-conditional).
+- `tests/cli/doctor_db_authority_test.bats` (7) + `tests/cli/doctor_loader.bash`
+  — resolution-side pins: no local `db_exec_root` def remains; the authority
+  source line is present; sourcing `doctor.sh` is inert (rc 0, no output);
+  with `INSTALL_DIR` at the repo, `db_exec_root` is defined **at source
+  time** with a `declare -f` body **byte-equal** to the canonical `core.sh`
+  body (all six arrive, five inert); without the module on disk it is *not*
+  defined (the definition provably travels the module path — the typo-proof
+  for the best-effort source); and the resolved function issues the exact
+  canonical container command under the P0-M mock `docker`.
+
+### Ratified — Entry 018 (P0-M)
+- Merge SHA stamped: `cd0d0d9` (PR #47). The `wait_db` hardening's e2e gate
+  is **confirmed** — run #75 reached `MariaDB ready.` on the real install;
+  the Entry-017 `wait_db:510` argv-exposure risk is flipped to
+  **CLOSED — e2e-confirmed**.
+
 ## [Unreleased] — P0-M Stateful DB Layer Extraction + `wait_db` Hardening
 
 ### Added — DB-layer contract/mock tests + security guard (gated by the existing recursive bats job; no workflow edit)
