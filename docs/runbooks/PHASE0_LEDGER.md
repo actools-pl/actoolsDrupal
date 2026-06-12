@@ -86,11 +86,129 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 019 — P0-N · CLI DB-Layer Convergence (live `doctor.sh`)
+
+Date: 2026-06-12
+Branch: `phase0/P0-N-cli-db-convergence` (operator records the applied branch + `main` SHA)
+Commit SHA: three implementation commits + one docs commit (sandbox sequence: `7b88539` swap → `e7ba619` live-CLI-path guard → `8d33573` focused authority test → docs)
+Actor / Claude session (model): Coding Window
+Phase: P0-N — CLI DB-Layer Convergence (live `doctor.sh`)
+Task prompt source: `P0-N-cli-db-convergence.md` + coding-window prompt (filled)
+
+### Objective
+
+Eliminate the one **live** second-order dual-truth left after P0-M: `cli/commands/doctor.sh` carried its **own copy** of `db_exec_root` (`:27`, byte-identical to `modules/db/core.sh:45` — re-verified, including the `:24-26` comment ≡ `core.sh:42-44`), so a future fix to the module would silently not reach `doctor`. The live `doctor` command now **sources the canonical module** at the exact top-level spot the local def occupied and the local copy is **deleted** — the DB layer has exactly one authority across both runtimes. A **live-CLI-path guard** makes any future redefinition on the live CLI path fail CI. This is a verbatim-equivalent swap: the `:160` call site is byte-untouched (and still at `:160` — the replacement is 6-for-6 lines); `doctor`'s behavior and output do not change; **not** an extraction, **not** a behavior change.
+
+### The swap (commit 1) — and one flagged deviation
+
+`doctor.sh:24-29` (the local def + its comment) replaced in place by a pointer comment + `source "${INSTALL_DIR}/modules/db/core.sh" 2>/dev/null || true`. Grounding re-verified before the swap: `core.sh` is pure function defs (sourced cleanly under `set -u` in an empty env, defining exactly the six names); the only live consumer of `doctor.sh` is `cli/actools:90`, which resolves `INSTALL_DIR` at `:7` first (the `installer/*` mentions are header comments); nothing `doctor.sh` sources (`dispatch.sh`, `output.sh`, `doctor_deep.sh`) defines any of the six names — no double definition. Top-level placement (the spec's in-place reading) preserves the **old source-time semantics**: `db_exec_root` is defined when `cli/actools` sources `doctor.sh`, before `run_doctor` runs, exactly as the local def was.
+
+**Flagged deviation (Review Gate to confirm):** the spec snippet showed a *bare* `source`; the landed line is **best-effort** (`2>/dev/null || true`). A bare source broke 9 existing tests (`doctor_test.bats` 4, `test_p0h_dispatch` 2, `test_p0i` 3): the deep-gate suites stage **minimal sandbox** `INSTALL_DIR`s without `modules/`, a contract `doctor.sh:37-39` itself documents ("best-effort … e.g. a minimal sandbox") and the same pattern its `dispatch.sh` source already uses. Best-effort restores that contract (suite 230/230); its non-vacuity is pinned by the focused authority test (a typo'd module path leaves `db_exec_root` undefined → the resolution arm goes red — demonstrated live in the test report). The alternative — staging `core.sh` into the sandboxes of 5 existing test files — was out of the allowed-files list.
+
+### Live-CLI-path guard (commit 2)
+
+`tests/guards/cli_db_authority_guard_test.bats` (7 arms): the **live CLI path** is derived statically — `cli/actools` plus every `source "${INSTALL_DIR}/cli/commands/<f>.sh"` target parsed out of `cli/actools` (today: `doctor.sh`; one level, per the spec). Main arm: none of the six canonical names is **defined** (`^name()`) on that set; the authority `modules/db/core.sh` is excluded **by construction** (not a `cli/commands` file; the builder never recurses into live command files' source lines). Sanity arms pin the known live shape and that the authority still defines all six. **Permanent non-vacuity arms** (fixture tree): an injected `db_exec_root` on a live command file fails; an injected `wait_db` on `cli/actools` fails; a missing live source target fails loudly (wrong wiring is not an exemption). Dead-twin arm: the eight dead twins are **not** in `cli/actools`'s source set — naturally excluded, guard green pre-P0-O (several still define DB-fn copies on disk) and post-P0-O (existence-conditional). **Live demo (captured in the test report):** re-adding the old `db_exec_root` def to `doctor.sh` failed the main arm at `cli/commands/doctor.sh:257`; reverted byte-identical (sha-verified).
+
+### Focused authority test (commit 3)
+
+`tests/cli/doctor_db_authority_test.bats` (7) + `tests/cli/doctor_loader.bash`: no local `db_exec_root` def remains; the authority source line is present; sourcing `doctor.sh` is **inert** (rc 0, no output); with `INSTALL_DIR` at the repo, `db_exec_root` is defined **at source time** and its `declare -f` body is **byte-equal** to the canonical `core.sh` body (all six arrive; five inert); the **non-vacuity twin** — in a sandbox without the module, `db_exec_root` does *not* come out defined, proving the definition arrives via `${INSTALL_DIR}/modules/db/core.sh`; and a mock-docker **oracle** (the P0-M stub) pins that the resolved function issues the exact canonical container command (same argv pin as `tests/db/`).
+
+### Files changed
+
+- `cli/commands/doctor.sh` — the 6-for-6 in-place swap (only hunk in the file; `:160` call site byte-untouched at `:160`)
+- `tests/guards/cli_db_authority_guard_test.bats` (new, 7)
+- `tests/cli/doctor_db_authority_test.bats` + `tests/cli/doctor_loader.bash` (new, 7)
+- Docs: this ledger (Entry 019 + Entry 018 ratification), `runtime-authority-map.md`, `docs/CHANGELOG.md`, `docs/releases/P0-N-cli-db-convergence.md`, `docs/tests/P0-N-cli-db-convergence.md`, `docs/runbooks/HANDOFF-P0-N.md`
+
+### Files intentionally not changed
+
+- **The eight dead twins** (`backup`, `ci_generate`, `cost_optimize`, `health`, `restore`, `storage`, `update`, `worker`) — untouched; their DB-fn copies (`cost_optimize.sh:10`, `restore.sh:9,:15`, `update.sh:10`) are **P0-O**
+- `modules/db/core.sh` — the authority; no edits (P0-M contracts/guards untouched: `tests/db/` 13/13, dup-fn + wait_db guards green)
+- `actools.sh`, `main()`, `installer/`, `profiles/`; generated files / golden fixtures (drift 6/6 + cron 3/3, no fixture modified)
+- `.github/workflows/` — the recursive bats job auto-discovers `tests/cli/` and the new guard
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| `db_exec_root` on the live CLI path (`doctor`) | local copy in `cli/commands/doctor.sh:27` (byte-identical dual truth) | resolved from `modules/db/core.sh` (single authority across installer **and** CLI), CI-locked by the live-CLI-path guard |
+| Other five DB functions on the live CLI path | undefined | defined (inert) from the module at `doctor.sh` source time — no call sites |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | golden drift 6/6 at every commit |
+| Caddyfile | Not touched | golden drift 6/6 |
+| my.cnf | Not touched | golden drift 6/6 |
+| Dockerfiles | Not touched | golden drift 6/6 |
+| CLI | Not touched (`cli/actools` byte-unchanged; `doctor.sh` is the one swapped file, behavior-identical) | `cli_authority_test.bats` green in the full suite; doctor-smoke = e2e backstop |
+| /etc/cron.daily/actools-backup | Not touched | cron drift 3/3 at every commit |
+
+### Tests run
+
+```bash
+bash -n cli/commands/doctor.sh && bash -n cli/actools
+shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 cli/commands/doctor.sh   # pre-existing info SC2012(:200) only — identical on the baseline file
+bats tests/guards/                 # 20/20: existing 13 + new cli_db_authority 7
+bats tests/cli/                    # 7/7 (new)
+bats tests/db/                     # 13/13 — P0-M contracts unaffected
+bats tests/generated/              # 9/9: drift 6/6 + cron 3/3
+bats -r tests/                     # 230/230 (216 → 230: +7 guard, +7 cli)
+grep -nE '^db_exec_root\(\)' cli/commands/doctor.sh                       # EMPTY
+grep -nE 'source.*modules/db/core\.sh' cli/commands/doctor.sh             # :29 present
+for f in db_exec_root db_exec_root_stdin db_dump_container setup_backup_db_user wait_db check_db_creds; do
+  grep -nE "^${f}\(\)" cli/actools cli/commands/doctor.sh ; done          # EMPTY
+```
+
+### Test result
+
+PASS — full suite 230/230 at every commit (216 → 230); drift 6/6 + cron 3/3 unchanged; the live-CLI-path guard non-vacuous (three permanent fixture arms + the captured live injection demo); the focused authority test proves the resolved `db_exec_root` ≡ `core.sh` byte-equal and that the resolution genuinely travels the module path.
+
+### Documentation updated
+
+- [x] Runtime authority map (Doctor row + DB-layer row: single authority across both runtimes; P0-N answer + test-surface addendum)
+- [ ] Generated-file contract — no change needed (nothing generated changed)
+- [ ] CLI authority contract — `cli/actools` byte-unchanged (install-by-copy untouched)
+- [ ] Operator target docs — no operator-visible change (doctor output identical)
+- [x] Test plan / test report
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-N-cli-db-convergence.md`)
+- [x] Test report added (`docs/tests/P0-N-cli-db-convergence.md`)
+- [x] Review notes — for the Review Gate, see the handoff (`docs/runbooks/HANDOFF-P0-N.md`)
+
+### Known risks
+
+- **The best-effort `|| true` deviation** (see the swap section): in a hypothetically broken install missing `modules/db/core.sh`, doctor's DB check would report "Database unreachable" instead of erroring at the source line. Pre-P0-N such an install was already catastrophically broken (the installer itself sources `core.sh`); the typo-risk the `|| true` could mask is pinned red by the focused test's resolution arm, and the real-install backstop is the existing doctor-smoke (`e2e.yml:126`).
+- The guard's live-CLI-set derivation is static (`sed` over `cli/actools`, one level). A future dynamically-computed `source` of a command file would not be derived — but it would also be a new wiring pattern the Review Gate of that phase must extend the builder for (the missing-target arm fails loudly on half-wired states).
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a separate session verifies, in order: (1) `doctor.sh` sources the module and the local def is gone (grep proofs); (2) the resolved `db_exec_root` is byte-identical to `core.sh` (the focused test's `declare -f` arm; the deleted local def re-verified byte-identical to the authority against the baseline); (3) the live-CLI-path guard **bites** (permanent fixture arms + the captured live demo); (4) drift 6/6 + cron 3/3; (5) the eight dead twins untouched; (6) the doctor-smoke passes (branch e2e dispatch recommended, not gating — this is not a behavior change, so there is **no new e2e gate**). The `|| true` deviation is flagged for explicit confirmation. **APPROVE on green.**
+
+### Next safe task
+
+**P0-O — delete the eight dead twins** (deadness already proven: `cmd_*` called 0× in `cli/actools`) + the doc-authority lock.
+
+### Forbidden next scope
+
+No wiring of any dead twin (the guard's missing-target and definition arms both bite); no edits to `modules/db/core.sh` or the P0-M contracts/guards without an explicit release note; no generated-file change; `main()`'s hardcoded profile source stays until P0-P.
+
+---
+
+
 ## Entry 018 — P0-M · Stateful DB Layer Extraction (tests-first) + `wait_db` Hardening
 
 Date: 2026-06-12
 Branch: `phase0/P0-M-db-layer-extraction` (operator records the applied branch + `main` SHA)
-Commit SHA: five implementation commits + one docs commit (sandbox sequence: `f8830bf` contract/mock tests → `37bf3cd` guard extension → `7b5347a` extraction → `496ca42` orphan retirement + twin-ban hardening → `e9471ce` `wait_db` hardening → docs)
+Commit SHA: five implementation commits + one docs commit (sandbox sequence: `f8830bf` contract/mock tests → `37bf3cd` guard extension → `7b5347a` extraction → `496ca42` orphan retirement + twin-ban hardening → `e9471ce` `wait_db` hardening → docs). **Merged to `main` as `cd0d0d9` (PR #47)** — *stamped at P0-N ratification, 2026-06-12.*
 Actor / Claude session (model): Coding Window
 Phase: P0-M — Stateful DB Layer Extraction (tests-first) + `wait_db` Hardening
 Task prompt source: `P0-M-db-layer-extraction.md` + coding-window prompt (filled)
@@ -202,11 +320,11 @@ PASS — full suite 216/216 (199 → 216: +13 DB contracts, +4 `wait_db` securit
 
 ### Known risks
 
-- **The `wait_db` hardening is e2e-gated and the e2e has not run yet** (sandbox has no docker daemon / cloud credentials). Outcome equivalence is proven at the mock level (identical rc/attempts/logs in all scenarios) and the container-side mechanics under real `sh`, but the authoritative gate is the CI real install reaching DB-ready (`e2e.yml`). The hardening is the **isolated final implementation commit** so it can be dropped without touching steps 1–4 if the e2e fails — the spec's split rule, exercised as a flag rather than a guess.
+- ~~**The `wait_db` hardening is e2e-gated and the e2e has not run yet**~~ **RESOLVED at P0-N ratification (2026-06-12): the CI e2e confirmed the gate — run #75 reached `MariaDB ready.` on the real install.** *(Original risk text, for the record:)* (sandbox has no docker daemon / cloud credentials). Outcome equivalence is proven at the mock level (identical rc/attempts/logs in all scenarios) and the container-side mechanics under real `sh`, but the authoritative gate is the CI real install reaching DB-ready (`e2e.yml`). The hardening is the **isolated final implementation commit** so it can be dropped without touching steps 1–4 if the e2e fails — the spec's split rule, exercised as a flag rather than a guess.
 - The spec's shorthand "poll until the DB answers `SELECT 1`" was interpreted against the authoritative inline code: `wait_db`'s probe is the v9.2-fix4 **write-check** (`CREATE TABLE … actools_write_check; DROP TABLE …`), preserved byte-identically; `SELECT 1` is `check_db_creds`' probe, also pinned. No probe SQL was changed.
 - The `setup_cli` canary now reads 521-536; any future edit above `setup_cli` in `actools.sh` must update it (the helper fails loudly with self-describing instructions — the canary working, not breaking).
 - The `wait_db` security oracle checks **executable** text (comment lines stripped): a future refactor hiding an argv password inside a string built across lines would evade a static grep — the behavioral arm (mock argv scan) and the contract stdin pin are the backstop.
-- Closing Entry-017's known-risk item: **`wait_db:510` argv exposure — CLOSED by this phase** (subject to the e2e gate above).
+- Closing Entry-017's known-risk item: **`wait_db:510` argv exposure — CLOSED — e2e-confirmed** *(flipped at P0-N ratification, 2026-06-12: e2e run #75 reached `MariaDB ready.`; the original "subject to the e2e gate" caveat is discharged).*
 
 ### Blockers
 
@@ -214,7 +332,7 @@ None.
 
 ### Review Gate decision
 
-Pending — a separate session verifies: the extracted functions issue the **same** commands (contracts 13/13 green across the move; per-function byte-identity diffs; the five non-`wait_db` functions byte-identical to the inline originals **after** the hardening commit too); golden drift 6/6 + cron fixture unchanged with no fixture modified; the DB-extended duplicate-function guard **bites** (both captured demos in the test report); the `wait_db` security test **bites** (permanent arm + the live injection demo); `wait_db` uses the secure `--defaults-extra-file` form with **no argv password and still polls** — mock-equivalence is in the test report, and the Review Gate must see the **CI e2e green (real install reaches DB-ready)** before Approve, or direct the operator to split off commit `e9471ce` per the spec; the orphan twins are **gone and unreferenced** (the grep proof); and no behavior changed beyond the `wait_db` hardening (the only `actools.sh` hunk is `:450-530` → the source block).
+**APPROVED — ratified at P0-N (2026-06-12): merged to `main` as `cd0d0d9` (PR #47); the e2e gate confirmed (run #75 reached `MariaDB ready.` — the real install hit DB-ready under the hardened probe).** *(Original pending text, for the record:)* a separate session verifies: the extracted functions issue the **same** commands (contracts 13/13 green across the move; per-function byte-identity diffs; the five non-`wait_db` functions byte-identical to the inline originals **after** the hardening commit too); golden drift 6/6 + cron fixture unchanged with no fixture modified; the DB-extended duplicate-function guard **bites** (both captured demos in the test report); the `wait_db` security test **bites** (permanent arm + the live injection demo); `wait_db` uses the secure `--defaults-extra-file` form with **no argv password and still polls** — mock-equivalence is in the test report, and the Review Gate must see the **CI e2e green (real install reaches DB-ready)** before Approve, or direct the operator to split off commit `e9471ce` per the spec; the orphan twins are **gone and unreferenced** (the grep proof); and no behavior changed beyond the `wait_db` hardening (the only `actools.sh` hunk is `:450-530` → the source block).
 
 ### Next safe task
 
