@@ -14,6 +14,16 @@
 #   validate_env rand_pass gen_if_empty init_state set_state get_state
 #   is_installed mark_installed get_db_pass get_backup_pass
 #
+# P0-M extension — the six DB-layer names:
+#   db_exec_root db_exec_root_stdin db_dump_container setup_backup_db_user
+#   wait_db check_db_creds
+# The same Entry-015 hazard applies: the repo carried stale v9.2 twins under
+# modules/db/{backup_user,credentials,wait}.sh (retired at P0-M) whose
+# wait_db/check_db_creds bodies differ from the live v14 inline code; wiring
+# one while the live definition existed would let load order silently decide
+# the winner. Each DB name must be defined exactly once on the live path, and
+# (post-retirement) may never exist in both actools.sh and a modules/db file.
+#
 # Semantics:
 #  * A name must be defined EXACTLY ONCE across the live source-closure of
 #    actools.sh. Count 2+ = a wired twin / forgotten inline deletion.
@@ -44,6 +54,19 @@ RISKY_FUNCTIONS=(
   get_backup_pass
 )
 
+# P0-M: the DB-layer set. Kept separate so the per-arm module scopes stay
+# explicit (core/*.sh for the stateless core, modules/db/*.sh for these).
+DB_RISKY_FUNCTIONS=(
+  db_exec_root
+  db_exec_root_stdin
+  db_dump_container
+  setup_backup_db_user
+  wait_db
+  check_db_creds
+)
+
+ALL_RISKY_FUNCTIONS=( "${RISKY_FUNCTIONS[@]}" "${DB_RISKY_FUNCTIONS[@]}" )
+
 setup() {
   REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   build_live_closure "$REPO"
@@ -53,7 +76,7 @@ setup() {
   local fn line count where
   local -a violations=()
 
-  for fn in "${RISKY_FUNCTIONS[@]}"; do
+  for fn in "${ALL_RISKY_FUNCTIONS[@]}"; do
     line="$(count_live_defs "$fn")"
     count="${line%% *}"
     where="${line#* }"
@@ -73,17 +96,20 @@ setup() {
 }
 
 @test "no risky core function is defined in both actools.sh and a sourced core module" {
-  # The named regression: an orphan core/*.sh twin gets wired (sourced) while
-  # the inline definition still exists. Redundant with exactly-once above, but
+  # The named regression: an orphan twin gets wired (sourced) while the
+  # inline definition still exists. Redundant with exactly-once above, but
   # stated explicitly so the failure message names the exact mistake.
+  # P0-M: the scan covers sourced modules/db/*.sh too — wiring a stale DB
+  # twin (e.g. modules/db/wait.sh) against the live inline layer is the same
+  # Entry-015 wrong-wiring shape.
   local fn f n_inline n_mod
   local -a violations=()
 
-  for fn in "${RISKY_FUNCTIONS[@]}"; do
+  for fn in "${ALL_RISKY_FUNCTIONS[@]}"; do
     n_inline=$(grep -cE "^[[:space:]]*(function[[:space:]]+)?${fn}[[:space:]]*\(\)" "$REPO/actools.sh" 2>/dev/null || true)
     (( n_inline > 0 )) || continue
     for f in "${CLOSURE[@]}"; do
-      [[ "$f" == core/*.sh ]] || continue
+      [[ "$f" == core/*.sh || "$f" == modules/db/*.sh ]] || continue
       n_mod=$(grep -cE "^[[:space:]]*(function[[:space:]]+)?${fn}[[:space:]]*\(\)" "$REPO/$f" 2>/dev/null || true)
       (( n_mod > 0 )) && violations+=("$fn: inline in actools.sh AND in sourced $f")
     done
@@ -103,6 +129,9 @@ setup() {
   # sourced or not. (Before P0-K completed, the unsourced stale twins made
   # this unsatisfiable; the exactly-once closure arm covered the runtime
   # hazard. This arm now also bans dormant orphan twins from ever returning.)
+  # P0-M note: the analogous unconditional DB twin ban (actools.sh +
+  # modules/db/*.sh) lands with the P0-M orphan retirement — the same
+  # sequencing P0-K used: unsatisfiable while the stale twins still exist.
   local fn f n_inline n_core
   local -a violations=()
 
