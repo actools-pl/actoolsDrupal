@@ -21,12 +21,12 @@
 #   INSTALL_DIR  — repository / installation root
 # =============================================================================
 
-# Run a root mariadb command inside the db container with no password on the host argv.
-# The container already holds MARIADB_ROOT_PASSWORD; we expose it to the client as MYSQL_PWD
-# *inside* the container. Caller passes mariadb args ($@), e.g. -e "..." or a heredoc on stdin.
-db_exec_root() {
-  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
-}
+# db_exec_root (and the DB layer) come from the P0-M authority (modules/db/core.sh — pure defs,
+# inert at source time). Top-level keeps the old source-time semantics (the local def lived here);
+# best-effort like the dispatch.sh source below (this file stays sourceable in a minimal sandbox).
+# Live path: cli/actools resolves INSTALL_DIR (:7) before sourcing this file (:90), so the
+# authority is found — pinned, typo-proof, by tests/cli/doctor_db_authority_test.bats.
+source "${INSTALL_DIR}/modules/db/core.sh" 2>/dev/null || true
 
 
 
