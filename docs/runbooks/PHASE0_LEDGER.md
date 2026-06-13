@@ -7,7 +7,7 @@ This ledger is the durable memory of the project. Update it after every phase, e
 ## Current status
 
 Phase 0 status: CLOSED — GO (see `PHASE0_UNLOCK_MEMO.md`)  
-Post-closure track (P0-K…P0-P): UNLOCKED  
+Post-closure track (P0-K…P0-P): **P0-K…P0-O COMPLETE** — core modularization + dual-truth closure landed (Entry 020, `9e5cba8`/#49); **P0-P parked** (gated: no second profile yet); **cleanup/mop-up track active** (`modules/ai` disposition + overloaded-"Phase 1" reconciliation) before any further feature phases  
 community-plus feature work: gated behind P0-K…P0-P
 
 ## Ledger entry template
@@ -193,7 +193,7 @@ None.
 
 ### Review Gate decision
 
-Pending — a separate session (Opus) verifies, in order: (1) the eight files are **gone** and no live reference survives (only the `modules/ai` dead glob + historical docs — the grep proof is empty); (2) `cli/actools` is **byte-identical** (SHA-256 `d2c64c9…`; the inline commands are untouched); (3) the tightened guard is **non-vacuous** (inject a DB-fn def into a `cli/commands` file → fail — the captured demo bites both arms) and green; (4) drift **6/6** + cron **3/3**; (5) the doc reconciliation is **minimal** and rewrites **no history**; (6) the install still works with the twins gone (the post-merge e2e — install reaches `MariaDB ready.` + `actools doctor` works — the recommended backstop; because the twins are provably dead there is **no new behavior-change gate**). The patch reproduces the tree. **APPROVE on green.**
+**APPROVED — ratified (2026-06-13): merged to `main` as `9e5cba8` (PR #49); independently verified offline — the eight dead twins are gone with no live reference (only the `modules/ai` dead glob + historical docs), `cli/actools` is byte-identical (`d2c64c9…`, the inline commands untouched), `modules/db/core.sh` + the P0-M contracts/guards untouched, the tightened guard is non-vacuous and green (the new repo-wide arm bites a rogue `cli/commands` file the live-path guard would miss; a live-path inject trips both arms), drift 6/6 + cron 3/3, the doc reconciliation is minimal and rewrites no history, and the patch reproduces the tree. No deviations to adjudicate (`modules/ai` is the spec's own boundary, a future pass). Dead-code removal — no new behavior-change gate; the post-merge e2e (#80) is the recommended backstop confirming the deletion is transparent to the installer.** *(Original pending text, for the record:)* Pending — a separate session (Opus) verifies, in order: (1) the eight files are **gone** and no live reference survives (only the `modules/ai` dead glob + historical docs — the grep proof is empty); (2) `cli/actools` is **byte-identical** (SHA-256 `d2c64c9…`; the inline commands are untouched); (3) the tightened guard is **non-vacuous** (inject a DB-fn def into a `cli/commands` file → fail — the captured demo bites both arms) and green; (4) drift **6/6** + cron **3/3**; (5) the doc reconciliation is **minimal** and rewrites **no history**; (6) the install still works with the twins gone (the post-merge e2e — install reaches `MariaDB ready.` + `actools doctor` works — the recommended backstop; because the twins are provably dead there is **no new behavior-change gate**). The patch reproduces the tree. **APPROVE on green.**
 
 ### Next safe task
 
