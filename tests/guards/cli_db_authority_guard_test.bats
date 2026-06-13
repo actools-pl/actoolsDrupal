@@ -1,39 +1,53 @@
 #!/usr/bin/env bats
 # =============================================================================
-# tests/guards/cli_db_authority_guard_test.bats — P0-N guard
-# (live CLI path: the six DB functions are defined ONLY in modules/db/core.sh)
+# tests/guards/cli_db_authority_guard_test.bats — P0-N guard, tightened @ P0-O
+# (the six DB functions are defined ONLY in modules/db/core.sh)
 #
 # FAILS when any of the six canonical DB-layer names
 #   db_exec_root db_exec_root_stdin db_dump_container setup_backup_db_user
 #   wait_db check_db_creds
-# is DEFINED (`^name()`) on the LIVE CLI PATH. P0-N converged the one live
-# dual-truth left after P0-M — cli/commands/doctor.sh carried its own (then
-# byte-identical) db_exec_root copy, so a future fix to the module would
-# silently not reach `doctor`. This guard exists so that copy — or any new
-# one — can never come back on a live CLI file.
+# is DEFINED (`^name()`) on a CLI file. P0-N converged the one live dual-truth
+# left after P0-M — cli/commands/doctor.sh carried its own (then byte-identical)
+# db_exec_root copy, so a future fix to the module would silently not reach
+# `doctor`. This guard exists so that copy — or any new one — can never come
+# back on a CLI file.
 #
-# The LIVE CLI PATH (this guard's scope) is:
-#   * cli/actools (the CLI entrypoint, installed by copy — P0-F), PLUS
-#   * every `source "${INSTALL_DIR}/cli/commands/<f>.sh"` target parsed out
-#     of cli/actools (today: doctor.sh). One level, per the P0-N spec — the
-#     live CLI path is what cli/actools itself wires in.
+# TWO complementary scopes, each with its own oracle and non-vacuity arm:
+#
+#   (1) LIVE CLI PATH — _assert_cli_db_authority (P0-N, retained):
+#       * cli/actools (the CLI entrypoint, installed by copy — P0-F), PLUS
+#       * every `source "${INSTALL_DIR}/cli/commands/<f>.sh"` target parsed
+#         out of cli/actools (today: doctor.sh). One level — the live CLI path
+#         is what cli/actools itself wires in. This arm covers cli/actools,
+#         which the repo-wide arm (cli/commands-only) does not see.
+#
+#   (2) REPO-WIDE CLI — _assert_repo_wide_cli_db_authority (P0-O, new):
+#       * EVERY regular file in cli/commands/ (find -maxdepth 1 -type f),
+#         not just the ones cli/actools sources. After the P0-O deletion only
+#         doctor.sh + doctor_deep.sh remain, neither defines a DB fn → green.
+#         Strictly stronger than the live-path scope for cli/commands: a DB-fn
+#         copy on ANY future command file is caught the moment it lands, before
+#         anything wires it in. No allow/deny list needed.
+#
+# P0-O RELEASE NOTE — this is an INTENTIONAL edit to the P0-N guard:
+#   * The eight dead-twin cli/commands files (backup, ci_generate,
+#     cost_optimize, health, restore, storage, update, worker) are DELETED in
+#     P0-O — three carried inert byte-identical DB-fn copies. The old
+#     DEAD_TWINS array and the "excluded by construction" arm that named them
+#     are removed (nothing left to exclude); the exclusion logic is replaced
+#     by the stronger repo-wide-CLI arm (2) above.
 #
 # Excluded by construction (NOT scanned):
 #   * modules/db/core.sh — the P0-M AUTHORITY. It is not a cli/commands file
-#     and the builder never recurses into source lines of live command files,
-#     so doctor.sh's `source .../modules/db/core.sh` cannot drag the authority
+#     and neither oracle recurses into source lines of CLI files, so
+#     doctor.sh's `source .../modules/db/core.sh` cannot drag the authority
 #     into its own ban. (A sanity arm below pins that the authority still
 #     defines all six.)
-#   * the eight DEAD-TWIN cli/commands files (backup, ci_generate,
-#     cost_optimize, health, restore, storage, update, worker) — their cmd_*
-#     functions are called 0x in cli/actools (every command is inline), so
-#     cli/actools sources none of them and the builder naturally excludes
-#     them. Several still define DB-fn copies on disk; that is P0-O's job
-#     (deletion), and this guard stays green before and after it.
 #
-# Non-vacuous: a permanent fixture arm builds a simulated live CLI tree with
-# an injected db_exec_root definition (once on a live command file, once on
-# cli/actools itself) and the SAME oracle must fail it.
+# Non-vacuous: each oracle has a permanent fixture arm that injects a DB-fn
+# definition into a doctored tree and asserts the SAME oracle fails it —
+# (1) on a live command file and on cli/actools itself; (2) on a rogue
+# cli/commands file the live path would never source.
 # CI wiring: discovered by the recursive bats job (lint.yml: `bats -r tests/`).
 # =============================================================================
 
@@ -44,17 +58,6 @@ CLI_DB_FUNCTIONS=(
   setup_backup_db_user
   wait_db
   check_db_creds
-)
-
-DEAD_TWINS=(
-  cli/commands/backup.sh
-  cli/commands/ci_generate.sh
-  cli/commands/cost_optimize.sh
-  cli/commands/health.sh
-  cli/commands/restore.sh
-  cli/commands/storage.sh
-  cli/commands/update.sh
-  cli/commands/worker.sh
 )
 
 setup() {
@@ -109,6 +112,42 @@ _assert_cli_db_authority() {
     echo "(P0-M). A live CLI file must source the module, never redefine —"
     echo "a local copy is the dual-truth P0-N removed from doctor.sh: a fix"
     echo "to the module would silently not reach the copy."
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# _assert_repo_wide_cli_db_authority <repo_root>  (P0-O)
+# The repo-wide-CLI oracle: scans EVERY regular file in cli/commands/ (one
+# level, find -maxdepth 1 -type f — not just the files cli/actools sources)
+# and fails, echoing each violation, if any defines one of the six canonical
+# DB names. After the P0-O twin deletion only doctor.sh + doctor_deep.sh
+# remain. Used by the main repo-wide arm (expects PASS) and its non-vacuity
+# arm (expects FAIL on a rogue command file).
+# ---------------------------------------------------------------------------
+_assert_repo_wide_cli_db_authority() {
+  local repo="$1" dir="$1/cli/commands" f fn hits
+  local -a violations=()
+  [[ -d "$dir" ]] || {
+    echo "cli/commands/ missing on disk: $dir"
+    echo "(the repo-wide CLI scan needs the directory — wrong wiring, not a"
+    echo "guard exemption)"
+    return 1
+  }
+  while IFS= read -r f; do
+    for fn in "${CLI_DB_FUNCTIONS[@]}"; do
+      hits="$(grep -nE "^${fn}\(\)" "$f" || true)"
+      [[ -n "$hits" ]] && violations+=("cli/commands/$(basename "$f"):${hits%%:*}: ${fn}() defined")
+    done
+  done < <(find "$dir" -maxdepth 1 -type f | sort)
+
+  if (( ${#violations[@]} > 0 )); then
+    echo "DB-layer function DEFINED on a cli/commands file (repo-wide CLI scan):"
+    printf '  %s\n' "${violations[@]}"
+    echo ""
+    echo "The six DB functions have exactly ONE authority: modules/db/core.sh"
+    echo "(P0-M). No cli/commands file may define them — P0-O deleted the dead"
+    echo "twins that once did; a CLI command must source the module, never copy."
     return 1
   fi
 }
@@ -225,27 +264,45 @@ FIX
 }
 
 # ---------------------------------------------------------------------------
-# Dead-twin exclusion: the eight dead cli/commands files are NOT on the live
-# CLI path (cli/actools sources none of them — every command is inline), so
-# their on-disk DB-fn copies cannot trip this guard. Green pre-P0-O (the
-# twins still exist and several still define DB fns) and post-P0-O (deleted;
-# the existence check below skips absent files).
+# Repo-wide-CLI arm (P0-O): no file in cli/commands/ defines any of the six,
+# not just the files cli/actools sources. After the P0-O twin deletion only
+# doctor.sh + doctor_deep.sh remain — neither defines a DB fn. This replaces
+# the P0-N dead-twin "excluded by construction" arm: with the twins gone there
+# is nothing to exclude, and banning the six names on EVERY command file is
+# the stronger, list-free invariant.
 # ---------------------------------------------------------------------------
 
-@test "the eight dead twins are excluded by construction (guard green pre-P0-O)" {
-  build_live_cli_set "$REPO"
-  local twin f
-  for twin in "${DEAD_TWINS[@]}"; do
-    [[ -f "$REPO/$twin" ]] || continue   # post-P0-O: deleted, nothing to exclude
-    for f in "${LIVE_CLI_SET[@]}"; do
-      [[ "$f" == "$twin" ]] && {
-        echo "Dead twin appeared on the live CLI path: $twin"
-        echo "Wiring a dead twin is P0-O-forbidden scope; if it was wired"
-        echo "deliberately, it must first lose its DB-fn copies (the oracle"
-        echo "above will also be failing on them)."
-        return 1
-      }
-    done
-  done
-  true
+@test "no DB-layer function is defined on ANY cli/commands file (repo-wide CLI, authority: modules/db/core.sh)" {
+  _assert_repo_wide_cli_db_authority "$REPO"
+}
+
+# ---------------------------------------------------------------------------
+# Non-vacuity arm for the repo-wide oracle: a rogue cli/commands file that the
+# live CLI path would never source (cli/actools sources only doctor.sh) still
+# trips the repo-wide scan. Proves the arm above is not vacuously green just
+# because today's two survivors happen to be clean.
+# ---------------------------------------------------------------------------
+
+@test "non-vacuous: an injected db_exec_root definition on a rogue cli/commands file FAILS the repo-wide check" {
+  local fix="$BATS_TEST_TMPDIR/fixture-repowide"
+  mkdir -p "$fix/cli/commands"
+  # A clean survivor (mirrors the real doctor.sh: sources the module, no copy).
+  cat > "$fix/cli/commands/doctor.sh" <<'FIX'
+#!/usr/bin/env bash
+source "${INSTALL_DIR}/modules/db/core.sh" 2>/dev/null || true
+run_doctor() { db_exec_root -e "SELECT 1;"; }
+FIX
+  # A rogue command file nothing wires in, carrying a DB-fn copy.
+  cat > "$fix/cli/commands/rogue.sh" <<'FIX'
+#!/usr/bin/env bash
+db_exec_root() {
+  docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ "$@"
+}
+FIX
+  # Self-check: the doctoring took (else the arm proves nothing).
+  grep -qE '^db_exec_root\(\)' "$fix/cli/commands/rogue.sh"
+
+  run _assert_repo_wide_cli_db_authority "$fix"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cli/commands/rogue.sh"*"db_exec_root() defined"* ]]
 }
