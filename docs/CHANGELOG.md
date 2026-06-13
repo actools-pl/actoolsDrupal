@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased] — P0-O Orphan Disposition + Doc-Authority Lock
+
+### Removed — the eight dead twin command files
+- Deleted `cli/commands/{backup,ci_generate,cost_optimize,health,restore,storage,update,worker}.sh`
+  (425 lines) — the original per-file CLI design that `cli/actools` superseded
+  by inlining every command (`worker-logs` :103, `storage-test` :117, `update`
+  :163, `backup` :197, `health` :199, `restore` :241). Their `cmd_*`/`run_*`
+  functions were called **0×** in `cli/actools`; the profile resolver only ever
+  resolves `doctor_deep`; three of them (`restore.sh`, `update.sh`,
+  `cost_optimize.sh`) carried **inert byte-identical copies** of the P0-M DB
+  functions — deleting the files removes that orphan dual-truth at the root.
+  `cli/commands/` now holds only the two live handlers `doctor.sh` +
+  `doctor_deep.sh`. No behavior change: the user-facing commands are inline in
+  `cli/actools`, which is **byte-identical** to baseline (SHA-256 `d2c64c9…`).
+  The only surviving reference is `modules/ai/assistant.sh:30`'s dead
+  `cli/commands/*.sh` glob (`modules/ai` is dead and out of scope — a future
+  pass); the per-file grep proof is otherwise empty.
+
+### Changed — CLI DB-authority guard tightened to repo-wide-CLI (intentional edit to the P0-N guard)
+- `tests/guards/cli_db_authority_guard_test.bats`: removed the `DEAD_TWINS`
+  array and the "excluded by construction" arm (no twins remain to exclude)
+  and replaced the exclusion logic with a stronger, **list-free repo-wide-CLI**
+  oracle (`_assert_repo_wide_cli_db_authority`) that scans **every** regular
+  file in `cli/commands/` (`find -maxdepth 1 -type f`) and fails on any
+  `^name()` definition of the six canonical DB names — caught the moment it
+  lands, before anything wires it in. Added its main arm (green: only
+  `doctor.sh` + `doctor_deep.sh` remain) and a permanent non-vacuity arm (a
+  rogue `cli/commands/` file the live path would never source → the oracle
+  bites). The full P0-N **live-CLI machinery is retained** (it still covers
+  `cli/actools`, which the `cli/commands`-only repo-wide arm does not see).
+  Net **−1/+2 arms** (7 → 8 in this file); full suite **230 → 231**. The live
+  inject-and-revert demo bites both arms (captured in the handoff).
+
+### Changed — operator/architecture docs reconciled (minimal; no history rewritten)
+- `docs/advanced.md`: the CI/CD section no longer presents the deleted
+  `cli/commands/ci_generate.sh` as where "the code lives" — restated as a
+  planned/experimental design reference with no implementation. `ci` and
+  `cost-optimize` stay marked "not a registered command" (the P0-J
+  disposition); the AI-assistant section is untouched (`modules/ai` still
+  exists, out of scope).
+- `docs/architecture/runtime-authority-map.md`: the Worker-provisioning row
+  repoints the worker CLI authority from the deleted `cli/commands/worker.sh`
+  to the inline `cli/actools` command (`worker-logs` :103); one
+  command-authority line added (real commands live in `cli/actools`'s
+  dispatch; `cli/commands/` now holds only the two live handlers). Historical
+  phase records are left verbatim.
+
+### Ratified — Entry 019 (P0-N)
+- Merge SHA stamped: `6a6671c` (#48); Entry 019's Review Gate decision flipped
+  to **APPROVED**. The live-CLI-path guard bites (fixture arms + the captured
+  live demo), the resolved `db_exec_root` is byte-equal to `core.sh`, and the
+  doctor-smoke backstop passed — a verbatim-equivalent swap with no new
+  behavior-change gate. The original pending text is preserved in the ledger.
+
 ## [Unreleased] — P0-N CLI DB-Layer Convergence (live `doctor.sh`)
 
 ### Changed — doctor's DB layer converged onto the P0-M authority (verbatim-equivalent swap; no behavior change)

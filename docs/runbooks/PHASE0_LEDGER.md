@@ -86,11 +86,131 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 020 — P0-O · Orphan Disposition + Doc-Authority Lock
+
+Date: 2026-06-13
+Branch: `phase0/P0-O-orphan-disposition` (operator records the applied branch + `main` SHA)
+Commit SHA: three implementation commits + one docs commit (sandbox sequence: `55ece86` delete the eight twins → `1f046ca` tighten the CLI DB guard to repo-wide → `c7891b0` doc reconciliation → docs)
+Actor / Claude session (model): Coding Window (Fable)
+Phase: P0-O — Orphan Disposition + Doc-Authority Lock
+Task prompt source: `P0-O-orphan-disposition.md` + coding-window prompt (filled)
+
+### Objective
+
+Delete the **eight dead twin** command files under `cli/commands/` — the original per-file CLI design that `cli/actools` superseded by inlining. Their `cmd_*`/`run_*` functions are called **0×** in `cli/actools` (every user-facing command is inline: `worker-logs` :103, `storage-test` :117, `update` :163, `backup` :197, `health` :199, `restore` :241), the profile resolver only ever resolves `doctor_deep`, and three twins (`restore.sh`, `update.sh`, `cost_optimize.sh`) carried inert byte-identical copies of the P0-M DB functions — deleting the files kills that orphan dual-truth at the root. Then **tighten** the P0-N live-CLI DB guard from a live-path-scoped check to a **repo-wide-CLI** invariant (now that the only DB-fn-copy violators are gone), and reconcile the narrow operator/architecture doc surface so no doc points at a deleted file. The CLI analog of P0-M's `modules/db` twin purge. Dead-code removal — **no behavior change**; the user-facing commands are inline in `cli/actools`, which is **byte-identical** to baseline.
+
+### The deletion (commit 1)
+
+`git rm` of `cli/commands/{backup,ci_generate,cost_optimize,health,restore,storage,update,worker}.sh` (425 lines). `ls cli/commands/` now shows **only** `doctor.sh` + `doctor_deep.sh`. The per-file grep proof (`for f in …; grep -rIn "cli/commands/$f\.sh\|/$f\.sh"`) is **empty** across `*.sh`/`*.yml`/`*.bats`. The one permitted survivor is `modules/ai/assistant.sh:30`'s **dead glob** (`"${INSTALL_DIR}"/cli/commands/*.sh`) — `modules/ai` is dead (no `ai` branch in `cli/actools`, nothing live sources it) and is **out of scope** (a future pass); the glob now resolves to only the two live handlers. `cli/actools` SHA-256 unchanged (`d2c64c9…`).
+
+### The guard tightening (commit 2)
+
+`tests/guards/cli_db_authority_guard_test.bats`: the `DEAD_TWINS` array and the `:235` "excluded by construction" arm are **removed** (no twins remain to exclude). The exclusion logic is replaced by a stronger, **list-free repo-wide-CLI** oracle, `_assert_repo_wide_cli_db_authority`, which scans **every** regular file in `cli/commands/` (`find -maxdepth 1 -type f`) and fails on any `^name()` definition of the six canonical DB names; its **main arm** (green — only `doctor.sh` + `doctor_deep.sh` remain, neither defines one) and a permanent **non-vacuity arm** (a rogue `cli/commands/rogue.sh` the live path would never source → the oracle bites, naming `rogue.sh`) are added. The full P0-N **live-CLI machinery is retained** (the `build_live_cli_set` derivation, the `_assert_cli_db_authority` oracle, the live-CLI-set + authority sanity arms, the main live arm, and all three live non-vacuity arms) — the live arm covers `cli/actools`, which the `cli/commands`-only repo-wide arm does not see. Net: **−1 arm, +2 arms** (7 → 8 in this file). The header carries the **intentional-edit release note**. **Live demo (captured in the handoff/test report):** injecting `db_exec_root()` onto `cli/commands/doctor.sh` fails **both** the live-CLI arm and the repo-wide arm at `cli/commands/doctor.sh:258`; reverted byte-identical (sha `ac5eda8c…` restored).
+
+### The doc reconciliation (commit 3)
+
+- `docs/advanced.md` — the CI/CD section no longer claims the (now-deleted) `cli/commands/ci_generate.sh` is where "the code lives"; it is restated as a planned/experimental design reference with **no implementation**, noting the placeholder was removed in P0-O. `ci` and `cost-optimize` remain marked **"not a registered command"** (the P0-J disposition is preserved, not revived or erased). The AI-assistant section is **untouched** (`modules/ai/assistant.sh` still exists; out of scope).
+- `docs/architecture/runtime-authority-map.md` — the **Worker-provisioning** row repoints the worker CLI authority from the deleted `cli/commands/worker.sh` twin to the **inline `cli/actools`** command (`worker-logs` :103), noting the P0-O deletion. **One** plain command-authority line is added: the authoritative list of real commands is `cli/actools`'s dispatch (all inline); `cli/commands/` now holds only the two live handler files. Historical phase records (the P0-N test-surface narrative at the map's lines ~64/110; `HANDOFF-P0-L`; older `LEDGER` entries; `tests/P0-N`/`tests/P0-L`) are left **verbatim**.
+
+### Files changed
+
+- **DELETED (8):** `cli/commands/{backup,ci_generate,cost_optimize,health,restore,storage,update,worker}.sh`
+- `tests/guards/cli_db_authority_guard_test.bats` — tightened to repo-wide-CLI (release-noted; −1/+2 arms)
+- `docs/advanced.md`, `docs/architecture/runtime-authority-map.md` — focused reconciliation (above)
+- Docs: this ledger (Entry 020 + Entry 019 ratification), `docs/CHANGELOG.md`, `docs/releases/P0-O-orphan-disposition.md`, `docs/tests/P0-O-orphan-disposition.md`, `docs/runbooks/HANDOFF-P0-O.md`
+
+### Files intentionally not changed
+
+- **`cli/actools`** — byte-identical to baseline (SHA-256 `d2c64c9…`); the inline `backup`/`storage`/`worker`/`health`/`update`/`restore` commands are untouched — only their dead duplicate *files* were deleted
+- **`modules/ai/`** — dead, but its disposition is a future pass; only confirmed it does not make the deletion unsafe (its `cli/commands/*.sh` glob is dead code)
+- `modules/db/core.sh` — the P0-M authority (defines all six names); no edits (P0-M contracts/guards untouched: `tests/db/` 13/13, dup-fn + `wait_db` guards green)
+- `cli/commands/doctor.sh`, `cli/commands/doctor_deep.sh` — the two live handlers (forbidden scope)
+- `actools.sh`, `main()`, `installer/`, `profiles/`; generated files / golden fixtures (drift 6/6 + cron 3/3, no fixture modified)
+- Historical phase records — `HANDOFF-P0-*` / `LEDGER` 001–019 bodies / `tests/P0-*` docs (only Entry 020 added + Entry 019 ratified)
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| The eight dead twin command files | present on disk (dead — `cmd_*` called 0× in `cli/actools`); three carried inert byte-identical DB-fn copies | **deleted**; the orphan dual-truth removed at the root |
+| CLI DB-authority guard scope | live CLI path only (`cli/actools` + its sourced command files), dead twins excluded by an explicit `DEAD_TWINS` list | live CLI path **plus** a repo-wide-CLI arm (every `cli/commands/` file); no allow/deny list — any DB-fn copy on any command file is caught the moment it lands |
+| Worker CLI authority (doc) | doc presented `cli/commands/worker.sh` as the CLI authority | doc points at the inline `cli/actools` command (`worker-logs` :103); the twin is recorded as deleted |
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | golden drift 6/6 |
+| Caddyfile | Not touched | golden drift 6/6 |
+| my.cnf | Not touched | golden drift 6/6 |
+| Dockerfiles | Not touched | golden drift 6/6 |
+| CLI | Not touched (`cli/actools` byte-identical, SHA `d2c64c9…`) | `tests/cli/` 7/7; full-suite `cli_authority`/`doctor` arms green |
+| /etc/cron.daily/actools-backup | Not touched | cron drift 3/3 |
+
+### Tests run
+
+```bash
+bash -n cli/actools && echo SYNTAX_OK                       # SYNTAX_OK
+bats tests/guards/        # 21/21 — incl. the tightened cli_db_authority 8 arms
+bats tests/cli/           # 7/7 — P0-N focused test unaffected (doctor still resolves core.sh)
+bats tests/db/            # 13/13 — P0-M contracts unaffected
+bats tests/generated/     # 9/9 — drift 6/6 + cron 3/3
+bats -r tests/            # net 230 -> 231 (-1 dead-twin arm, +2 repo-wide arms)
+ls cli/commands/                                            # doctor.sh  doctor_deep.sh
+for f in backup ci_generate cost_optimize health restore storage update worker; do
+  grep -rIn "cli/commands/$f\.sh" . --include='*.sh' --include='*.yml' --include='*.bats' | grep -v '\.git/'
+done                                                        # EMPTY (only modules/ai dead glob conceptually)
+# guard-bites demo: inject db_exec_root() onto cli/commands/doctor.sh -> FAILS both arms; revert byte-identical (sha ac5eda8c…)
+```
+
+### Test result
+
+PASS (P0-O-relevant suites) — `tests/guards/` 21/21, `tests/cli/` 7/7, `tests/db/` 13/13, `tests/generated/` 9/9 (drift 6/6 + cron 3/3); the tightened guard is non-vacuous (the repo-wide non-vacuity arm + the captured live inject-and-revert demo). Full suite net **230 → 231** (the intended delta: −1 dead-twin arm, +2 repo-wide arms). *Environmental note:* in a jq-provisioned env (CI) the full suite is 231/231 green; in this review sandbox `jq` could not be installed (apt 404 + the GitHub-releases CDN 403), so **12 jq-dependent `tests/core/` tests** (state/secrets JSON round-trips) report `not ok` — **identically at the P0-O baseline (`4e2f620`) and at HEAD** (a worktree A/B confirmed 230-vs-231 totals with the same 12), i.e. pre-existing and **outside P0-O scope**. See `HANDOFF-P0-O.md`.
+
+### Documentation updated
+
+- [x] Runtime authority map (Worker row repointed; the command-authority line added; history left verbatim)
+- [ ] Generated-file contract — no change needed (nothing generated changed)
+- [ ] CLI authority contract — `cli/actools` byte-identical (install-by-copy untouched)
+- [x] Operator target docs (`docs/advanced.md` ci section reconciled; phantom commands still planned)
+- [x] Test plan / test report
+
+### Changelog / release notes
+
+- [x] CHANGELOG.md updated
+- [x] Release note added (`docs/releases/P0-O-orphan-disposition.md`)
+- [x] Test report added (`docs/tests/P0-O-orphan-disposition.md`)
+- [x] Review notes — for the Review Gate, see the handoff (`docs/runbooks/HANDOFF-P0-O.md`)
+
+### Known risks
+
+- **`modules/ai` left in place (dead).** Its `cli/commands/*.sh` glob is now the only surviving reference to the directory's old shape; it resolves to the two live handlers and is harmless. `modules/ai`'s disposition is a deliberate **future pass** (its own orphan-removal), explicitly out of P0-O scope — flagged so it is not forgotten.
+- **The repo-wide arm is `cli/commands`-scoped.** A DB-fn copy introduced **elsewhere** on a future live path (a new sourced directory) is not caught by *that* arm — but the **retained live-CLI arm** covers `cli/actools` and its sourced targets, and any new wiring pattern is the Review Gate of that phase's responsibility (the live arm's missing-target arm fails loudly on half-wired states).
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+Pending — a separate session (Opus) verifies, in order: (1) the eight files are **gone** and no live reference survives (only the `modules/ai` dead glob + historical docs — the grep proof is empty); (2) `cli/actools` is **byte-identical** (SHA-256 `d2c64c9…`; the inline commands are untouched); (3) the tightened guard is **non-vacuous** (inject a DB-fn def into a `cli/commands` file → fail — the captured demo bites both arms) and green; (4) drift **6/6** + cron **3/3**; (5) the doc reconciliation is **minimal** and rewrites **no history**; (6) the install still works with the twins gone (the post-merge e2e — install reaches `MariaDB ready.` + `actools doctor` works — the recommended backstop; because the twins are provably dead there is **no new behavior-change gate**). The patch reproduces the tree. **APPROVE on green.**
+
+### Next safe task
+
+**P0-P — profile-selected install** — **GATED** until a second profile exists; likely deferred. (`modules/ai` and any remaining standalone-feature orphans are **separate future passes**.)
+
+### Forbidden next scope
+
+No wiring of any deleted-twin behavior back onto a command file (the guard's repo-wide and live arms both bite); no edits to `modules/db/core.sh` or the P0-M contracts/guards without an explicit release note; no `modules/ai` changes (its own future pass); no generated-file change; `main()`'s hardcoded profile source stays until P0-P.
+
+---
+
+
 ## Entry 019 — P0-N · CLI DB-Layer Convergence (live `doctor.sh`)
 
 Date: 2026-06-12
 Branch: `phase0/P0-N-cli-db-convergence` (operator records the applied branch + `main` SHA)
-Commit SHA: three implementation commits + one docs commit (sandbox sequence: `7b88539` swap → `e7ba619` live-CLI-path guard → `8d33573` focused authority test → docs)
+Commit SHA: three implementation commits + one docs commit (sandbox sequence: `7b88539` swap → `e7ba619` live-CLI-path guard → `8d33573` focused authority test → docs). **Merged to `main` as `6a6671c` (#48)** — *stamped at P0-O ratification, 2026-06-13.*
 Actor / Claude session (model): Coding Window
 Phase: P0-N — CLI DB-Layer Convergence (live `doctor.sh`)
 Task prompt source: `P0-N-cli-db-convergence.md` + coding-window prompt (filled)
@@ -191,7 +311,7 @@ None.
 
 ### Review Gate decision
 
-Pending — a separate session verifies, in order: (1) `doctor.sh` sources the module and the local def is gone (grep proofs); (2) the resolved `db_exec_root` is byte-identical to `core.sh` (the focused test's `declare -f` arm; the deleted local def re-verified byte-identical to the authority against the baseline); (3) the live-CLI-path guard **bites** (permanent fixture arms + the captured live demo); (4) drift 6/6 + cron 3/3; (5) the eight dead twins untouched; (6) the doctor-smoke passes (branch e2e dispatch recommended, not gating — this is not a behavior change, so there is **no new e2e gate**). The `|| true` deviation is flagged for explicit confirmation. **APPROVE on green.**
+**APPROVED — ratified at P0-O (2026-06-13): merged to `main` as `6a6671c` (#48); the live-CLI-path guard bites (the permanent fixture arms + the captured live inject-and-revert demo), the resolved `db_exec_root` is byte-equal to `core.sh` (the focused test's `declare -f` arm), and the doctor-smoke backstop passed — a verbatim-equivalent swap, so there was no new behavior-change gate. The `|| true` deviation was reviewed and accepted (it restores `doctor.sh`'s minimal-sandbox contract; the typo-risk is pinned red by the focused test's resolution arm).** *(Original pending text, for the record:)* Pending — a separate session verifies, in order: (1) `doctor.sh` sources the module and the local def is gone (grep proofs); (2) the resolved `db_exec_root` is byte-identical to `core.sh` (the focused test's `declare -f` arm; the deleted local def re-verified byte-identical to the authority against the baseline); (3) the live-CLI-path guard **bites** (permanent fixture arms + the captured live demo); (4) drift 6/6 + cron 3/3; (5) the eight dead twins untouched; (6) the doctor-smoke passes (branch e2e dispatch recommended, not gating — this is not a behavior change, so there is **no new e2e gate**). The `|| true` deviation is flagged for explicit confirmation. **APPROVE on green.**
 
 ### Next safe task
 

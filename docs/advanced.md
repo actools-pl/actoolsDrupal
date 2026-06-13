@@ -103,7 +103,7 @@ Each preview would get its own database, PHP container, and Caddy vhost with aut
 
 ## CI/CD generation
 
-> **Experimental — not wired.** `actools ci …` is **not** a registered command. The code lives in `cli/commands/ci_generate.sh` (unsourced). Design reference only.
+> **Experimental — not wired.** `actools ci …` is **not** a registered command — design reference only, with no implementation behind it. (The unsourced `cli/commands/ci_generate.sh` placeholder was removed in P0-O; the feature stays planned.)
 
 Planned surface:
 
