@@ -86,6 +86,171 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 021 — C1 · Orphan-Module Inventory + Live-Set Guard
+
+Date: 2026-06-14
+Branch: `phaseC/C1-orphan-inventory` (operator records the applied branch + `main` SHA on merge)
+Commit SHA: one implementation commit on top of baseline `82ba206` + this docs entry (sandbox; operator stamps the squash/merge SHA on apply)
+Actor / Claude session (model): Coding Window (Opus) — cross-model review withdrawn; three isolated Opus windows per WORKFLOW-PACKAGE §0
+Phase: C1 — Orphan-Module Inventory + Live-Set Guard (Track C, Layer 1)
+Task prompt source: `SPEC-C1-orphan-inventory.md` + project instructions + `WORKFLOW-PACKAGE.md`
+
+### Objective
+
+Establish the **authoritative inventory** of the `modules/` trees — which are LIVE vs orphan, and for the orphans, dead-twin vs 4.5-seed — and add a structural guard that **pins the live-module set** so future drift (an undocumented new live module, or a documented-live module that stops being sourced) fails CI. **No code deletion, no behaviour change.** C1 is the evidence base + guard that make C2 (delete dead-twins) and C3 (quarantine 4.5-seeds) safe — capture/guard-before-the-change.
+
+### The inventory (verified at `82ba206`)
+
+`modules/` holds **18** directories. **6 LIVE · 12 orphan · 18 total.** This corrects the plan-of-record §2 "12 of 19" off-by-one → the verified figure is **12 of 18**, recorded here authoritatively.
+
+- **LIVE (6)** — reached by the live install path (sourced from `actools.sh`, or referenced by the installer / operator CLI): `audit, backup, db, drupal, host, stack`.
+- **Orphan (12)** — no live reference: `ai, compliance, dr, health, migrate, network, observability, preflight, preview, security, storage, worker`.
+  - **dead-twins (7)** → C2 deletes (duplicate live inline/module logic): `ai, health, migrate, preflight, preview, storage, worker` — the `migrate` **module dir** only; the separate inline `migrate` CLI text-guide is **not** this dir and **stays**.
+  - **4.5-seeds (5)** → C3 quarantines into `experimental/` (committed 4.5 design, not deleted): `compliance, dr, network, observability, security`.
+
+### Per-module live-reference proof (grep)
+
+Surface = the live entry points named in the spec: `actools.sh`, `installer/` (recursive), `cli/actools`. Command form, per module:
+
+```sh
+grep -rn "modules/<name>/" actools.sh installer/ cli/actools
+```
+
+**Orphans — empty result (no live reference):**
+
+```text
+$ grep -rn "modules/ai/"            actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/compliance/"    actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/dr/"            actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/health/"        actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/migrate/"       actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/network/"       actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/observability/" actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/preflight/"     actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/preview/"       actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/security/"      actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/storage/"       actools.sh installer/ cli/actools   # (no output)
+$ grep -rn "modules/worker/"        actools.sh installer/ cli/actools   # (no output)
+```
+
+Broadened sanity (recorded for C2/C3): no orphan is referenced anywhere under `cli/` either, nor with a bare `modules/<name>` (no-trailing-slash) match across `actools.sh`/`installer/`/`cli/` — the orphans are genuinely unreferenced on the live path.
+
+**Live — reference found:**
+
+```text
+$ grep -rn "modules/audit/"  …
+cli/actools:313:    AUDIT_SCRIPT="${INSTALL_DIR}/modules/audit/audit.sh"
+cli/actools:317:    source "${INSTALL_DIR}/modules/audit/lib/output.sh" 2>/dev/null || true
+$ grep -rn "modules/backup/" …
+actools.sh:516:source "${INSTALL_DIR}/modules/backup/cron.sh" || error "Cannot load modules/backup/cron.sh"
+$ grep -rn "modules/db/"     …
+actools.sh:457:source "${INSTALL_DIR}/modules/db/core.sh" || error "Cannot load modules/db/core.sh"
+$ grep -rn "modules/drupal/" …
+actools.sh:181:source "${INSTALL_DIR}/modules/drupal/provision.sh" || error "Cannot load modules/drupal/provision.sh"
+$ grep -rn "modules/host/"   …
+actools.sh:193:  source "${INSTALL_DIR}/modules/host/${_hostmod}.sh" \
+installer/dispatch.sh:298,304,389   (live comments referencing modules/host/*)
+$ grep -rn "modules/stack/"  …
+actools.sh:204:  source "${INSTALL_DIR}/modules/stack/${_stackmod}.sh" \
+```
+
+`audit` is the one live module reached **without** an `${INSTALL_DIR}` source line from `actools.sh` — it is invoked from `cli/actools` (the copied operator-CLI surface, P0-F). That is why the guard derives the live set as the source-closure of `actools.sh` **∪** entry-point references, not the closure alone.
+
+### The guard — `tests/guards/orphan_inventory_guard_test.bats`
+
+Rationale: pin the live-module set so Track C's deletions/quarantines cannot silently change what actually runs, and so any future undocumented live module (or silently-dropped live module) fails CI. It **reuses** the P0-K `live_closure.bash` engine (`build_live_closure`, `CLOSURE`, `in_closure`) **unmodified** (no deviation).
+
+- Derives the actual live set = `{modules/<name> in CLOSURE}` ∪ `{modules/<name> referenced in actools.sh, installer/, cli/actools}`, intersected with the real `modules/*` dirs — derived from the tree, never hardcoded.
+- Asserts it **equals** the canonical `EXPECTED_LIVE_MODULES=(audit backup db drupal host stack)` (sorted). That literal list is the guard's single source of truth and **mirrors** the "Standalone modules" section of `runtime-authority-map.md`; the header comment states any phase changing the live set updates **both**.
+- Carries a **closure-sanity** arm (mirrors `live_authority_guard_test.bats`): ≥15 closure files + known live-path files present, so it cannot pass vacuously if the engine returns nothing.
+
+**Non-vacuity demonstration (verbatim in `HANDOFF-C1.md`):** injecting `source "${INSTALL_DIR}/modules/ai/assistant.sh"` into `actools.sh` makes the derived set include `ai`; the equality arm **FAILS** (diff shows `> ai`). Reverting `actools.sh` (sha `44de0635…` restored byte-for-byte) makes it **pass**. The closure-sanity arm stays green throughout (the engine still resolves the path).
+
+### Files changed
+
+- `docs/architecture/runtime-authority-map.md` — **ADD** the "Standalone modules" section (53 insertions, 0 deletions; existing sections untouched).
+- `tests/guards/orphan_inventory_guard_test.bats` — **NEW** guard (2 arms: closure-sanity + live-set equality).
+- `docs/runbooks/PHASE0_LEDGER.md` — **ADD** this Entry 021.
+
+### Files intentionally not changed
+
+- `actools.sh`, `installer/`, `cli/`, `modules/*`, `profiles/`, `cron/` — **no code touched** (no deletion/move; that is C2/C3). `actools.sh` byte-identical to baseline (sha `44de0635…`).
+- `tests/guards/live_closure.bash` — **reused, not modified**.
+- No golden/generated fixture touched; no other test/guard/helper touched.
+- No historical ledger entry rewritten; the "Current status" header left as-is (out of this spec's allowed-file scope).
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| (none) | — | — |
+
+No authority moved. C1 is doc + one new test only.
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | golden drift 6/6 green |
+| Caddyfile | Not touched | golden drift 6/6 green |
+| my.cnf | Not touched | golden drift 6/6 green |
+| Dockerfiles | Not touched | golden drift 6/6 green |
+| CLI | Not touched | `cli/actools` byte-identical to baseline |
+| backup cron | Not touched | backup-cron drift 3/3 green |
+
+### Tests run
+
+```sh
+bats tests/guards/orphan_inventory_guard_test.bats   # new guard: PASS (2/2)
+bats -r tests/guards/                                # full guards: PASS (23/23 = 21 prior + 2 new)
+# non-vacuity:
+sed -i '457a source "${INSTALL_DIR}/modules/ai/assistant.sh" …' actools.sh
+bats tests/guards/orphan_inventory_guard_test.bats   # FAILS (derived gains `ai`)
+git checkout -- actools.sh                           # sha 44de0635… restored
+bats tests/guards/orphan_inventory_guard_test.bats   # PASS again
+bats -r tests/generated/                             # drift/generated: PASS (9/9)
+```
+
+### Test result
+
+PASS — new guard 2/2; full guards 23/23 (21 prior + 2 new); generated/drift 9/9; non-vacuity inject→FAIL→revert→PASS demonstrated. Verbatim transcript in `HANDOFF-C1.md`.
+
+### Documentation updated
+
+- [x] Runtime authority map (new "Standalone modules" section)
+- [ ] Generated-file contract (not applicable)
+- [ ] CLI authority contract (not applicable)
+- [ ] Operator target docs (not applicable — C1 is internal inventory + guard)
+- [x] Test plan (the new guard is self-documenting via its header comment)
+
+### Changelog / release notes
+
+- [ ] CHANGELOG.md updated (not in C1's allowed-file set; Review Gate may add a release note on merge)
+- [ ] Release note added (out of allowed-file scope)
+- [ ] Test report added (the HANDOFF carries the verbatim transcript)
+- [ ] Review notes added (Review window appends its verdict)
+
+### Known risks
+
+- The doc table's line-number citations (`actools.sh:181/193/204/457/516`, `cli/actools:313,317`) are exact at `82ba206`; a later phase that shifts them makes the *table prose* drift, but the **guard** keys off derivation (not line numbers), so CI still protects the set. C2/C3 must refresh the table when they delete/move modules.
+- The guard greps the three entry points the spec names; a hypothetical future live module reached only via a path outside those three would be missed by set B — but it would still be caught by set A (the closure) if sourced transitively from `actools.sh`. No such case exists at baseline.
+
+### Blockers
+
+None.
+
+### Review Gate decision
+
+**Pending** — the Review Gate ratifies on merge (the coding window does not self-approve). Verify in order: scope (3 files only) → inventory truth (re-derive 18 + the 6/12 split + dead-twin/4.5-seed sub-split) → guard correctness (expected == doc == derived; closure-sanity present) → non-vacuity (re-run inject→fail→revert) → no regression (guards + generated green) → patch reproduces tree → author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK.
+
+### Next safe task
+
+**C2** — delete the dead-twin orphan modules (`ai, health, migrate-module, preflight, preview, storage, worker`), keeping the inline `migrate` CLI text-guide; the orphan-inventory guard must stay green and the real-install e2e must be green (deletion transparent).
+
+### Forbidden next scope
+
+No quarantine (C3), no feature wiring (Track E), no edits to `live_closure.bash`, no golden re-capture, no rewriting of historical ledger entries.
+
 ## Entry 020 — P0-O · Orphan Disposition + Doc-Authority Lock
 
 Date: 2026-06-13
