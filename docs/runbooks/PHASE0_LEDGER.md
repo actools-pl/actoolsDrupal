@@ -86,6 +86,52 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 024 — C4: file-level orphan inventory + file-level wiring guard
+
+Date: <fill on apply>
+Phase: C4 (Track C — cleanup; the repurposed slot after vocabulary folded into D1)
+Baseline: d482818 (#52)
+
+### Objective
+
+Inventory + pin the FILE-level wiring inside the 6 live modules (the dir-level C1
+guard only proved which module DIRS are live). Of the 35 files: 21 wired
+(source-closure of actools.sh, or executed/sourced via the cli/actools `audit`
+command), 1 documentation (audit/docs/fix_catalog.md), and 13 UNWIRED that ship to
+prod (in-place install + chown -R) but never execute — the 10-file backup/ "Phase
+4.5 Item 2" PITR/binlog/encrypted-backup cluster (a partial E2/E3 implementation,
+manually deployable via deploy-pitr.sh), audit/deploy-audit.sh (self-declared
+stale), and drupal/{prepare,secure}.sh (superseded/unwired extractions; provision.sh
+is the wired stage). Adds a new guard (live_module_file_inventory_test.bats) that
+fails CI if any live-module file is unclassified or if an unwired file flips onto
+the live closure; records the inventory in runtime-authority-map.md.
+
+C4 changes NO module file. Disposition is DEFERRED: backup/* -> E2/E3
+(reconcile/wire/harden the existing drafts); audit/deploy-audit.sh +
+drupal/{prepare,secure}.sh -> Phase 5 (per their own self-declared notes).
+
+### Runtime authority changes
+
+None. No module/code/installer file is touched; the live source-closure is
+byte-identical to d482818. C4 adds one doc subsection, one new guard test, and this
+ledger entry. **Behavior-free -> no branch e2e required** (as with C1).
+
+### Files
+
+New: tests/guards/live_module_file_inventory_test.bats. Edited:
+docs/architecture/runtime-authority-map.md (add the "File-level wiring within live
+modules" subsection only; the existing Standalone section + line-45 row are
+untouched, left to D1), this ledger.
+
+### Verdict
+
+Pending — the Review Gate ratifies on merge (this coding window does not
+self-approve). Verify in order: see SPEC-C4 §6.
+
+### Commit SHA
+
+Sandbox commit on top of d482818; operator stamps the squash/merge SHA on apply.
+
 ## Entry 023 — C3: quarantine the 7 4.5-seed modules into experimental/
 
 Date: <fill on apply>
@@ -132,8 +178,7 @@ Moved (git mv, 7 dirs / 11 files): `modules/{ai,compliance,dr,network,observabil
 
 ### Verdict
 
-**Pending** — the Review Gate ratifies on merge (this coding window does not
-self-approve). Verify in order: see SPEC-C3 §6.
+**APPROVED — ratified (<date>): C3 merged to `main` as `d482818` (#52); branch e2e #87 reached `MariaDB ready.`, confirming the seed quarantine is transparent to the live path. `d482818` is the verified baseline of C4, and this ratification rides with the C4 patch — which adds the file-level inventory + guard on top of the C3 dir-level quarantine and re-runs all guards green.** *(Original pending text, for the record:)* **Pending** — the Review Gate ratifies on merge (this coding window does not self-approve). Verify in order: see SPEC-C3 §6.
 
 ### Commit SHA
 
