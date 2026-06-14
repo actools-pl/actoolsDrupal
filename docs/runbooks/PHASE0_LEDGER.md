@@ -86,11 +86,180 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 022 — C2 · Delete Dead-Twin Modules (5) + Reclassify ai/preview
+
+Date: 2026-06-14
+Branch: `phaseC/C2-delete-dead-twins` (operator records the applied branch + `main` SHA on merge)
+Commit SHA: one implementation commit on top of baseline `ce35813` + this docs entry (sandbox; operator stamps the squash/merge SHA on apply)
+Actor / Claude session (model): Coding Window (Opus) — three isolated Opus windows per WORKFLOW-PACKAGE §0 (coder ≠ reviewer ≠ doc-checker); this window does **not** self-approve
+Phase: C2 — Delete Dead-Twin Modules + Reclassify ai/preview (Track C, Layer 2)
+Task prompt source: `SPEC-C2-delete-dead-twins.md` + project instructions + `WORKFLOW-PACKAGE.md`
+
+### Objective
+
+Delete the **5 dead-twin** orphan modules (`health, migrate, preflight, storage, worker`) — dead code that physically ships to prod via the in-place install + `chown -R`, never reached on the live path. Per the operator's revised decision, **`ai` and `preview` are NOT deleted** (Entry 021 had slated all 7 dead-twins for deletion); they are **reclassified dead-twin → 4.5-seed** and left in place for C3 to quarantine into `experimental/`. C2 also removes the 3 now-dangling `lint.yml` shellcheck lines, updates the C1 inventory in `runtime-authority-map.md` to the post-deletion truth, aligns the audit-wording in the map + guard comment, and ratifies Entry 021 (stamping the C1 merge `ce35813`/#50). The orphan-inventory guard **stays green** throughout — C1 built it to survive exactly this. **This phase changes what ships to prod (deletes files), so a branch e2e green is a required pre-merge gate.**
+
+### What changed
+
+**1. Deleted 5 dead-twin dirs** (`git rm -r modules/{health,migrate,preflight,storage,worker}`) — **9 files, 492 sh-lines**:
+
+```text
+146  modules/health/checks.sh
+187  modules/migrate/migrate.sh
+ 15  modules/preflight/disk.sh
+ 13  modules/preflight/dns.sh
+ 17  modules/preflight/ram.sh
+ 19  modules/storage/s3fs.sh
+ 42  modules/storage/settings_inject.sh
+ 19  modules/worker/queue.sh
+ 34  modules/worker/xelatex.sh
+492  total
+```
+
+**Per-module live-path grep-proof** (re-verified at the C2 working tree; surface = the live entry points `actools.sh installer/ cli/ profiles/ cron/`):
+
+```text
+$ grep -rn "modules/health/"    actools.sh installer/ cli/ profiles/ cron/   → 0 hits
+$ grep -rn "modules/migrate/"   actools.sh installer/ cli/ profiles/ cron/   → 0 hits
+$ grep -rn "modules/preflight/" actools.sh installer/ cli/ profiles/ cron/   → 0 hits
+$ grep -rn "modules/storage/"   actools.sh installer/ cli/ profiles/ cron/   → 0 hits
+$ grep -rn "modules/worker/"    actools.sh installer/ cli/ profiles/ cron/   → 0 hits
+```
+
+Broadened bare-name (no-trailing-slash) sweep over the same surface: `health/migrate/preflight/storage` = 0 module-mentioning lines; `worker` = 2, both **comments referencing LIVE modules**, not the deleted dir — `actools.sh:418` ("Container images: … worker (`modules/stack/images.sh`)") and `installer/dispatch.sh:298` ("… worker-runtime decomposition … `modules/host/*`"). The worker **runtime** stays folded in the live `modules/stack/` compose+image generators; only the orphan `modules/worker/` copy is gone. Deletion is transparent to the install path.
+
+The inline `migrate` CLI text-guide is **separate and stays**: `cli/actools:282-283` (`migrate)` case → `echo "=== XeLaTeX Migration Guide ==="`) and `:350` (help text). It references no `modules/migrate/`, and `cli/` is forbidden scope anyway.
+
+**2. `.github/workflows/lint.yml`** — removed the **3** now-dangling shellcheck command lines (`modules/preflight/*.sh`, `modules/storage/*.sh`, `modules/worker/*.sh`); a glob matching a deleted dir would error and fail the lint job. The **15 remaining** shellcheck commands all resolve to ≥1 existing file and pass (verbatim run below); the `preview`, `dr`, `observability` lines are intact (preview is not deleted in C2). YAML parses.
+
+**3. `docs/architecture/runtime-authority-map.md`** — inventory updated to the post-C2 truth:
+- "Standalone modules" intro counts `18 → 13` dirs, `12 → 7` orphan.
+- The orphan-split prose rewritten: the 12 original orphans split into dead-twins + 4.5-seeds; **C2 removed the 5 dead-twins and reclassified `ai` + `preview` as 4.5-seeds** (dirs stay for C3), so the 7 remaining are all 4.5-seeds.
+- Totals line `6 live · 12 orphan (7 dead-twin + 5 4.5-seed) · 18 total` → **`6 live · 7 orphan (all 4.5-seed, C3-quarantine-bound) · 13 total`**, with the dictated prose line; the reconciling parenthetical now reads "(At C1 the figure was **12 of 18** orphan … C2 then removed 5, leaving **7 of 13**.)".
+- Table: the 5 deleted rows (`health, migrate, preflight, storage, worker`) removed; the `ai` and `preview` rows **reclassified** to status `orphan · 4.5-seed (reclassified C2)`, disposition `C3: quarantine → experimental/`. Table now lists exactly the 13 remaining dirs (6 LIVE + 7 4.5-seed).
+- Audit-wording aligned to Entry 021's precise form: "`audit` … reached without an `${INSTALL_DIR}` source line **from `actools.sh`**" (the `cli/actools:317` source line *is* an `${INSTALL_DIR}` source for a helper lib; the precise claim is that `audit.sh` is bash-executed, not in the `actools.sh` source-closure).
+- "Current-state map" **Worker provisioning** row: the orphan-copy cell now records `modules/worker/*` was **deleted in C2** (its `lint.yml` line removed with it); the worker runtime stays folded in the compose generator.
+
+**4. `tests/guards/orphan_inventory_guard_test.bats`** — **comment only**: the audit header comment now reads "… without a `${INSTALL_DIR}` source line from actools.sh — e.g. audit, …" (the fix matches this file's existing no-backtick comment style for `actools.sh`, and preserves the file's article "a"). `EXPECTED_LIVE_MODULES` (line 51) and the `derive_live_modules` body are **byte-identical** to `ce35813` (verified by extraction-diff; only the comment line differs).
+
+**5. `docs/runbooks/PHASE0_LEDGER.md`** — this Entry 022 added; **Entry 021 ratified** (Pending → APPROVED, C1 merge `ce35813`/#50 stamped, original text preserved).
+
+### Files changed
+
+- `modules/health/`, `modules/migrate/`, `modules/preflight/`, `modules/storage/`, `modules/worker/` — **DELETED** (9 files, 492 lines).
+- `.github/workflows/lint.yml` — 3 shellcheck lines removed.
+- `docs/architecture/runtime-authority-map.md` — inventory + worker row + audit wording (~40 lines changed).
+- `tests/guards/orphan_inventory_guard_test.bats` — audit comment only (guard logic + `EXPECTED_LIVE_MODULES` byte-identical).
+- `docs/runbooks/PHASE0_LEDGER.md` — Entry 022 added + Entry 021 ratified.
+
+### Files intentionally not changed
+
+- **`modules/ai/` and `modules/preview/`** — kept in place for C3 (only their inventory **classification** changed). Byte-identical to baseline.
+- **The 5 4.5-seed dirs** (`compliance, dr, network, observability, security`) — C3 scope; byte-identical to baseline.
+- **`docs/advanced.md` / `docs/privacy.md`** — **left intact**, and correctly so: their pointers reference `modules/preview/branch.sh` (`advanced.md:88`), `modules/ai/assistant.sh` (`advanced.md:122`), and `modules/ai/` (`privacy.md:5`) — **all still present after C2**, so the "Experimental — not wired" design-reference text is still accurate. The pointer fix rides with **C3**, when ai/preview actually move to `experimental/`. (These live at `docs/`, not `docs/operator/`.)
+- `actools.sh`, `installer/`, `cli/`, `profiles/`, `cron/`, `core/` — no code touched; byte-identical to baseline (`actools.sh` sha `44de0635…`).
+- The guard's **logic + `EXPECTED_LIVE_MODULES`** — unchanged (comment only).
+- No historical record rewritten (`CHANGELOG.md`, `docs/releases/*`, `docs/tests/*`, `HANDOFF-*`, ledger entries < 021); no golden/generated fixture touched.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| (none) | — | — |
+
+No authority moved. The 5 deleted modules were **never on the live path** (per-module grep-proof = 0); the live set is unchanged at the 6 `EXPECTED_LIVE_MODULES`. C2 is deletion of dead code + doc/inventory truth-up.
+
+### Generated-file impact
+
+| File | Unchanged / Changed intentionally / Not touched | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | generated drift 9/9 green (incl. all 5 variants) |
+| Caddyfile | Not touched | generated drift 9/9 green |
+| my.cnf | Not touched | generated drift 9/9 green |
+| Dockerfiles | Not touched | generated drift 9/9 green |
+| CLI | Not touched | `cli/actools` byte-identical to baseline |
+| backup cron | Not touched | backup-cron drift 3/3 green |
+
+### Tests run
+
+```sh
+# 1. guard stays green
+bats tests/guards/orphan_inventory_guard_test.bats          # 2/2 PASS
+
+# 2. non-vacuity (ai still exists): inject -> FAIL -> revert -> PASS
+sha256sum actools.sh                                         # 44de0635… (== baseline)
+sed -i '457a source "${INSTALL_DIR}/modules/ai/assistant.sh" || error "…"' actools.sh
+bats tests/guards/orphan_inventory_guard_test.bats          # arm 2 FAILS (derived gains `ai`: "> ai")
+git checkout -- actools.sh                                   # sha 44de0635… restored byte-for-byte
+bats tests/guards/orphan_inventory_guard_test.bats          # 2/2 PASS again
+
+# 3. full guards (no guard added/removed)
+bats -r tests/guards/                                        # 23/23 PASS
+
+# 4. generated/golden (no drift)
+bats -r tests/generated/                                     # 9/9 PASS
+
+# 5. dirs gone
+ls -d modules/*/                                             # 13 dirs; health/migrate/preflight/storage/worker absent
+
+# 6. lint sanity — all 15 remaining shellcheck commands, verbatim
+#    (every glob resolves to >=1 file; aggregate exit 0)
+#    actools.sh / core/*.sh / modules/host/*.sh / modules/db/*.sh / cron/*.sh /
+#    cli/actools / cli/commands/*.sh / installer/*.sh / modules/audit/*.sh / modules/dr/*.sh /
+#    modules/observability/*.sh / modules/drupal/*.sh / modules/audit/lib/*.sh /
+#    modules/preview/*.sh / modules/stack/*.sh                # 15/15 PASS, exit 0
+
+# 7. branch e2e — NOT runnable in sandbox (no docker daemon, no cloud creds); operator-gated.
+```
+
+### Test result
+
+PASS (all sandbox-runnable suites) — guard 2/2; non-vacuity inject→FAIL→revert→PASS (actools.sh restored to `44de0635…`); full guards 23/23 (unchanged count: 21 prior + 2 C1); generated/drift 9/9; 13 dirs with the 5 deleted absent; lint 15/15 shellcheck commands exit 0, no missing-glob; YAML parses. Verbatim transcript in `HANDOFF-C2.md`.
+
+**Branch e2e: NOT run here (sandbox has no docker daemon and no cloud/provisioning credentials) — operator-gated, see Blockers.** Not fabricated.
+
+### Documentation updated
+
+- [x] Runtime authority map (inventory 13 dirs; ai/preview reclassified; worker row; audit wording)
+- [ ] Generated-file contract (not applicable — no generated output changed)
+- [ ] CLI authority contract (not applicable)
+- [ ] Operator target docs (intentionally **not** changed — `advanced.md`/`privacy.md` pointers still accurate until C3)
+- [x] Test plan (the guard's header comment; this entry's transcript)
+
+### Changelog / release notes
+
+- [ ] CHANGELOG.md updated (not in C2's allowed-file set; Review Gate may add a release note on merge)
+- [ ] Release note added (out of allowed-file scope)
+- [ ] Test report added (the HANDOFF carries the verbatim transcript)
+- [ ] Review notes added (Review window appends its verdict)
+
+### Known risks
+
+- **Behavior-changing (deletes shipped files).** The grep-proof shows the 5 dirs are unreferenced on the live path, so the install is expected byte-identical — but because the install copies the whole tree and `chown -R`s it, the authoritative confirmation is a **branch e2e** reaching `MariaDB ready.` (signal from the untouched live `modules/db/core.sh:122`). Until that green, **merge is blocked**.
+- The map's line-number citations are exact at the relevant baselines; the **guard** keys off derivation (not line numbers), so CI still protects the set if a later phase shifts lines. C3 must refresh the table again when ai/preview/seeds move.
+- The `ai`/`preview` reclassification is an inventory/label change only; their dirs and files are byte-identical to baseline, so the C1 non-vacuity injection still bites unchanged (demonstrated above).
+
+### Blockers
+
+- **Branch e2e green is a required pre-merge gate** and cannot be produced in this sandbox (no docker daemon, no Hetzner/cloud credentials). The operator must dispatch `e2e.yml` (`workflow_dispatch`) on `phaseC/C2-delete-dead-twins` and confirm the run reaches `MariaDB ready.` (+ `actools doctor` healthy). An SSH-timeout is infra → re-run. No merge until then.
+
+### Review Gate decision
+
+**Pending** — the Review Gate ratifies on merge (this coding window does not self-approve). Verify in order: scope (`diff` vs `ce35813` = exactly the 5 dirs deleted + the 4 files edited; `ai`/`preview` + the 5 seeds untouched) → deletion safety (re-grep the 5 names over the live path → 0; inline `migrate` guide intact at `cli/actools:282-291`) → guard integrity (`EXPECTED_LIVE_MODULES` + `derive_live_modules` byte-identical to `ce35813`; re-run 2/2; re-inject non-vacuity) → inventory truth (table matches the 13 dirs; ai/preview reclassified; totals correct; audit wording says "from `actools.sh`") → `lint.yml` (remaining shellcheck lines resolve; YAML parses) → no regression (full guards + generated green) → **branch e2e green (`MariaDB ready.`)** → patch reproduces the tree; author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK (`advanced.md`/`privacy.md` still accurate because ai/preview still exist).
+
+### Next safe task
+
+**C3** — quarantine the **7** 4.5-seeds (`compliance, dr, network, observability, security, ai, preview`) into `experimental/` (move, not delete); fix the `docs/advanced.md` / `docs/privacy.md` pointers to the new `experimental/` paths; remove the `preview` `lint.yml` shellcheck line (and add any needed `experimental/**` lint coverage); update the inventory + guard expectations to match. Branch e2e green required (behavior-adjacent file moves).
+
+### Forbidden next scope
+
+No feature wiring (Track E); no edits to `live_closure.bash` or the guard's derivation logic; no golden re-capture; no deletion of the 7 seeds (C3 **moves** them); no rewriting of historical ledger entries (< 022).
+
 ## Entry 021 — C1 · Orphan-Module Inventory + Live-Set Guard
 
 Date: 2026-06-14
 Branch: `phaseC/C1-orphan-inventory` (operator records the applied branch + `main` SHA on merge)
-Commit SHA: one implementation commit on top of baseline `82ba206` + this docs entry (sandbox; operator stamps the squash/merge SHA on apply)
+Commit SHA: one implementation commit on top of baseline `82ba206` + this docs entry (sandbox; operator stamps the squash/merge SHA on apply). **Merged to `main` as `ce35813` (#50)** — *stamped at C2 ratification, 2026-06-14.*
 Actor / Claude session (model): Coding Window (Opus) — cross-model review withdrawn; three isolated Opus windows per WORKFLOW-PACKAGE §0
 Phase: C1 — Orphan-Module Inventory + Live-Set Guard (Track C, Layer 1)
 Task prompt source: `SPEC-C1-orphan-inventory.md` + project instructions + `WORKFLOW-PACKAGE.md`
@@ -241,7 +410,7 @@ None.
 
 ### Review Gate decision
 
-**Pending** — the Review Gate ratifies on merge (the coding window does not self-approve). Verify in order: scope (3 files only) → inventory truth (re-derive 18 + the 6/12 split + dead-twin/4.5-seed sub-split) → guard correctness (expected == doc == derived; closure-sanity present) → non-vacuity (re-run inject→fail→revert) → no regression (guards + generated green) → patch reproduces tree → author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK.
+**APPROVED — ratified (2026-06-14): C1 merged to `main` as `ce35813` (#50).** C1 was the **no-behavior-change** inventory + live-set-guard phase (docs + one new guard; `actools.sh` byte-identical to `44de0635…`), so it carried **no e2e gate**; `ce35813` is the **verified baseline** of C2, and this ratification rides with the C2 patch — which re-runs the guard green (2/2, non-vacuous) and depends on it. Stamped at C2 ratification per `SPEC-C2` §5, preserving the original entry text. *(Original pending text, for the record:)* **Pending** — the Review Gate ratifies on merge (the coding window does not self-approve). Verify in order: scope (3 files only) → inventory truth (re-derive 18 + the 6/12 split + dead-twin/4.5-seed sub-split) → guard correctness (expected == doc == derived; closure-sanity present) → non-vacuity (re-run inject→fail→revert) → no regression (guards + generated green) → patch reproduces tree → author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK.
 
 ### Next safe task
 
