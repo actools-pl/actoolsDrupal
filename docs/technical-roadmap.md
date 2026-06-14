@@ -4,13 +4,13 @@ Enterprise hardening and future phases. This document is the architectural refer
 
 > **Document version:** 1.0 — March 2026  
 > **Current platform:** Actools v11.0  
-> **Status:** All Phases 1–4 complete
+> **Status:** Phase 1 (modular architecture) shipped and live; Phases 2–4 exist as drafted, quarantined design seeds (in experimental/, not in the live install); Phase 4.5 (production-readiness hardening) in progress.
 
 ---
 
 ## Overview
 
-The platform has progressed from a monolithic v9.2 installer to a v11.0 modular platform with 32 modular components, automated tests, CI/CD pipeline, self-healing health checks, observability, preview environments, zero-downtime migrations, and a development assistant.
+The platform has progressed from a monolithic v9.2 installer to a v11.0 modular platform of 6 live modules (`audit backup db drupal host stack`) plus 7 quarantined experimental seeds (in `experimental/`), a 236-test suite across 24 bats files, and a CI/CD pipeline. Observability, preview environments, and the development assistant are experimental design seeds (in `experimental/`, not in the default install); the earlier `health` self-healing and `migrate` modules were removed during cleanup.
 
 This document covers two architectural directions:
 
@@ -19,20 +19,39 @@ This document covers two architectural directions:
 
 ---
 
+## Vocabulary — what "Phase" means here
+
+"Phase" spans two unrelated axes in this codebase; this note is canonical.
+
+**Product-roadmap phases** (feature waves):
+- **Phase 1** — Modular architecture (the v9.2→v11.0 modular refactor). **Shipped/live.**
+- **Phase 2** — Observability. *Drafted, quarantined in `experimental/`; not in the default install.*
+- **Phase 3** — Developer platform (preview environments, CI/CD, migrations). *CI/CD is live; preview is experimental; the migrations module was removed.*
+- **Phase 4** — AI-native assistant. *Drafted, quarantined in `experimental/`; not shipped.*
+- **Phase 4.5** — Production-readiness hardening (this program). **In progress.**
+- **Phase 5** — Post-4.5 deferrals: automated failover, MariaDB Galera, and the reconcile-or-delete of unwired superseded files.
+
+**Process / program tracking** (how the work is run):
+- **Phase 0 / `P0-*`** — the modularization *program* recorded in `docs/runbooks/PHASE0_LEDGER.md`. P0-* delivered the **Phase 1 "Modular architecture"** product milestone above (same work, two framings).
+- **Tracks C / D / V / E** — the Phase 4.5 program's work tracks (cleanup / doc-truth / verification / build).
+- **"Item N"** in shipped code comments (e.g. `backup/* — "Phase 4.5 Item 2"`) is the same as the program's **E-roster** items: Item 2 ≈ E2/E3 (encrypted backups, binlog/PITR), Item 3 ≈ Cloudflare tunnel, Item 4 ≈ RBAC. The authoritative live-vs-experimental map is `architecture/runtime-authority-map.md`.
+
+---
+
 ## Part 1 — Phase 4.5: Enterprise Hardening
 
 ### What "Enterprise Grade" Actually Means
 
-Enterprise grade is not a feature list. It is a set of operational guarantees:
+Enterprise grade is not a feature list. It is a set of operational *objectives* — the targets Phase 4.5 is pursuing, not capabilities the current system already guarantees:
 
-- **RTO < 15 minutes** — Recovery Time Objective. If the server dies, you are back online within 15 minutes.
-- **RPO < 1 hour** — Recovery Point Objective. You lose at most 1 hour of data.
-- **99.9% uptime** — No more than 8.7 hours downtime per year.
-- **Audit trail** — Every action is logged, timestamped, and attributable.
-- **Multi-user access control** — Team members have appropriate access, not shared root.
+- **RTO < 15 minutes** — Recovery Time Objective: the target for how quickly service is restored after the server dies.
+- **RPO < 1 hour** — Recovery Point Objective: the target ceiling on data lost in a failure.
+- **99.9% uptime** — the availability target (no more than ~8.7 hours of downtime per year).
+- **Audit trail** — every action logged, timestamped, and attributable.
+- **Multi-user access control** — team members have appropriate access, not shared root.
 - **Compliance-ready** — GDPR, SOC2, ISO27001 requirements met at the infrastructure level.
 
-The current v11.0 system meets about 60% of these requirements. Phase 4.5 closes the remaining 40%.
+The current v11.0 system meets about 60% of these requirements. Phase 4.5 closes the remaining 40%. Committed operational numbers (RTO, RPO, failover time) are published only from a measured rehearsal — at 2× the measured value — not asserted in advance.
 
 ---
 
@@ -40,7 +59,7 @@ The current v11.0 system meets about 60% of these requirements. Phase 4.5 closes
 
 **Current state:** Single Hetzner server. If it goes down, your site goes down.
 
-**Phase 4.5 target:** Automated failover to a standby server within 5 minutes.
+**Phase 4.5 target:** Manual disaster recovery — DNA snapshot + operator-run resurrect to a standby server. (Automated failover is Phase 5; any failover-time figure is published only from a measured rehearsal.)
 
 #### Implementation
 
@@ -165,7 +184,7 @@ sync_binlog = 1
 actools migrate --point-in-time "2026-03-26 14:30:00" prod
 ```
 
-#### Phase 4.5: MariaDB Galera Cluster (3 nodes)
+#### Phase 5: MariaDB Galera Cluster (3 nodes)
 
 Galera provides synchronous multi-master replication. All 3 nodes accept writes simultaneously.
 
@@ -391,8 +410,8 @@ EOF
 | MariaDB SSL | Medium | 1 day | Encryption in transit |
 | Automated security scanning | Medium | 1 day | Compliance |
 | GDPR tools | Medium | 2 days | Regulatory compliance |
-| Galera clustering | Low | 1 week | True HA (Phase 5 prep) |
-| DNA/resurrection system | High | 3 days | <15min RTO |
+| Galera clustering | Low | 1 week | True HA (Phase 5) |
+| DNA/resurrection system (manual) | High | 3 days | Disaster recovery |
 | Audit trail | Medium | 1 day | Compliance |
 
 **Phase 4.5 estimated duration:** Several weeks of focused architectural work.
@@ -589,18 +608,18 @@ actools cdn enable --provider=cloudflare
 ## The Complete Roadmap at a Glance
 
 ```
-NOW (v11.0)
-├── ✅ Phase 1: Modular architecture (32 modules, 21 tests)
-├── ✅ Phase 2: Observability (Grafana, health checks, cost-optimize)
-├── ✅ Phase 3: Developer platform (preview envs, CI/CD, migrations)
-├── ✅ Phase 4: AI-native dev environment (Ollama, code-aware)
+NOW (v11.0 — live install)
+├── ✅ Phase 1: Modular architecture — 6 live modules, 236 tests, CI/CD  [SHIPPED]
+├── 🧪 Phase 2: Observability (Grafana/exporters) — experimental, optional, NOT in the default install
+├── ◐ Phase 3: Developer platform — CI/CD live; preview envs experimental (in experimental/); migrations module removed
+├── 🧪 Phase 4: AI-native assistant (Ollama) — experimental (in experimental/), not shipped
 │
 ├── 🔜 Phase 4.5: Enterprise hardening (4-6 weeks)
 │   ├── Encrypted backups + PITR
 │   ├── Zero-trust networking (Cloudflare Tunnel)
 │   ├── Multi-user RBAC + audit trail
 │   ├── MariaDB SSL
-│   ├── DNA/resurrection system (RTO < 15min)
+│   ├── DNA/resurrection system (manual; failover time TBD by rehearsal)
 │   └── GDPR compliance tools
 │
 ├── 🔮 Phase 5: Multi-tenancy (Month 3–5)
