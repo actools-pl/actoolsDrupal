@@ -27,8 +27,8 @@
 # source-closure of actools.sh (the CLOSURE array from live_closure.bash),
 # UNIONed with modules/<name> references found in the live entry points
 # (actools.sh, installer/, cli/actools). The union is required because some
-# live modules are reached without a ${INSTALL_DIR} source line — e.g. audit,
-# copied in and invoked from cli/actools — and because the closure engine
+# live modules are reached without a ${INSTALL_DIR} source line from actools.sh
+# — e.g. audit, copied in and invoked from cli/actools — and because the closure engine
 # skips a source target whose file does not exist on disk, while a text grep
 # of the entry points still sees a freshly-wired reference.
 #

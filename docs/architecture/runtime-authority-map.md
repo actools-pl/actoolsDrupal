@@ -40,7 +40,7 @@ A row may carry a compound status (e.g. `current (monolithic) → target via dis
 | **DB access layer (root exec / dump / backup user / readiness wait / credential probe)** | `modules/db/core.sh` — **live module (P0-M)**, sourced by `actools.sh` at the exact spot the inline blocks (`:450-530`) occupied; `db_exec_root`, `db_exec_root_stdin`, `db_dump_container`, `setup_backup_db_user`, `wait_db`, `check_db_creds` extracted **verbatim** (per-function byte-identity verified; the `tests/db/` contract/mock suite pinned the commands and SQL against the inline code first and stayed green across the move). ONE intentional post-extraction change (isolated, e2e-gated commit): `wait_db`'s readiness probe no longer passes the DB **root** password on argv — it uses a umask-077 `--defaults-extra-file` temp file inside the container, fed over stdin by the printf builtin (the backup-cron pattern); probe SQL (`mysql.actools_write_check` write-check), 50×3s bounds and outcome unchanged. SECURE SHAPE CI-locked: `tests/guards/wait_db_security_guard_test.bats` (non-vacuous) | none — the **stale v9.2 twins are deleted (P0-M)**: `modules/db/{backup_user,credentials,wait}.sh` were unwired orphans whose content (a divergent `check_db_creds` error message; the argv-password `wait_db`) did **not** survive (grep-proof: no references on any `.sh`/`.yml`/`.bats` surface). The duplicate-function guard now covers the six DB names (closure exactly-once + wired-twin + unconditional `modules/db` twin-ban arms, all non-vacuous) | The DB access layer as a live module produced from the inline v14 code, with the orphan twins purged and the argv-password probe retired (P0-M spec) | **module = live (P0-M landed)** — six functions exactly-once on the live path; `wait_db` argv exposure (Entry-017 known risk, `:510`) **CLOSED — e2e-confirmed** (run #75 reached `MariaDB ready.`; stamped at the P0-N ratification of Entry 018); golden drift 6/6 + cron fixture (no fixture modified). **(P0-N) single authority across BOTH runtimes:** the live CLI (`doctor`) now also resolves the DB layer from this module — `doctor.sh`'s byte-identical local `db_exec_root` copy is deleted and the live-CLI-path guard bans any redefinition (see the Doctor row) |
 | **DB provisioning** | `actools.sh::install_env()` — inline `db_exec_root` SQL creating DB/user/grants (the *callers* stay inline; the called DB-layer functions are the P0-M module above) | none — the former `modules/db/*` v9.2 twins are **deleted (P0-M)**; `modules/db/core.sh` (the live DB access layer) is what `lint.yml`'s `modules/db/*.sh` shellcheck glob now matches | `modules/db/*` (or `db` stage handler) via dispatcher | **current (monolithic)** in `install_env`. P0-D wired the `db` stage as a documented **no-op** handler (DB creation stays inside the `install_env` loop, which runs at the `drupal` stage). **P0-M moved only the DB access layer** (the six functions); the genuine db/drupal split + `install_env` extraction is **later scope** (the post-closure renumbering made P0-N the live-CLI DB convergence — see the Doctor row) |
 | **Drupal provisioning** | `modules/drupal/provision.sh` — **sourced LIVE** at `actools.sh:183`; `drupal_provision "$env"` called from `install_env` (`:~1152`) | none known | `modules/drupal/provision.sh` via dispatcher | **live (module)** — the *one* module sourced on the live path; the cleanest precedent for the extraction pattern |
-| **Worker provisioning** | worker **image** built by `modules/stack/images.sh::build_worker_image` (**live**, P0-G); worker **service** rendered by `modules/stack/compose.sh::generate_compose`; worker CLI ops are **inline in `cli/actools`** (`worker-logs` :103) — the dead `cli/commands/worker.sh` twin was **deleted in P0-O** | `modules/worker/*` exists (shellchecked `lint.yml:41`) but is still **not** on the live path; the worker **runtime** stays folded in the compose generator | `modules/worker/*` (or `worker` stage handler) via dispatcher | **partial (P0-G)** — the worker **image build** moved to `modules/stack/images.sh`; the worker **runtime**/service stays folded and the `worker` stage remains a no-op (genuine worker-stage extraction is later scope) |
+| **Worker provisioning** | worker **image** built by `modules/stack/images.sh::build_worker_image` (**live**, P0-G); worker **service** rendered by `modules/stack/compose.sh::generate_compose`; worker CLI ops are **inline in `cli/actools`** (`worker-logs` :103) — the dead `cli/commands/worker.sh` twin was **deleted in P0-O** | `modules/worker/*` was **deleted in C2** (orphan — never on the live path; its `lint.yml` shellcheck line was removed with the dir); the worker **runtime** stays folded in the compose generator | `modules/worker/*` (or `worker` stage handler) via dispatcher | **partial (P0-G)** — the worker **image build** moved to `modules/stack/images.sh`; the worker **runtime**/service stays folded and the `worker` stage remains a no-op (genuine worker-stage extraction is later scope) |
 | **Backup-cron generator** | `modules/backup/cron.sh::setup_backup_cron` — **live module (P0-L)**, sourced by `actools.sh` at the exact spot the inline block (`:584-661`) occupied; the function body extracted **verbatim** (per-function byte-identity verified; the generated `/etc/cron.daily/actools-backup` is **byte-identical** — golden capture `tests/fixtures/golden/backup-cron`, sha `bdfaa0c6…`). SECURE SHAPE, now CI-locked: the cron writes `[mariadb-dump]`/user/password into a **umask-077 temp file inside the DB container** and runs `mariadb-dump --defaults-extra-file="$t"`; the password is read from `.actools-state.json` at cron **runtime** — never on argv, never baked into the script (`tests/guards/cron_security_shape_guard_test.bats`, non-vacuous) | none — the **insecure orphan `cron/backup.sh` is deleted (P0-L)**: its `-ubackup -p"${BACKUP_PASS}"` put the DB password on argv (visible in `ps`); it was unwired and its form did **not** survive (grep-proof: no references on any `.sh`/`.yml`/`.bats` surface). The remaining `modules/backup/*` files are untouched P0-O-audit orphans | The backup-cron generator as a live module produced from the secure inline shape, with the insecure orphan purged (P0-L spec) | **module = live (P0-L landed)** — generated cron byte-identical (`tests/generated/backup_cron_drift_test.bats`); security shape guarded in CI; golden drift 6/6 (no compose fixture modified) |
 | **CLI install** | `actools.sh::setup_cli()` (`:1247-1262`) — **install-by-copy** (P0-F): `install -m 0755 "${INSTALL_DIR}/cli/actools" /usr/local/bin/actools`; then `chmod +x` and persist `ACTOOLS_HOME=${INSTALL_DIR}` to `/etc/environment`. The old `cat > /usr/local/bin/actools <<HELPER` generator is **deleted**. | `cli/actools` (v14.0, profile-aware static CLI) + `cli/commands/*.sh` — **now the single canonical source**. Resolves `INSTALL_DIR="${ACTOOLS_HOME:-<self-locate>}"` (`:7`) so the verbatim copy works at `/usr/local/bin/actools`. DR still copies it independently (`modules/dr/resurrect.sh:153` → `actools-real`). The former false comment at `cli/actools:12-15` is **rewritten** to describe install-by-copy. | **One** canonical source — `cli/actools`, copied to `/usr/local/bin/actools`; the `HELPER` heredoc deleted (LOCKED §5; ROADMAP `ROADMAP.md:105-120`) | **consolidated (P0-F landed)** — single source; installed CLI proven byte-identical by `tests/installer/cli_authority_test.bats`; false comment rewritten. DR `actools-real` copy left for P0-J. |
 | **Preflight** | `installer/preflight.sh` — routes each `PROFILE_PREFLIGHT_EXTRA` entry through **`actools::dispatch::resolve_profile_check "preflight"`** (P0-H): a resolved+installed handler runs (its non-zero return counts a failure); an extra **declared but with no installed handler is a hard FAIL for a non-default profile** (`print_fail`+`print_fix`, replacing the old `print_skip`). `community`'s list is empty, so the loop body never executes (byte-identical) | profile `PROFILE_PREFLIGHT_EXTRA` arrays — **now dispatched** | resolver-backed `preflight`: route extras via `resolve_profile_check "preflight"`; **fail unknown for non-default** (LOCKED §6 #4) | **consumed (P0-H landed)** — resolved runs, unknown fails; `community` byte-identical (preflight_test 6/6; drift 6/6) |
@@ -101,18 +101,23 @@ A row may carry a compound status (e.g. `current (monolithic) → target via dis
 > set. **Any phase that changes the live-module set must update BOTH** this
 > table and that guard's `EXPECTED_LIVE_MODULES` list. Baseline `82ba206`.
 
-`modules/` holds **18** directories. **6 are LIVE** — reached by the live
+`modules/` holds **13** directories. **6 are LIVE** — reached by the live
 install path (sourced from `actools.sh`, or referenced by the installer /
-operator CLI). **12 are orphan** — no live reference anywhere in `actools.sh`,
+operator CLI). **7 are orphan** — no live reference anywhere in `actools.sh`,
 `installer/`, or `cli/` (verified by per-module grep, recorded in
-`PHASE0_LEDGER` Entry 021). The orphans split into **dead-twins** (duplicate
-live inline/module logic; C2 deletes them) and **4.5-seeds** (committed 4.5
-design; C3 quarantines them into `experimental/`, not deleted). **C1 acts on
-none of them** — it only classifies and guards, so C2/C3 are safe.
+`PHASE0_LEDGER` Entry 021). The 12 original orphans split into **dead-twins** (duplicated
+live inline/module logic) and **4.5-seeds** (committed 4.5 design,
+quarantined into `experimental/` in C3, not deleted). **C2 removed the 5
+dead-twins** and reclassified `ai` + `preview` (previously dead-twin) **as
+4.5-seeds** — their dirs stay in place for C3 — so the **7 that remain are
+all 4.5-seeds**. C1 had acted on none of them — it only classified and
+guarded, which is what made C2 safe.
 
-**Totals: 6 live · 12 orphan (7 dead-twin + 5 4.5-seed) · 18 total.** (The
-plan-of-record §2's "12 of 19" is an off-by-one; the verified figure is
-**12 of 18**, recorded here authoritatively.)
+**Totals: 6 live · 7 orphan (all 4.5-seed, C3-quarantine-bound) · 13 total.**
+5 dead-twins (`health, migrate, preflight, storage, worker`) removed in C2;
+`ai` + `preview` reclassified as 4.5-seeds (C3 quarantine). (At C1 the figure
+was **12 of 18** orphan — correcting the plan-of-record §2's "12 of 19"
+off-by-one; C2 then removed 5, leaving **7 of 13**.)
 
 | module | status | evidence | disposition |
 |---|---|---|---|
@@ -122,13 +127,8 @@ plan-of-record §2's "12 of 19" is an off-by-one; the verified figure is
 | `drupal` | LIVE | sourced on the live path — `actools.sh:181` (`modules/drupal/provision.sh`) | — |
 | `host` | LIVE | sourced on the live path — `actools.sh:193` loop over `modules/host/*.sh` | — |
 | `stack` | LIVE | sourced on the live path — `actools.sh:204` loop over `modules/stack/*.sh` | — |
-| `ai` | orphan · dead-twin | no live reference | C2: delete |
-| `health` | orphan · dead-twin | no live reference | C2: delete |
-| `migrate` | orphan · dead-twin | no live reference (the **module** dir; the separate inline `migrate` CLI text-guide is **not** this dir and **stays**) | C2: delete (module only) |
-| `preflight` | orphan · dead-twin | no live reference | C2: delete |
-| `preview` | orphan · dead-twin | no live reference | C2: delete |
-| `storage` | orphan · dead-twin | no live reference | C2: delete |
-| `worker` | orphan · dead-twin | no live reference | C2: delete |
+| `ai` | orphan · 4.5-seed (reclassified C2) | no live reference | C3: quarantine → `experimental/` |
+| `preview` | orphan · 4.5-seed (reclassified C2) | no live reference | C3: quarantine → `experimental/` |
 | `compliance` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
 | `dr` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
 | `network` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
@@ -142,8 +142,8 @@ from the tree — the source-closure of `actools.sh` (the `CLOSURE` engine from
 `actools.sh` / `installer/` / `cli/actools` — and fails CI if it diverges from
 this list in **either** direction (an undocumented new live module, or a
 documented-live module that stops being sourced). `audit` is the one live
-module reached without an `${INSTALL_DIR}` source line: it is invoked from
-`cli/actools` (the copied operator-CLI surface), which is why the union with
+module reached without an `${INSTALL_DIR}` source line from `actools.sh`: it is
+invoked from `cli/actools` (the copied operator-CLI surface), which is why the union with
 the entry-point grep, not the closure alone, is required.
 
 ## Update rule
