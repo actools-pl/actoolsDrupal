@@ -149,6 +149,70 @@ source line from `actools.sh`: it is invoked from `cli/actools` (the copied
 operator-CLI surface), which is why the union with the entry-point grep, not the
 closure alone, is required.
 
+## File-level wiring within live modules (C4 inventory)
+
+> Recorded at C4. The "Standalone modules" section above proves WHICH module dirs
+> are live; this section proves, within the 6 live dirs, WHICH FILES are reached
+> on the live path vs which ship unwired. Human-readable mirror of
+> `tests/guards/live_module_file_inventory_test.bats`, which fails CI on any
+> unclassified or wiring-flipped file. **C4 changed NO module file** — disposition
+> of the unwired files is deferred (see the disposition column). Baseline `d482818`.
+
+The 6 live modules ship **35 files: 21 wired, 1 documentation, 13 unwired.** The
+13 unwired files reside on the box (in-place install + `chown -R`, `actools.sh:94`/`:405`)
+but never execute on the live path.
+
+### Wired (21) — reached on the live path
+| file | reached via |
+|---|---|
+| `modules/audit/audit.sh` | EXECUTED by `cli/actools:313` (the `audit` command) |
+| `modules/audit/lib/output.sh` | sourced by `audit.sh:57` (and `cli/actools:317`) |
+| `modules/audit/lib/drupal.sh` | sourced by `audit.sh:58` |
+| `modules/audit/lib/integration.sh` | sourced by `audit.sh:59` |
+| `modules/audit/lib/stack.sh` | sourced by `audit.sh:60` |
+| `modules/audit/lib/security.sh` | sourced by `audit.sh:61` |
+| `modules/audit/lib/report.sh` | sourced by `audit.sh:62` |
+| `modules/backup/cron.sh` | source-closure of `actools.sh` (`:516`) |
+| `modules/db/core.sh` | source-closure of `actools.sh` (`:457`) |
+| `modules/drupal/provision.sh` | source-closure of `actools.sh` (`:181`) |
+| `modules/host/age.sh` | source-closure — host loop (`:193`) |
+| `modules/host/docker.sh` | source-closure — host loop |
+| `modules/host/firewall.sh` | source-closure — host loop |
+| `modules/host/kernel.sh` | source-closure — host loop |
+| `modules/host/logrotate.sh` | source-closure — host loop |
+| `modules/host/packages.sh` | source-closure — host loop |
+| `modules/host/swap.sh` | source-closure — host loop |
+| `modules/stack/caddyfile.sh` | source-closure — stack loop (`:204`) |
+| `modules/stack/compose.sh` | source-closure — stack loop |
+| `modules/stack/images.sh` | source-closure — stack loop |
+| `modules/stack/mycnf.sh` | source-closure — stack loop |
+
+### Documentation (1) — ships, executed by no code
+| file | note |
+|---|---|
+| `modules/audit/docs/fix_catalog.md` | audit fix-catalog reference doc; referenced by no code |
+
+### Unwired (13) — ship on the box, OFF the live path; disposition deferred
+| file | what it is | disposition (deferred) |
+|---|---|---|
+| `modules/backup/encrypted_backup.sh` | "Phase 4.5 Item 2" — age-encrypted backups | **E2** (encrypted backups): reconcile/wire/harden |
+| `modules/backup/binlog-rotate.sh` | hourly binlog rotation/encryption/upload | **E3** (binlog/PITR) |
+| `modules/backup/db-full-backup.sh` | daily full dump (PITR baseline) | **E3** |
+| `modules/backup/pitr-restore.sh` | point-in-time restore | **E3** |
+| `modules/backup/cli-pitr.sh` | `actools` CLI integration for PITR | **E3** |
+| `modules/backup/deploy-pitr.sh` | manual PITR deploy script (entrypoint for the above) | **E3** |
+| `modules/backup/mariadb-binlog.cnf` | binlog MariaDB config | **E3** |
+| `modules/backup/99-binlog.cnf` | binlog MariaDB config | **E3** |
+| `modules/backup/docker-compose.binlog.yml` | binlog volume compose override | **E3** |
+| `modules/backup/actools-db-backup.cron` | backup cron entries | **E3** |
+| `modules/audit/deploy-audit.sh` | self-declared UNWIRED + STALE; superseded by `lib/*.sh` | **Phase 5**: reconcile-or-delete |
+| `modules/drupal/prepare.sh` | "Stage 1" extraction; superseded (`provision.sh` inlines it); unsourced | **Phase 5**: reconcile-or-delete |
+| `modules/drupal/secure.sh` | self-declared UNWIRED; "Phase 5 decision" | **Phase 5**: wire-or-delete |
+
+The 10-file `backup/` cluster is a **partial implementation of E2 + E3** — those
+phases reconcile/test/harden it rather than build from scratch. C4 records and
+guards these files; it wires, deletes, and moves nothing.
+
 ## Update rule
 
 Every phase must update this map if it changes authority.
