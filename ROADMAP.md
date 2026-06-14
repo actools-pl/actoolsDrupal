@@ -67,7 +67,7 @@ Current state: `docs/hardening.md` describes MariaDB TLS as not enabled by defau
 
 **What exists:**
 - `CADDY_CLOUDFLARE_TOKEN` placeholder in `actools.env.example`
-- Documentation in `modules/network/cloudflare-setup.md` describing DNS-01 and Origin-Cert options
+- Documentation in `experimental/network/cloudflare-setup.md` describing DNS-01 and Origin-Cert options
 
 **What's missing:**
 - The Caddy image does not include the `caddy-dns/cloudflare` provider plugin
@@ -111,7 +111,7 @@ Current state: `docs/operations.md` describes the update flow and names manual r
 **Status:** Deployed in disaster-recovery installations only, not in standard install
 
 **What exists:**
-- Audit wrapper at `modules/security/actools-audit`
+- Audit wrapper at `experimental/security/actools-audit`
 - The disaster-recovery resurrection path installs the wrapper chain (`actools` symlink → `actools-audit` → `actools-real`)
 
 **What's missing:**

@@ -2,7 +2,7 @@
 
 ## AI Assistant *(experimental — not shipped)*
 
-> The `actools ai` command is **not** registered in the CLI today; the code under `modules/ai/` is not wired in. The properties below describe the **intended** design for if/when it ships.
+> The `actools ai` command is **not** registered in the CLI today; the code under `experimental/ai/` is not wired in. The properties below describe the **intended** design for if/when it ships.
 
 The planned Actools AI assistant (`actools ai`) is designed to run entirely on your server.
 

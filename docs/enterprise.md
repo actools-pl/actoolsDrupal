@@ -1,6 +1,6 @@
 # Enterprise Hardening (planned / experimental)
 
-> **Status: design reference — NOT operational today.** This document describes **planned** enterprise and disaster-recovery features. The standard installer does **not** deploy them, and the commands shown throughout — `actools immortalize`, `actools resurrect`, `actools gdpr …`, `actools migrate --point-in-time …`, `actools backup status` — are **not registered** in the `actools` CLI: running them returns *unknown command*. The supporting scripts exist under `modules/backup/`, `modules/dr/`, and `modules/compliance/` but are unwired and unvalidated against the current stack. **Do not rely on the runbooks below in a real incident.** See [`../ROADMAP.md`](../ROADMAP.md) for status.
+> **Status: design reference — NOT operational today.** This document describes **planned** enterprise and disaster-recovery features. The standard installer does **not** deploy them, and the commands shown throughout — `actools immortalize`, `actools resurrect`, `actools gdpr …`, `actools migrate --point-in-time …`, `actools backup status` — are **not registered** in the `actools` CLI: running them returns *unknown command*. The supporting scripts exist under `modules/backup/`, `experimental/dr/`, and `experimental/compliance/` but are unwired and unvalidated against the current stack. **Do not rely on the runbooks below in a real incident.** See [`../ROADMAP.md`](../ROADMAP.md) for status.
 
 The intent of this page: capture the target design for a future production-grade tier (~1 hour RPO, <15 minute RTO). Nothing here is part of the community installer today.
 
@@ -33,7 +33,7 @@ The PITR scripts exist in `modules/backup/` but are not invoked by the standard 
 
 ## DNA Resurrection *(planned — not wired; do not run)*
 
-The design: `immortalize` would capture a complete server blueprint into an age-encrypted JSON snapshot, and `resurrect` would replay it on a fresh server. **Neither is a registered command.** The `modules/dr/resurrect.sh` script is unvalidated and would install a separate `actools-real` binary — **do not run it on a real server.**
+The design: `immortalize` would capture a complete server blueprint into an age-encrypted JSON snapshot, and `resurrect` would replay it on a fresh server. **Neither is a registered command.** The `experimental/dr/resurrect.sh` script is unvalidated and would install a separate `actools-real` binary — **do not run it on a real server.**
 
 ```bash
 # (planned — not available)
@@ -60,7 +60,7 @@ Never commit these to git. Store in a password manager or encrypted vault.
 
 ## GDPR Compliance *(planned — not wired)*
 
-`actools gdpr …` is **not** a registered command. The code lives in `modules/compliance/gdpr.sh` and is unvalidated against the current Drupal version.
+`actools gdpr …` is **not** a registered command. The code lives in `experimental/compliance/gdpr.sh` and is unvalidated against the current Drupal version.
 
 ```bash
 # (planned — not available)
@@ -89,7 +89,7 @@ actools <pitr-restore> "2026-03-26 13:45:00"
 ### Server is dead — rebuild from scratch *(planned)*
 
 ```bash
-# (planned — modules/dr/resurrect.sh is unwired/unvalidated; do not run on a real server)
+# (planned — experimental/dr/resurrect.sh is unwired/unvalidated; do not run on a real server)
 ```
 
 ### Handle a GDPR erasure request *(planned)*

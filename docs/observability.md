@@ -75,10 +75,10 @@ node_filesystem_size_bytes > 0.85
 
 ## Alerting
 
-Prometheus alerting rules would live in `modules/observability/alerts.yml`. *(Note: this file is not present in the repo yet.)* To add an alert:
+Prometheus alerting rules would live in `experimental/observability/alerts.yml`. *(Note: this file is not present in the repo yet.)* To add an alert:
 
 ```yaml
-# modules/observability/alerts.yml
+# experimental/observability/alerts.yml
 groups:
   - name: actools
     rules:

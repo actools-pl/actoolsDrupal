@@ -163,10 +163,10 @@ sudo -u actools actools drush prod cache:rebuild
 
 ### Sudoers rules
 
-Rules are in `modules/security/sudoers-roles`. Deploy with:
+Rules are in `experimental/security/sudoers-roles`. Deploy with:
 
 ```bash
-sudo cp modules/security/sudoers-roles /etc/sudoers.d/actools-roles
+sudo cp experimental/security/sudoers-roles /etc/sudoers.d/actools-roles
 sudo chmod 440 /etc/sudoers.d/actools-roles
 sudo visudo -c -f /etc/sudoers.d/actools-roles  # validate before use
 ```
@@ -214,7 +214,7 @@ When Cloudflare Tunnel is configured, ports 2–4 will be removed — the server
 actools drush prod pm:security
 ```
 
-Weekly automated scan via cron (installs via `modules/security/`):
+Weekly automated scan via cron (installs via `experimental/security/`):
 
 ```bash
 # /etc/cron.weekly/actools-security
