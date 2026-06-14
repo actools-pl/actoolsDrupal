@@ -93,6 +93,59 @@ A row may carry a compound status (e.g. `current (monolithic) → target via dis
 - **Doc contradictions (P0-B/P0-J).** `docs/architecture.md`: "v11.2.0+" (`:3`), "the CLI … never contains business logic" (`:9`), "21 bats tests" (`:49`), `"version":"11.2.0"` + `phases_complete` state machine (`:84-87`), `actools-real` (`:119`) — all false vs code. `docs/CHANGELOG.md:113` Dockerfile claim false. `cli/actools:12-15` false self-comment.
 - **Design-canon home (build-trigger #2)** was **absent** before P0-A (`design/` did not exist; LOCKED/brief/arch not committed under `docs/` or `design/`). P0-A creates `design/` with the three canon files.
 
+## Standalone modules (C1 inventory — live vs orphan)
+
+> **Recorded at phase C1** (doc + guard only; **no code deletion, no
+> behaviour change**). This section is the human-readable mirror of
+> `tests/guards/orphan_inventory_guard_test.bats`, which pins the live-module
+> set. **Any phase that changes the live-module set must update BOTH** this
+> table and that guard's `EXPECTED_LIVE_MODULES` list. Baseline `82ba206`.
+
+`modules/` holds **18** directories. **6 are LIVE** — reached by the live
+install path (sourced from `actools.sh`, or referenced by the installer /
+operator CLI). **12 are orphan** — no live reference anywhere in `actools.sh`,
+`installer/`, or `cli/` (verified by per-module grep, recorded in
+`PHASE0_LEDGER` Entry 021). The orphans split into **dead-twins** (duplicate
+live inline/module logic; C2 deletes them) and **4.5-seeds** (committed 4.5
+design; C3 quarantines them into `experimental/`, not deleted). **C1 acts on
+none of them** — it only classifies and guards, so C2/C3 are safe.
+
+**Totals: 6 live · 12 orphan (7 dead-twin + 5 4.5-seed) · 18 total.** (The
+plan-of-record §2's "12 of 19" is an off-by-one; the verified figure is
+**12 of 18**, recorded here authoritatively.)
+
+| module | status | evidence | disposition |
+|---|---|---|---|
+| `audit` | LIVE | referenced on the live path — `cli/actools:313,317` (operator-CLI surface, installed by copy) | — |
+| `backup` | LIVE | sourced on the live path — `actools.sh:516` (`modules/backup/cron.sh`) | — |
+| `db` | LIVE | sourced on the live path — `actools.sh:457` (`modules/db/core.sh`) | — |
+| `drupal` | LIVE | sourced on the live path — `actools.sh:181` (`modules/drupal/provision.sh`) | — |
+| `host` | LIVE | sourced on the live path — `actools.sh:193` loop over `modules/host/*.sh` | — |
+| `stack` | LIVE | sourced on the live path — `actools.sh:204` loop over `modules/stack/*.sh` | — |
+| `ai` | orphan · dead-twin | no live reference | C2: delete |
+| `health` | orphan · dead-twin | no live reference | C2: delete |
+| `migrate` | orphan · dead-twin | no live reference (the **module** dir; the separate inline `migrate` CLI text-guide is **not** this dir and **stays**) | C2: delete (module only) |
+| `preflight` | orphan · dead-twin | no live reference | C2: delete |
+| `preview` | orphan · dead-twin | no live reference | C2: delete |
+| `storage` | orphan · dead-twin | no live reference | C2: delete |
+| `worker` | orphan · dead-twin | no live reference | C2: delete |
+| `compliance` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+| `dr` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+| `network` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+| `observability` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+| `security` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+
+The LIVE rows above are exactly the guard's `EXPECTED_LIVE_MODULES`
+(`audit backup db drupal host stack`). The guard **derives** the actual set
+from the tree — the source-closure of `actools.sh` (the `CLOSURE` engine from
+`live_closure.bash`) **unioned** with `modules/<name>` references in
+`actools.sh` / `installer/` / `cli/actools` — and fails CI if it diverges from
+this list in **either** direction (an undocumented new live module, or a
+documented-live module that stops being sourced). `audit` is the one live
+module reached without an `${INSTALL_DIR}` source line: it is invoked from
+`cli/actools` (the copied operator-CLI surface), which is why the union with
+the entry-point grep, not the closure alone, is required.
+
 ## Update rule
 
 Every phase must update this map if it changes authority.
