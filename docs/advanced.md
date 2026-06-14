@@ -49,7 +49,7 @@ How it works (planned): `db-full-backup.sh` runs daily at 02:00, dumping with `-
 
 ## DNA resurrection
 
-> **Experimental — not wired.** `actools immortalize` and `actools resurrect` are **not** registered commands. The scripts live in `modules/dr/`, are unvalidated against the current stack, and `resurrect.sh` would install a separate `actools-real` binary — do **not** run it on a live server. This section is design reference only.
+> **Experimental — not wired.** `actools immortalize` and `actools resurrect` are **not** registered commands. The scripts live in `experimental/dr/`, are unvalidated against the current stack, and `resurrect.sh` would install a separate `actools-real` binary — do **not** run it on a live server. This section is design reference only.
 
 The design: `immortalize` captures a complete server blueprint — OS, Docker versions, container manifests, modules, binlog position, redacted env keys — into an age-encrypted JSON snapshot. `resurrect` would replay it on a fresh server in 11 steps (install dependencies → create user → clone repo → restore secrets → start stack → restore database → install CLI + cron + RBAC → health check).
 
@@ -67,7 +67,7 @@ A password manager or encrypted vault is fine. **Do not commit these to git.**
 
 ## GDPR compliance
 
-> **Experimental — not wired.** `actools gdpr …` is **not** a registered command. The code lives in `modules/compliance/gdpr.sh` and is not validated against the current Drupal version. Design reference only.
+> **Experimental — not wired.** `actools gdpr …` is **not** a registered command. The code lives in `experimental/compliance/gdpr.sh` and is not validated against the current Drupal version. Design reference only.
 
 Planned surface:
 
@@ -85,7 +85,7 @@ Planned export format: JSON in `backups/gdpr-exports/` with profile, roles, cont
 
 ## Preview environments
 
-> **Experimental — not wired.** `actools branch …` is **not** a registered command. The code lives in `modules/preview/branch.sh`. Design reference only.
+> **Experimental — not wired.** `actools branch …` is **not** a registered command. The code lives in `experimental/preview/branch.sh`. Design reference only.
 
 The design: per-branch isolated Drupal environments for PR previews, design reviews, and risky migrations.
 
@@ -119,7 +119,7 @@ Would generate three workflows from templates — **test** (PR: CodeSniffer, PHP
 
 ## AI assistant
 
-> **Experimental — not wired.** `actools ai …` is **not** a registered command. The code lives in `modules/ai/assistant.sh`. Design reference only.
+> **Experimental — not wired.** `actools ai …` is **not** a registered command. The code lives in `experimental/ai/assistant.sh`. Design reference only.
 
 The design: a small local model with codebase context for "how does this script work" questions.
 
@@ -145,9 +145,9 @@ actools tunnel restart
 actools tunnel logs
 ```
 
-The tunnel runs as a systemd service (`cloudflared.service`). Configuration template in `modules/network/cloudflared-config.yml.example`. Once active, you can remove the UFW rules for 80/443 — only SSH remains inbound.
+The tunnel runs as a systemd service (`cloudflared.service`). Configuration template in `experimental/network/cloudflared-config.yml.example`. Once active, you can remove the UFW rules for 80/443 — only SSH remains inbound.
 
-See `modules/network/cloudflare-setup.md` for the one-time setup.
+See `experimental/network/cloudflare-setup.md` for the one-time setup.
 
 ---
 

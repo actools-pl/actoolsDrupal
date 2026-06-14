@@ -6,14 +6,14 @@
 # reached by the live install path stops matching the canonical set recorded
 # below (and mirrored in docs/architecture/runtime-authority-map.md). Two drift
 # directions are caught:
-#   - an UNDOCUMENTED NEW live module — e.g. someone sources modules/ai/… on
-#     the live path → the derived set grows → this guard fails;
+#   - an UNDOCUMENTED NEW live module — e.g. someone sources a new
+#     `modules/<name>/…` on the live path → the derived set grows → this guard fails;
 #   - a DOCUMENTED-LIVE module that STOPS being sourced → the derived set
 #     shrinks → this guard fails.
 #
-# This is the capture/guard-BEFORE-the-change for Track C: C2 (delete the
-# dead-twin orphans) and C3 (quarantine the 4.5-seed orphans) are safe only
-# because this guard freezes which modules are actually live. C1 makes NO code
+# This is the capture/guard-BEFORE-the-change for Track C: C2 deleted the
+# dead-twin orphans, and C3 quarantined the 4.5-seed orphans into `experimental/`;
+# this guard's new arm pins that they never execute. C1 makes NO code
 # change and NO behaviour change — it adds this guard plus the human-readable
 # "Standalone modules" inventory in the runtime authority map.
 #
@@ -34,11 +34,11 @@
 #
 # NON-VACUOUS. A closure-sanity test (mirroring live_authority_guard_test.bats)
 # pins the closure engine so this guard cannot pass vacuously if the engine
-# silently returns nothing. The equality test itself is demonstrably
-# non-vacuous: injecting a modules/ai/… source line into a live-path file
-# (e.g. actools.sh) makes the derived set include `ai`, so the equality
-# assertion FAILS; reverting the injection makes it pass. (Inject→fail→
-# revert→pass is captured in HANDOFF-C1.md.)
+# silently returns nothing. Both drift directions are demonstrably non-vacuous:
+# injecting a `source modules/<new>/…` line (e.g. a throwaway `modules/zzz/`)
+# grows the derived set → the equality arm FAILS; injecting a
+# `source experimental/<seed>/…` line trips the quarantine arm. Both
+# inject→revert demos are captured in `HANDOFF-C3.md`.
 #
 # CI wiring: discovered by the recursive bats job (lint.yml: `bats -r tests/`).
 # =============================================================================
@@ -143,4 +143,31 @@ derive_live_modules() {
     echo "  - the 'Standalone modules' section of runtime-authority-map.md."
     return 1
   fi
+}
+
+@test "no experimental/ path is reached by the live install closure (Phase C3 quarantine)" {
+  # SURFACE-QUARANTINE INVARIANT (C3). The 4.5-seed modules were moved out of
+  # modules/ into experimental/ (ai compliance dr network observability preview
+  # security). They are design-reference only and MUST NEVER execute on the live
+  # path. This arm fails if any change wires an experimental/<name>/… source line
+  # into the live closure, or references experimental/<name> from a live entry
+  # point (even before the target file exists on disk).
+  local hits
+  hits="$(printf '%s\n' "${CLOSURE[@]}" | grep -E '^experimental/' || true)"
+  [[ -z "$hits" ]] || {
+    echo "Live closure reaches into experimental/ — the seed quarantine is breached."
+    echo "Offending closure entries:"; printf '  %s\n' $hits
+    return 1
+  }
+
+  local refs
+  refs="$(grep -rhoE 'experimental/[A-Za-z0-9_]+' \
+            "$REPO/actools.sh" "$REPO/installer" "$REPO/cli/actools" 2>/dev/null \
+          | sort -u || true)"
+  [[ -z "$refs" ]] || {
+    echo "A live entry point references experimental/ — quarantine breached"
+    echo "(mirrors the entry-point union in derive_live_modules; catches a wired"
+    echo "reference whose target file may not yet exist):"; printf '  %s\n' $refs
+    return 1
+  }
 }

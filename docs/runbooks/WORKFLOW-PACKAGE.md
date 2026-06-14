@@ -56,7 +56,8 @@ pre-flight** — before any work:
 
 - **Baseline lock.** The bundle states the SHA; the window confirms
   `git log --oneline -1` == that SHA. **Mismatch → STOP** and report.
-- **Inputs exist and apply.** `git apply --check` / `git am --check`; uploaded
+- **Inputs exist and apply.** `git apply --check <patch>` to test applicability
+  before `git am` (note: `git am --check` is *not* a valid flag on git 2.43); uploaded
   files present on disk. **Missing/non-applying → STOP** (this is the empty-upload
   and baseline-artifact surprise, prevented).
 - **Scope manifest = scope diff.** The spec's allowed/forbidden list must equal the
@@ -122,10 +123,13 @@ The agent names leaked because `git am` preserves the *patch* author and/or a
 git -C ~/actoolsDrupal-src config user.name  "actools-pl"
 git -C ~/actoolsDrupal-src config user.email "feezixmp@gmail.com"
 
-# applying a coder's patch series — reset author to the committer (you):
-git am --reset-author /tmp/patches/0*.patch
-# single squashed patch:
-git apply /tmp/<phase>.patch && git add -A && git commit --reset-author -m "…"
+# applying a coder's patch series — the coder authors patches AS actools-pl, so PLAIN
+# git am yields the correct author. NOTE: `git am --reset-author` is NOT a valid flag
+# (git 2.43 errors "unknown option `reset-author'"); never pass it. Run the author-check
+# (below) after applying; if it ever shows a wrong author, force it with
+# `git commit --amend --reset-author --no-edit` (single commit — that flag IS valid on
+# git commit, just not on git am).
+git am /tmp/patches/0*.patch
 ```
 
 - **GitHub squash-merge:** edit the squash message to **drop any `Co-authored-by:`

@@ -93,58 +93,61 @@ A row may carry a compound status (e.g. `current (monolithic) → target via dis
 - **Doc contradictions (P0-B/P0-J).** `docs/architecture.md`: "v11.2.0+" (`:3`), "the CLI … never contains business logic" (`:9`), "21 bats tests" (`:49`), `"version":"11.2.0"` + `phases_complete` state machine (`:84-87`), `actools-real` (`:119`) — all false vs code. `docs/CHANGELOG.md:113` Dockerfile claim false. `cli/actools:12-15` false self-comment.
 - **Design-canon home (build-trigger #2)** was **absent** before P0-A (`design/` did not exist; LOCKED/brief/arch not committed under `docs/` or `design/`). P0-A creates `design/` with the three canon files.
 
-## Standalone modules (C1 inventory — live vs orphan)
+## Standalone modules (live vs quarantined)
 
-> **Recorded at phase C1** (doc + guard only; **no code deletion, no
-> behaviour change**). This section is the human-readable mirror of
-> `tests/guards/orphan_inventory_guard_test.bats`, which pins the live-module
-> set. **Any phase that changes the live-module set must update BOTH** this
-> table and that guard's `EXPECTED_LIVE_MODULES` list. Baseline `82ba206`.
+> **Recorded at C1** (doc + guard only). **Amended C2** (dead-twin removal) and
+> **C3** (4.5-seed quarantine into `experimental/`). Human-readable mirror of
+> `tests/guards/orphan_inventory_guard_test.bats`, which pins the live-module set
+> **and** that nothing under `experimental/` is ever sourced. **Any phase that
+> changes the live-module set must update BOTH** this table and that guard's
+> `EXPECTED_LIVE_MODULES`. Baseline `8c1897c`.
 
-`modules/` holds **13** directories. **6 are LIVE** — reached by the live
-install path (sourced from `actools.sh`, or referenced by the installer /
-operator CLI). **7 are orphan** — no live reference anywhere in `actools.sh`,
-`installer/`, or `cli/` (verified by per-module grep, recorded in
-`PHASE0_LEDGER` Entry 021). The 12 original orphans split into **dead-twins** (duplicated
-live inline/module logic) and **4.5-seeds** (committed 4.5 design,
-quarantined into `experimental/` in C3, not deleted). **C2 removed the 5
-dead-twins** and reclassified `ai` + `preview` (previously dead-twin) **as
-4.5-seeds** — their dirs stay in place for C3 — so the **7 that remain are
-all 4.5-seeds**. C1 had acted on none of them — it only classified and
-guarded, which is what made C2 safe.
+After C3, `modules/` holds **exactly the 6 LIVE modules** — those reached by the
+live install path (sourced from `actools.sh`, or referenced by the installer /
+operator CLI). The **7 4.5-design seeds** that previously sat in `modules/` as
+orphans (no live reference) were **moved to `experimental/`** in C3 — `git mv`,
+content byte-identical, history preserved. (The 5 dead-twins — `health, migrate,
+preflight, storage, worker` — were deleted in C2.)
 
-**Totals: 6 live · 7 orphan (all 4.5-seed, C3-quarantine-bound) · 13 total.**
-5 dead-twins (`health, migrate, preflight, storage, worker`) removed in C2;
-`ai` + `preview` reclassified as 4.5-seeds (C3 quarantine). (At C1 the figure
-was **12 of 18** orphan — correcting the plan-of-record §2's "12 of 19"
-off-by-one; C2 then removed 5, leaving **7 of 13**.)
+**This is a surface quarantine, not physical removal.** The install is in-place
+(`INSTALL_DIR` = the repo dir, `actools.sh:94`) and `chown -R`'s the whole tree
+(`actools.sh:405`), so the `experimental/` files still reside on the box — but
+they are off the live surface, and the guard fails CI if any `experimental/…`
+path is ever reached by the live closure or wired into an entry point. The
+"unwired design reference" framing the operator docs already used (see
+`enterprise.md`) is unchanged; only the paths moved to `experimental/`.
 
-| module | status | evidence | disposition |
+**Totals: 6 live (`modules/`) · 7 quarantined 4.5-seed (`experimental/`).**
+(Lineage: 18 module dirs at C1 → 12 orphan / 6 live; C2 deleted 5 dead-twins and
+reclassified `ai`+`preview` as seeds → 13 dirs, 7 orphan; C3 moved the 7 seeds
+to `experimental/` → `modules/` = 6, `experimental/` = 7.)
+
+| module | location | status | evidence |
 |---|---|---|---|
-| `audit` | LIVE | referenced on the live path — `cli/actools:313,317` (operator-CLI surface, installed by copy) | — |
-| `backup` | LIVE | sourced on the live path — `actools.sh:516` (`modules/backup/cron.sh`) | — |
-| `db` | LIVE | sourced on the live path — `actools.sh:457` (`modules/db/core.sh`) | — |
-| `drupal` | LIVE | sourced on the live path — `actools.sh:181` (`modules/drupal/provision.sh`) | — |
-| `host` | LIVE | sourced on the live path — `actools.sh:193` loop over `modules/host/*.sh` | — |
-| `stack` | LIVE | sourced on the live path — `actools.sh:204` loop over `modules/stack/*.sh` | — |
-| `ai` | orphan · 4.5-seed (reclassified C2) | no live reference | C3: quarantine → `experimental/` |
-| `preview` | orphan · 4.5-seed (reclassified C2) | no live reference | C3: quarantine → `experimental/` |
-| `compliance` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
-| `dr` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
-| `network` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
-| `observability` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
-| `security` | orphan · 4.5-seed | no live reference | C3: quarantine → `experimental/` |
+| `audit` | `modules/` | LIVE | live path — `cli/actools:313,317` (operator-CLI surface, installed by copy) |
+| `backup` | `modules/` | LIVE | live path — `actools.sh:516` (`modules/backup/cron.sh`) |
+| `db` | `modules/` | LIVE | live path — `actools.sh:457` (`modules/db/core.sh`) |
+| `drupal` | `modules/` | LIVE | live path — `actools.sh:181` (`modules/drupal/provision.sh`) |
+| `host` | `modules/` | LIVE | live path — `actools.sh:193` loop over `modules/host/*.sh` |
+| `stack` | `modules/` | LIVE | live path — `actools.sh:204` loop over `modules/stack/*.sh` |
+| `ai` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `compliance` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `dr` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `network` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `observability` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `preview` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
+| `security` | `experimental/` | quarantined 4.5-seed | no live reference (C3 move) |
 
-The LIVE rows above are exactly the guard's `EXPECTED_LIVE_MODULES`
-(`audit backup db drupal host stack`). The guard **derives** the actual set
-from the tree — the source-closure of `actools.sh` (the `CLOSURE` engine from
-`live_closure.bash`) **unioned** with `modules/<name>` references in
-`actools.sh` / `installer/` / `cli/actools` — and fails CI if it diverges from
-this list in **either** direction (an undocumented new live module, or a
-documented-live module that stops being sourced). `audit` is the one live
-module reached without an `${INSTALL_DIR}` source line from `actools.sh`: it is
-invoked from `cli/actools` (the copied operator-CLI surface), which is why the union with
-the entry-point grep, not the closure alone, is required.
+The LIVE rows are exactly the guard's `EXPECTED_LIVE_MODULES`
+(`audit backup db drupal host stack`). The guard **derives** the actual set from
+the tree — the source-closure of `actools.sh` (the `CLOSURE` engine from
+`live_closure.bash`) **unioned** with `modules/<name>` references in `actools.sh`
+/ `installer/` / `cli/actools` — and fails CI if it diverges in either
+direction. A separate arm fails if any `experimental/…` path enters the live
+closure. `audit` is the one live module reached without an `${INSTALL_DIR}`
+source line from `actools.sh`: it is invoked from `cli/actools` (the copied
+operator-CLI surface), which is why the union with the entry-point grep, not the
+closure alone, is required.
 
 ## Update rule
 

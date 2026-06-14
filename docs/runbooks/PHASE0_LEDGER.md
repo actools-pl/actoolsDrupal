@@ -86,6 +86,59 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 023 — C3: quarantine the 7 4.5-seed modules into experimental/
+
+Date: <fill on apply>
+Phase: C3 (Track C — cleanup)
+Baseline: 8c1897c (#51)
+
+### Objective
+
+`git mv` the 7 committed 4.5-design seed modules out of `modules/` into
+`experimental/` (`ai, compliance, dr, network, observability, preview, security`
+— content byte-identical, history preserved) so `modules/` holds exactly the 6
+live modules (`audit, backup, db, drupal, host, stack`). This is a **surface
+quarantine**: the install is in-place (`actools.sh:94`) and `chown -R`'s the
+whole tree (`:405`), so the seeds still reside on the box, but they are off the
+live surface and a new orphan-inventory guard arm fails CI if any
+`experimental/…` path is ever reached by the live closure or wired into an entry
+point. Also: removed the stale, ungated `.ai-context/full.txt` cache (its only
+consumer, the unwired `experimental/ai/assistant.sh`, regenerates it on demand);
+renamed the 3 seed shellcheck globs in `lint.yml` (`dr`/`observability`/`preview`
+→ `experimental/`); fixed the seed-path pointers in 7 operator-facing docs;
+landed the WORKFLOW-PACKAGE git-flag fixes (§3 `git am --check`
+→ `git apply --check`; §7 `git am --reset-author` → plain `git am`, and dropped
+the buggy `git apply` fallback line whose `git commit --reset-author` is invalid
+without `--amend` — all three invalid on git 2.43, the third beyond the two C2
+identified); updated the runtime-authority-map
+inventory; and ratified Entry 022.
+
+`technical-roadmap.md` (one stale `modules/compliance` heredoc path) is left to
+**D1** (its overclaim-reconciliation phase). Historical records (CHANGELOG,
+ledger 001–022 bodies, `docs/releases/*`, `HANDOFF-*`) and the seed *internals*
+(unvalidated, never executed) are untouched.
+
+### Runtime authority changes
+
+**None to the live path.** No file in the live source-closure is modified;
+`actools.sh` and the 6 live modules are byte-identical to `8c1897c`. The move
+changes the file tree only. **Because it is a structural change (module tree +
+lint + guard), a branch e2e green (`MariaDB ready.`) is a required pre-merge
+gate** — insurance that the move is transparent to the installer.
+
+### Files
+
+Moved (git mv, 7 dirs / 11 files): `modules/{ai,compliance,dr,network,observability,preview,security}` → `experimental/`. New: `experimental/README.md`. Removed: `.ai-context/full.txt`. Edited: `.github/workflows/lint.yml`, `tests/guards/orphan_inventory_guard_test.bats` (1 arm added; `EXPECTED_LIVE_MODULES`/`derive_live_modules` byte-identical), `docs/architecture/runtime-authority-map.md`, `docs/advanced.md`, `docs/privacy.md`, `docs/enterprise.md`, `docs/hardening.md`, `docs/observability.md`, `ROADMAP.md`, `actools.env.example`, `docs/runbooks/WORKFLOW-PACKAGE.md`, this ledger.
+
+### Verdict
+
+**Pending** — the Review Gate ratifies on merge (this coding window does not
+self-approve). Verify in order: see SPEC-C3 §6.
+
+### Commit SHA
+
+Sandbox commit(s) on top of `8c1897c`; operator stamps the squash/merge SHA on apply.
+
 ## Entry 022 — C2 · Delete Dead-Twin Modules (5) + Reclassify ai/preview
 
 Date: 2026-06-14
@@ -245,7 +298,7 @@ PASS (all sandbox-runnable suites) — guard 2/2; non-vacuity inject→FAIL→re
 
 ### Review Gate decision
 
-**Pending** — the Review Gate ratifies on merge (this coding window does not self-approve). Verify in order: scope (`diff` vs `ce35813` = exactly the 5 dirs deleted + the 4 files edited; `ai`/`preview` + the 5 seeds untouched) → deletion safety (re-grep the 5 names over the live path → 0; inline `migrate` guide intact at `cli/actools:282-291`) → guard integrity (`EXPECTED_LIVE_MODULES` + `derive_live_modules` byte-identical to `ce35813`; re-run 2/2; re-inject non-vacuity) → inventory truth (table matches the 13 dirs; ai/preview reclassified; totals correct; audit wording says "from `actools.sh`") → `lint.yml` (remaining shellcheck lines resolve; YAML parses) → no regression (full guards + generated green) → **branch e2e green (`MariaDB ready.`)** → patch reproduces the tree; author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK (`advanced.md`/`privacy.md` still accurate because ai/preview still exist).
+**APPROVED — ratified (<date>): C2 merged to `main` as `8c1897c` (#51); branch e2e #85 reached `MariaDB ready.` twice (stack bootstrap + prod Drupal install), confirming the 5 dead-twin deletions are transparent to the installer. `8c1897c` is the verified baseline of C3, and this ratification rides with the C3 patch — which re-runs the orphan-inventory guard green (closure-sanity + equality + the new experimental-quarantine arm) and depends on the C2 inventory.** *(Original pending text, for the record:)* **Pending** — the Review Gate ratifies on merge (this coding window does not self-approve). Verify in order: scope (`diff` vs `ce35813` = exactly the 5 dirs deleted + the 4 files edited; `ai`/`preview` + the 5 seeds untouched) → deletion safety (re-grep the 5 names over the live path → 0; inline `migrate` guide intact at `cli/actools:282-291`) → guard integrity (`EXPECTED_LIVE_MODULES` + `derive_live_modules` byte-identical to `ce35813`; re-run 2/2; re-inject non-vacuity) → inventory truth (table matches the 13 dirs; ai/preview reclassified; totals correct; audit wording says "from `actools.sh`") → `lint.yml` (remaining shellcheck lines resolve; YAML parses) → no regression (full guards + generated green) → **branch e2e green (`MariaDB ready.`)** → patch reproduces the tree; author `actools-pl <feezixmp@gmail.com>` → then DOC-CHECK (`advanced.md`/`privacy.md` still accurate because ai/preview still exist).
 
 ### Next safe task
 

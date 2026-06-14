@@ -46,11 +46,11 @@ jobs:
           shellcheck --exclude=SC2034,SC2015,SC2164,SC2043,SC2012,SC1090,SC1091 cli/commands/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164,SC2012 installer/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164,SC1091 modules/audit/*.sh
-          shellcheck --exclude=SC2034,SC2015,SC2164,SC1090 modules/dr/*.sh
-          shellcheck --exclude=SC2034,SC2015,SC2164 modules/observability/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164,SC1090 experimental/dr/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164 experimental/observability/*.sh
           shellcheck --exclude=SC2034,SC2164 modules/drupal/*.sh
           shellcheck --severity=warning --exclude=SC2034,SC2015,SC2164,SC1090,SC1091 modules/audit/lib/*.sh
-          shellcheck --exclude=SC2034,SC2015,SC2164,SC2119,SC2120 modules/preview/*.sh
+          shellcheck --exclude=SC2034,SC2015,SC2164,SC2119,SC2120 experimental/preview/*.sh
           shellcheck --exclude=SC2034,SC2015,SC2164 modules/stack/*.sh
   trivy:
     runs-on: ubuntu-latest
