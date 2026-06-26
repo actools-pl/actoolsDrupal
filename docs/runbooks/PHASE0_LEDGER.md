@@ -86,6 +86,67 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 026 — D1b: doc-truth residual sweep (architecture diagram + stale-ref cleanup)
+
+Date: <fill on apply>
+Phase: D1b (Track D — doc-truth)
+Baseline: aa1d826 (#54)
+
+### Objective
+Sweep the doc-truth residuals: rebuild architecture.md's source-tree diagram
+(modules/ = the 6 live incl. the previously-omitted audit; a new experimental/
+block = the 7 seeds; drop the 4 deleted; fix "158 tests" → 236 and the
+backup-as-orphan note); fix runtime-authority-map.md (the :45 dr/resurrect path →
+experimental/, the :168 audit cite :313 → :320); correct the plan-synthesis C4
+roster row (file-inventory; vocabulary → D1) + the C1 "19" → "18" count + a
+ledger-is-authoritative pointer; fix the modules/host/age.sh comment (modules/dr/*
+→ experimental/dr/*, comment-only); and mark the technical-roadmap future-framed
+command examples as experimental/Phase-5 + strip the 47-second/instant numbers.
+Ratified Entry 024 (C4) and recorded Entry 025 (D1).
+
+### Runtime authority changes
+None. The only non-doc file touched is modules/host/age.sh, comment-only — no
+executable line changes; the live source-closure behavior is unchanged. Golden
+drift + the file-level guard confirm no wiring/behavior change. Behavior-free → no
+branch e2e required.
+
+### Files
+docs/architecture.md, docs/architecture/runtime-authority-map.md,
+docs/runbooks/PHASE4.5-READINESS-PLAN-SYNTHESIS.md, modules/host/age.sh,
+docs/technical-roadmap.md, this ledger.
+
+### Verdict
+Pending — the Review Gate ratifies on merge. Verify in order: see SPEC-D1b §5.
+
+### Commit SHA
+Sandbox commit on aa1d826; operator stamps the squash/merge SHA on apply.
+
+## Entry 025 — D1: reconcile technical-roadmap.md + canonical-vocabulary glossary
+
+Date: <fill on apply>
+Phase: D1 (Track D — doc-truth)
+Baseline: 49b9a52 (#53)
+
+### Objective
+Single-file reconciliation of docs/technical-roadmap.md against the 49b9a52 tree:
+dropped "All Phases 1–4 complete" (only Phase 1 is shipped/live; Phases 2–4 are
+quarantined experimental seeds; health self-healing + migrate modules removed);
+corrected the counts to 6 live modules (+7 quarantined), 236 tests/24 bats (no
+"32"/"21"); stripped the unmeasured ≤5-min failover and feature-tied <15min RTO,
+rewording the enterprise-grade RTO/RPO/uptime targets as objectives with a
+measured-rehearsal note; relabelled Galera + automated failover to Phase 5; added
+the canonical "Phase" glossary (two axes; P0-* delivered the Phase 1 milestone;
+Item N ≈ E-roster). Doc-only; source closure byte-identical (behavior-free).
+
+### Verdict
+**APPROVED — REVIEW + DOC-CHECK both PASS (separate Opus windows, independently
+re-derived); merged to `main` as `aa1d826` (#54); tree `e600f4b`; E2E #89 green as
+a backstop.** Deferred (to this D1b sweep): the future-framed command examples
+(lines 89/92/93/126/156-159/184/271).
+
+### Commit SHA
+Merged `aa1d826` (#54).
+
 ## Entry 024 — C4: file-level orphan inventory + file-level wiring guard
 
 Date: <fill on apply>
@@ -125,8 +186,7 @@ untouched, left to D1), this ledger.
 
 ### Verdict
 
-Pending — the Review Gate ratifies on merge (this coding window does not
-self-approve). Verify in order: see SPEC-C4 §6.
+**APPROVED — ratified (<date>): C4 merged to `main` as `49b9a52` (#53); the file-level inventory + guard landed behavior-free (E2E #88 green as a backstop). `49b9a52` is the verified baseline of D1, and this ratification rides with the D1b patch.** *(Original pending text, for the record:)* **Pending** — the Review Gate ratifies on merge (this coding window does not self-approve). Verify in order: see SPEC-C4 §6.
 
 ### Commit SHA
 

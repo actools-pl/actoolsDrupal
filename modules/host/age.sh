@@ -8,7 +8,7 @@
 # sequenced AFTER install_packages so the `age` package is already present.
 #
 # Generated per-deployment, after 'age' is installed. Consumed by
-# modules/backup/* and modules/dr/* (read from ${INSTALL_DIR}). Owned by the
+# modules/backup/* and experimental/dr/* (read from ${INSTALL_DIR}). Owned by the
 # install operator (REAL_USER) like other install secrets; encrypted-backup
 # consumption is a deferred, currently-unwired subsystem
 # (see ROADMAP.md#encrypted-backups). warn-not-fail: a missing key disables an

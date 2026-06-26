@@ -86,7 +86,9 @@ rm "${BACKUP_FILE}.age"  # Remove local encrypted copy
 EOF
 ```
 
-**Step 2: DNA snapshot for 47-second server resurrection**
+**Step 2: DNA snapshot for fast server resurrection**
+
+> **Phase 5 / experimental design.** The `immortalize` and `ai` commands are not registered today — they live in `experimental/` (not the live CLI). The block below is illustrative.
 
 ```bash
 # actools immortalize — captures complete server blueprint
@@ -123,7 +125,7 @@ PYEOF
 EOF
 ```
 
-**Step 3: Hetzner Floating IP for instant failover**
+**Step 3: Hetzner Floating IP for failover**
 
 ```bash
 # Provision a second Hetzner server (standby)
@@ -152,6 +154,9 @@ EOF
 ```
 
 **New CLI commands:**
+
+> **Experimental / Phase 5 — not registered commands.** These resolve from `experimental/dr/`, not the live CLI.
+
 ```bash
 actools immortalize          # Create DNA snapshot
 actools resurrect            # Restore from DNA on new server
@@ -179,9 +184,11 @@ max_binlog_size = 100M
 sync_binlog = 1
 ```
 
+> **Removed / not implemented.** The migrate-PITR path was removed in C2; the live `migrate` command (`cli/actools:282`) is the XeLaTeX migration text-guide, so `--point-in-time` is not a real flag. Shown only to mark the former design intent — not runnable.
+
 ```bash
-# Point-in-time restore command
-actools migrate --point-in-time "2026-03-26 14:30:00" prod
+# Point-in-time restore command (REMOVED in C2 — not implemented; live `migrate` is the XeLaTeX text-guide)
+# actools migrate --point-in-time "2026-03-26 14:30:00" prod
 ```
 
 #### Phase 5: MariaDB Galera Cluster (3 nodes)
@@ -268,6 +275,7 @@ sudo useradd -m -s /bin/bash actools-viewer  # Read-only
 # Create sudoers rules
 cat > /etc/sudoers.d/actools-roles << 'EOF'
 # Developers can: create branches, run drush, view logs
+# NOTE: `actools branch` is an experimental, unregistered command (resolves from experimental/preview/, not the live CLI); this grant is illustrative for a future command.
 actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools branch *
 actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools drush *
 actools-dev ALL=(actools) NOPASSWD: /usr/local/bin/actools logs *
