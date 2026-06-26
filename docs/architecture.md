@@ -22,35 +22,35 @@ Actools is a bash platform with a staged install spine (`actools.sh`) and a sepa
 │   ├── secrets.sh          credential generation and storage
 │   └── validate.sh         pre-flight checks before any operation
 │
-├── modules/
-│   ├── host/               system setup (packages, kernel, swap, UFW, Docker)
-│   ├── stack/              Docker Compose, Caddyfile, images, my.cnf
+├── modules/                live install modules (6 — sourced/executed on the install path)
+│   ├── audit/              actools audit — security/config audit (CLI command; lib/*.sh)
+│   ├── backup/             scheduled DB-backup cron (cron.sh); the PITR/binlog/encrypted-backup files here are unwired drafts — see the file-level inventory in runtime-authority-map.md
 │   ├── db/                 MariaDB: wait-for-ready, credentials, backup user
-│   ├── drupal/             Drupal install: prepare → provision → secure
-│   ├── storage/            S3: s3fs mount, settings injection
-│   ├── worker/             XeLaTeX worker: build, queue integration
-│   ├── health/             health checks, self-healing remediation
-│   ├── observability/      Prometheus, Grafana, exporters
-│   ├── preview/            branch environments: create, list, destroy
-│   ├── migrate/            zero-downtime migrations, rollback
-│   ├── backup/             PITR: full dumps, binlog rotation, restore
-│   ├── security/           RBAC: sudoers rules, audit wrapper
+│   ├── drupal/             Drupal install: provision (prepare.sh/secure.sh are unwired extractions)
+│   ├── host/               system setup (packages, kernel, swap, UFW, Docker)
+│   └── stack/              Docker Compose, Caddyfile, images, my.cnf
+│
+├── experimental/           quarantined 4.5-design seeds (7) — committed but UNWIRED; NOT in the standard install
+│   ├── ai/                 AI assistant (Ollama, codebase indexing)
 │   ├── compliance/         GDPR: export, delete, audit, report
 │   ├── dr/                 disaster recovery: immortalize, resurrect
-│   └── ai/                 AI assistant: Ollama, codebase indexing
+│   ├── network/            Cloudflare tunnel setup
+│   ├── observability/      Prometheus, Grafana, exporters
+│   ├── preview/            branch environments: create, list, destroy
+│   └── security/           RBAC: sudoers rules, audit wrapper
 │
 ├── cli/
 │   ├── actools             main dispatcher (case statement)
 │   └── commands/           individual command handlers
 │
-├── cron/                   scheduled jobs (backup, binlog, DNA snapshots)
+├── cron/                   scheduled jobs (backup)
 ├── certs/                  TLS certificates (private keys gitignored)
 ├── templates/              Dockerfiles, CI workflows, settings.php template
-├── tests/                  158 bats tests
+├── tests/                  236 bats tests (24 files)
 └── docs/                   this documentation
 ```
 
-> Note: this tree lists every directory in the repo, including **experimental/unwired and orphan** modules (e.g. `observability/`, `preview/`, `migrate/`, `backup/`, `compliance/`, `dr/`, `ai/`) that are **not** wired into the standard install. The authoritative map of what actually runs is [`architecture/runtime-authority-map.md`](architecture/runtime-authority-map.md).
+> Note: `modules/` holds the 6 live modules the installer wires; `experimental/` holds the 7 quarantined 4.5-design seeds (committed but unwired — not in the standard install). Some files **inside** live modules are themselves unwired drafts (e.g. the `backup/` PITR cluster). The authoritative live-vs-experimental map — including file-level wiring inside the live modules — is [`architecture/runtime-authority-map.md`](architecture/runtime-authority-map.md).
 
 ---
 
