@@ -94,7 +94,7 @@ EOF
 # actools immortalize — captures complete server blueprint
 actools ai "Generate a DNA.json that captures complete server state"
 
-cat > /home/actools/modules/dr/immortalize.sh << 'EOF'
+cat > /home/actools/experimental/dr/immortalize.sh << 'EOF'
 #!/usr/bin/env bash
 # Creates a complete server blueprint
 DNA_FILE="/home/actools/backups/dna-$(date +%F).json"
@@ -133,7 +133,7 @@ EOF
 # Configure Hetzner Floating IP to point at primary
 
 # Failover script (manual trigger for now, automatic in Phase 5)
-cat > /home/actools/modules/dr/failover.sh << 'EOF'
+cat > /home/actools/experimental/dr/failover.sh << 'EOF'
 #!/usr/bin/env bash
 FLOATING_IP="your-floating-ip"
 STANDBY_SERVER_ID="your-standby-id"
@@ -370,7 +370,7 @@ chmod +x /etc/cron.weekly/actools-security
 #### GDPR Compliance Module
 
 ```bash
-cat > /home/actools/modules/compliance/gdpr.sh << 'EOF'
+cat > /home/actools/experimental/compliance/gdpr.sh << 'EOF'
 #!/usr/bin/env bash
 # GDPR compliance tools
 

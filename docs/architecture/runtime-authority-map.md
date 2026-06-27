@@ -213,6 +213,37 @@ The 10-file `backup/` cluster is a **partial implementation of E2 + E3** — tho
 phases reconcile/test/harden it rather than build from scratch. C4 records and
 guards these files; it wires, deletes, and moves nothing.
 
+## Command registry — registered vs not-registered
+
+The **registered** command set is derived by the doc-claim guard
+(`tests/guards/doc_command_claim_guard_test.bats`) directly from the
+`case "${1:-help}" in` dispatch in `cli/actools` — the source of truth. Registered
+commands are therefore **deliberately not listed here** (listing them would invite
+drift between this map and the code); the guard reads them live. This table is only
+the **not-registered allowlist**: commands that appear in doc code-block examples
+but are not (yet) registered in the live CLI. Every row names a real backing path —
+an `experimental/` seed script for the 4.5 seeds, or the design doc that defines the
+future command. The guard fails CI if a doc presents a runnable `actools` example
+whose command is neither registered nor listed below.
+
+<!-- CMD-ALLOWLIST:BEGIN -->
+| command | status | backing |
+|---|---|---|
+| `ai` | experimental (4.5 seed) | `experimental/ai/assistant.sh` |
+| `branch` | experimental (4.5 seed) | `experimental/preview/branch.sh` |
+| `cdn` | planned — design reference only | `technical-roadmap.md` |
+| `ci` | planned — no implementation (placeholder removed P0-O) | `advanced.md` design ref |
+| `content` | planned — design reference only | `technical-roadmap.md` |
+| `cost-optimize` | optional/standalone — not installed by default | `observability.md`/`advanced.md` |
+| `dr-test` | planned — design reference only (no script yet) | `technical-roadmap.md` |
+| `failover` | planned — design reference only (roadmap heredoc; no script in `experimental/`) | `technical-roadmap.md` |
+| `gdpr` | experimental (4.5 seed) | `experimental/compliance/gdpr.sh` |
+| `immortalize` | experimental (4.5 seed) | `experimental/dr/immortalize.sh` |
+| `resurrect` | experimental (4.5 seed) | `experimental/dr/resurrect.sh` |
+| `tenant` | planned (Phase 6) — design reference only | `technical-roadmap.md` |
+| `worker` | planned (distributed worker; future) — distinct from the registered `worker-logs`/`worker-status`/`worker-run` | `technical-roadmap.md` |
+<!-- CMD-ALLOWLIST:END -->
+
 ## Update rule
 
 Every phase must update this map if it changes authority.
