@@ -12,7 +12,8 @@
 # THREE DERIVATIONS, all computed at run time (NONE hardcoded):
 #   (a) REGISTERED — the top-level arms of the `case "${1:-help}" in` dispatch in
 #       cli/actools (the source of truth). The set TRACKS the code: add an arm and
-#       the registered set grows; remove one and it shrinks. 29 commands today.
+#       the registered set grows; remove one and it shrinks. 30 commands today
+#       (the 29 named arms + `help`).
 #   (b) ALLOWLIST  — the not-registered table in
 #       docs/architecture/runtime-authority-map.md, between the
 #       <!-- CMD-ALLOWLIST:BEGIN/END --> markers. 13 commands today.
@@ -24,12 +25,17 @@
 # SCOPE: the guard scans docs/ + README.md ONLY. It deliberately does NOT scan
 # tests/ (so it can never read its own `nonexistent` fixture) nor .github/.
 #
-# DERIVATION NOTES (declared, see HANDOFF-D2):
-#   * The SPEC §3.1(a) reference awk drops only `*`; the real dispatch's terminal
-#     arm is `help|*)`, so the bare reference also emits `help` (→ 30). `help` is
-#     the help/fallback arm, not an advertised command and not in the canonical
-#     29, so this guard drops BOTH `*` and `help`. Dropping `help` is safe for the
-#     main check: no doc code block invokes `actools help`.
+# DERIVATION NOTES (declared, see HANDOFF-V1):
+#   * The real dispatch's terminal arm is `help|*)`. We drop ONLY `*` (the
+#     catch-all wildcard, which is not a command) and KEEP `help` — `help` is a
+#     real, documented command (`actools help`, `actools help advanced`). So
+#     REGISTERED = the 29 named arms + `help` = 30.
+#   * D-1 closeout (V1): D2 dropped BOTH `*` and `help` to reach the canonical 29,
+#     which left a latent false-flag — a future fenced `actools help` example would
+#     have tripped the guard. Promoting `help` into REGISTERED resolves that: a
+#     fenced `actools help` now passes (registered, not allowlisted). `help` is
+#     NOT added to the CMD-ALLOWLIST (it is registered, not not-registered), so
+#     REGISTERED ∩ ALLOWLIST stays empty.
 #
 # UPDATE RULE:
 #   * A new real command → it registers in cli/actools; the guard tracks it
@@ -65,7 +71,7 @@ _registered() {
     f && /^  [a-z][a-z0-9_-]*(\|[a-z0-9_*-]+)*\)/ {
       arm=$0; sub(/\).*/,"",arm); sub(/^[[:space:]]+/,"",arm)
       n=split(arm,p,/\|/)
-      for(i=1;i<=n;i++) if(p[i]!="*" && p[i]!="help") print p[i]
+      for(i=1;i<=n;i++) if(p[i]!="*") print p[i]
     }
   ' "$REPO/cli/actools" | sort -u
 }
@@ -137,23 +143,26 @@ _violations() {
 
 # =============================================================================
 
-@test "REGISTERED is derived live from the cli/actools dispatch (29 commands)" {
+@test "REGISTERED is derived live from the cli/actools dispatch (30 commands)" {
   local count anchor
   count="$(_registered | grep -c . || true)"
-  if [[ "$count" -ne 29 ]]; then
-    echo "Expected 29 registered commands derived from the dispatch, got $count:"
+  if [[ "$count" -ne 30 ]]; then
+    echo "Expected 30 registered commands derived from the dispatch, got $count:"
     _registered
     return 1
   fi
-  # proves it reads the dispatch: real top-level commands are present...
-  for anchor in status audit worker-run migrate tunnel; do
+  # proves it reads the dispatch: real top-level commands are present, and `help`
+  # (the terminal `help|*)` arm, now a first-class registered command) is among them...
+  for anchor in status audit worker-run migrate tunnel help; do
     if ! _registered | grep -qx "$anchor"; then
       echo "anchor command '$anchor' missing from derived REGISTERED set"; return 1
     fi
   done
-  # ...and the nested sub-case arms (storage providers) and the fallback are NOT,
-  # which would appear if the parser slurped past the top-level dispatch.
-  for nope in backblaze wasabi custom help; do
+  # ...but the nested sub-case arms (storage providers `backblaze|wasabi|custom`,
+  # and the `tunnel` sub-dispatch) are NOT — they would appear only if the parser
+  # slurped past the top-level dispatch into the deeper-indented sub-cases. (The
+  # `*` wildcard is dropped; `help` is kept, so it is no longer a negative anchor.)
+  for nope in backblaze wasabi custom; do
     if _registered | grep -qx "$nope"; then
       echo "'$nope' leaked into REGISTERED — parser read past the top-level dispatch"
       return 1
