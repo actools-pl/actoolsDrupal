@@ -52,6 +52,8 @@ build_worker_image() {
   cat > "$INSTALL_DIR/Dockerfile.worker" <<WORKER_DOCKERFILE
 FROM drupal:${DRUPAL_VERSION}-php${PHP_VERSION}-fpm
 
+RUN pecl install redis && docker-php-ext-enable redis
+
 RUN apt-get update -qq && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       texlive-xetex \
