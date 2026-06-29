@@ -86,6 +86,55 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 028 — V1: live-verification matrix (opens Track V) + F1/D-1 closeouts
+
+Date: <fill on apply>
+Phase: V1 (Track V — verification; opens Track V)
+Baseline: 71be9be (#57)
+
+### Objective
+Open Track V with `docs/live-verification-matrix.md` — the single artifact that, for
+every `cli/actools` command, states its precondition, its **class**
+(read-only · mutating · destructive · interactive), a stable output signature, its
+exit-code contract, and whether CI exercises it today. All **30** commands are
+classified (the 29 registered dispatch arms + `help`, now promoted), every row
+**derived from the `cli/actools` arm bodies** (static reading — live execution is
+V2). The matrix records that only **2 of 30** commands — `audit` and `doctor` — are
+CI-exercised today (`.github/workflows/e2e.yml`); the other 28 are covered only
+transitively by the install path, and closing that gap is framed as the explicit
+mandate of **V2** (the real-install command harness). File-level wiring is
+**cross-referenced** (not duplicated) to
+`docs/architecture/runtime-authority-map.md` (35 files = 21 wired + 1 doc + 13
+unwired). The same patch folds in the two Track-D closeouts: **F1** — the
+`docs/architecture.md` `tests/` diagram line is made **count-agnostic** (the stale
+`236 bats tests (24 files)` → a description with no number, so it never drifts
+again); and **D-1** — `help` is **promoted into the guard's derived REGISTERED**
+(`tests/guards/doc_command_claim_guard_test.bats`: drop only `*`, keep `help`; count
+29 → 30; `help` is an expected-present anchor, the nested storage/tunnel sub-arms
+still expected-absent), resolving the latent false-flag where a future fenced
+`actools help` example would have tripped the D2 guard. `help` is **registered, not
+allowlisted** — REGISTERED ∩ CMD-ALLOWLIST stays empty.
+
+### Runtime authority changes
+None. No module, installer, or product-code file is touched. The only test change
+makes `help` a first-class registered command (the guard's surface grows 29 → 30
+but it still derives-not-hardcodes and still bites — the scan, allowlist parse, and
+non-vacuity tests are unchanged). Product behavior is unchanged → behavior-free →
+**no branch e2e required** (as with C1/C4/D1b/D2).
+
+### Files
+New: `docs/live-verification-matrix.md`. Edited:
+`tests/guards/doc_command_claim_guard_test.bats` (the `help` promotion, D-1),
+`docs/architecture.md` (the count-agnostic test line, F1), this ledger (ratify
+Entry 027 + this entry). The four files of SPEC-V1 §2.1. `cli/actools` is **read-only**
+here — the matrix is derived from it, byte-identical to baseline.
+
+### Verdict
+Pending — see SPEC-V1 §5.
+
+### Commit SHA
+Sandbox commit on 71be9be; operator stamps the squash/merge SHA on apply.
+
 ## Entry 027 — D2: doc-command-claim guard (registered vs not-registered)
 
 Date: <fill on apply>
@@ -125,7 +174,7 @@ registered vs not-registered" section + the CMD-ALLOWLIST table),
 `experimental/` heredoc seed paths), this ledger. The five files of SPEC-D2 §2.1.
 
 ### Verdict
-Pending — see SPEC-D2 §5. Closes Track D.
+**APPROVED — ratified (<date>): D2 merged to `main` as `71be9be` (#57); the doc-command-claim guard landed behavior-free (no product-code file touched; CI auto-collects it via `bats -r tests/`; golden drift unchanged; E2E #93 green as a backstop). `71be9be` is the verified baseline of V1, and this ratification rides with the V1 patch. Closes Track D.** *(Original pending text, for the record:)* **Pending** — see SPEC-D2 §5. Closes Track D.
 
 ### Commit SHA
 Sandbox commit on 1897103; operator stamps the squash/merge SHA on apply.
