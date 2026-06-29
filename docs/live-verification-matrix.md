@@ -60,25 +60,25 @@ failure"). Arms with an explicit early `exit` are stated precisely.
 | command | precondition | class | expected output (signature) | exit | CI-coverage |
 |---|---|---|---|---|---|
 | `doctor` | stack installed (containers up for a full pass) | read-only | `ACTOOLS DOCTOR` title + nine check lines (Site · TLS · Containers · Database · Redis · Disk · Backups · Restore test · Drupal) + a summary line | `0` all-pass · `2` warnings-only · `1` any failure | **e2e** (`e2e.yml` — `actools doctor`, `doctor --deep` gate) |
-| `audit` | stack installed; `modules/audit/audit.sh` present | read-only | `=== ACTOOLS DRUPAL AUDIT ===` header + `[PASS]/[WARN]/[FAIL]/[CRITICAL]` lines + health-score report | `0` clean · `1` warn · `2` fail · `3` critical (CI mode; non-CI collapses warn→`0`) · `1` if the audit module is missing | **e2e** (`e2e.yml` — `actools audit ci`) |
-| `status` | stack installed | read-only | `docker compose ps` table (per-container name / state / ports) | `0` success / non-zero on compose error | none (install-path only) |
-| `logs [svc]` | containers up | read-only | streamed container log lines — **follows (`-f`); long-running** | `0` on clean exit (runs until interrupted) | none (install-path only) |
-| `stats` | Docker daemon up | read-only | live `docker stats` table — **streaming; long-running** | `0` on clean exit (streams until interrupted) | none (install-path only) |
-| `tls-status` | `BASE_DOMAIN` set; cert reachable on :443 | read-only | `=== TLS Certificate Status ===` + per-domain `notAfter` date or `not available yet` | `0` success | none (install-path only) |
-| `worker-status` | `worker_prod` up | read-only | drush `queue:list` table | `0` success / non-zero on exec error | none (install-path only) |
-| `worker-logs` | `worker_prod` up | read-only | streamed `worker_prod` logs — **follows (`-f`); long-running** | `0` on clean exit | none (install-path only) |
-| `slow-log [env]` | `php_<env>` up | read-only | `=== PHP-FPM slow log for <env> ===` + last 50 lines or `No slow log yet` | `0` success | none (install-path only) |
-| `redis-info` | `redis` up | read-only | `redis-cli info memory` block or `Redis not running` | `0` success | none (install-path only) |
-| `storage-info` | `actools.env` present | read-only | `=== S3 Storage Configuration ===` + Provider / Bucket / Region·Endpoint + `XeLaTeX mode` | `0` success | none (install-path only) |
-| `oom` | host `dmesg` readable | read-only | `=== Recent OOM Events ===` + matching `dmesg` lines or `No OOM events` | `0` success | none (install-path only) |
-| `log-dir` | none | read-only | `=== Install Log Directory ===` + log path(s) or `No install logs found.` | `0` success | none (install-path only) |
-| `dry-run` | none | read-only | `=== DRY-RUN: Steps actools update will take ===` + five **static** numbered steps (does **not** inspect current state) | `0` success | none (install-path only) |
-| `restore-test` | stack up + a `backups/prod_db_*.sql.gz` + its `.sha256` | read-only | `Testing DB restore: <file>` … `Checksum OK` … `DB restore test OK -- <N> tables restored.` (creates **and drops** a transient `actools_restore_test` DB — never touches real data) | `0` success · `1` no-backup or checksum failure | none (install-path only) |
-| `health` | `BASE_DOMAIN` set; site reachable | read-only | per-env `<domain>: HTTP=<code>  /health=<code>` — *legacy; prefer `doctor`* | `0` success | none (install-path only) |
-| `migrate` | none | read-only | `=== XeLaTeX Migration Guide ===` + current mode + five guide steps — **prints the guide only; performs no migration** | `0` success | none (install-path only) |
-| `pdf-test` | `worker_prod` up | read-only | `=== XeLaTeX Test ===` + `XeLaTeX: OK` / `FAILED` + container health (transient `xelatex --version` render) | `0` success | none (install-path only) |
-| `storage-test` | `php_prod` up + S3 configured | read-only | `=== S3 Storage Round-Trip Test ===` + `WRITE OK` / `READ OK` / `DELETE OK` + `Round-trip: PASS` — **transient, self-cleaning** (writes then `unlink`s a test object) | `0` success | none (install-path only) |
-| `help [advanced\|all]` | none | read-only | usage text — `Actools Drupal Community` + command groups (or the **Full Command Reference** for `advanced`/`all`) | `0` success | none (install-path only) |
+| `audit` | stack installed; `modules/audit/audit.sh` present | read-only | **default mode** (`audit` / `audit ci`): `=== ACTOOLS DRUPAL AUDIT ===` banner + per-check `PASS`/`WARN`/`FAIL`/`CRITICAL` lines + health-score report. **CI mode** (`audit --ci`): banner **suppressed**, PASS lines suppressed, non-PASS as `STATUS [PRIORITY] msg [id]`, plus a machine summary line `PASS=N WARN=N FAIL=N CRITICAL=N` | **CI mode** (`--ci`): `0` clean · `1` warn · `2` fail · `3` critical · `1` if the audit module is missing. **Default mode** (`audit ci`, the existing gate): warn collapses to `0` (only fail→`2`/critical→`3`) | **e2e** (`e2e.yml`: the `audit ci` gate runs **default** mode [banner shown; `grep PASS≥10`]; Step C pins `audit --ci` **CI mode** [banner suppressed; `PASS=` summary]) |
+| `status` | stack installed | read-only | `docker compose ps` table (per-container name / state / ports) | `0` success / non-zero on compose error | **e2e** (`e2e.yml` Step A — asserts `actools_`) |
+| `logs [svc]` | containers up | read-only | streamed container log lines — **follows (`-f`); long-running** | `0` on clean exit (runs until interrupted) | **e2e** (`e2e.yml` Step B — timeout-bounded; exit `124`≡streaming) |
+| `stats` | Docker daemon up | read-only | live `docker stats` table — **streaming; long-running** | `0` on clean exit (streams until interrupted) | **e2e** (`e2e.yml` Step B — timeout-bounded; asserts `CONTAINER`) |
+| `tls-status` | `BASE_DOMAIN` set; cert reachable on :443 | read-only | `=== TLS Certificate Status ===` + per-domain `notAfter` date or `not available yet` | `0` success | **e2e** (`e2e.yml` Step A — asserts `TLS Certificate Status`; **tentative**: no-DNS env, branch e2e is arbiter) |
+| `worker-status` | `worker_prod` up | read-only | drush `queue:list` table | `0` success / non-zero on exec error | **e2e** (`e2e.yml` Step A — asserts exit `0`; no stable cross-version drush token) |
+| `worker-logs` | `worker_prod` up | read-only | streamed `worker_prod` logs — **follows (`-f`); long-running** | `0` on clean exit | **e2e** (`e2e.yml` Step B — timeout-bounded; exit `124`≡streaming) |
+| `slow-log [env]` | `php_<env>` up | read-only | `=== PHP-FPM slow log for <env> ===` + last 50 lines or `No slow log yet` | `0` success | **e2e** (`e2e.yml` Step A — asserts `PHP-FPM slow log`) |
+| `redis-info` | `redis` up | read-only | `redis-cli info memory` block or `Redis not running` | `0` success | **e2e** (`e2e.yml` Step A — asserts `used_memory`; redis up) |
+| `storage-info` | `actools.env` present | read-only | `=== S3 Storage Configuration ===` + Provider / Bucket / Region·Endpoint + `XeLaTeX mode` | `0` success | **e2e** (`e2e.yml` Step A — asserts `S3 Storage Configuration`) |
+| `oom` | host `dmesg` readable | read-only | `=== Recent OOM Events ===` + matching `dmesg` lines or `No OOM events` | `0` success | **e2e** (`e2e.yml` Step A — asserts `Recent OOM Events`; **tentative**: dmesg access, branch e2e is arbiter) |
+| `log-dir` | none | read-only | `=== Install Log Directory ===` + log path(s) or `No install logs found.` | `0` success | **e2e** (`e2e.yml` Step A — asserts `Install Log Directory`) |
+| `dry-run` | none | read-only | `=== DRY-RUN: Steps actools update will take ===` + five **static** numbered steps (does **not** inspect current state) | `0` success | **e2e** (`e2e.yml` Step A — asserts `DRY-RUN`) |
+| `restore-test` | stack up + a `backups/prod_db_*.sql.gz` + its `.sha256` | read-only | `Testing DB restore: <file>` … `Checksum OK` … `DB restore test OK -- <N> tables restored.` (creates **and drops** a transient `actools_restore_test` DB — never touches real data) | `0` success · `1` no-backup or checksum failure | none — **skipped** (fresh install has no backup; `doctor` Restore-test check covers it) |
+| `health` | `BASE_DOMAIN` set; site reachable | read-only | per-env `<domain>: HTTP=<code>  /health=<code>` — *legacy; prefer `doctor`* | `0` success | none — **skipped** (external HTTPS to the fake domain is unreliable; `doctor` Site check covers the local path) |
+| `migrate` | none | read-only | `=== XeLaTeX Migration Guide ===` + current mode + five guide steps — **prints the guide only; performs no migration** | `0` success | **e2e** (`e2e.yml` Step A — asserts `XeLaTeX Migration Guide`) |
+| `pdf-test` | `worker_prod` up | read-only | `=== XeLaTeX Test ===` + `XeLaTeX: OK` / `FAILED` + container health (transient `xelatex --version` render) | `0` success | **e2e** (`e2e.yml` Step A — asserts `XeLaTeX Test`) |
+| `storage-test` | `php_prod` up + S3 configured | read-only | `=== S3 Storage Round-Trip Test ===` + `WRITE OK` / `READ OK` / `DELETE OK` + `Round-trip: PASS` — **transient, self-cleaning** (writes then `unlink`s a test object) | `0` success | none — **skipped** (`ENABLE_S3_STORAGE=false`; round-trip needs a bucket) |
+| `help [advanced\|all]` | none | read-only | usage text — `Actools Drupal Community` + command groups (or the **Full Command Reference** for `advanced`/`all`) | `0` success | **e2e** (`e2e.yml` Step A — asserts `Actools Drupal Community`) |
 
 ### mutating (7)
 
@@ -120,24 +120,55 @@ failure"). Arms with an explicit early `exit` are stated precisely.
   transient, self-cleaning artifact (an S3 object that is `unlink`ed; a temporary
   `actools_restore_test` DB that is dropped; a one-shot `xelatex --version`); per the
   taxonomy these remain read-only because no persistent state survives the run.
+- **`audit ci` ≠ `audit --ci` (parser finding, V1 doc-check; pinned by V2 Step C).**
+  `audit.sh` selects CI mode only on the flag `--ci`; the bare word `ci` matches
+  **none** of its cases (`--complete`/`--security`/`--json`/`--ci`/`--deep`/
+  `--security-active`), so `actools audit ci` — the invocation the existing e2e gate
+  and cron use — runs in **default** mode (banner shown; the gate's `grep PASS≥10`
+  counts the default-mode `PASS` lines, so it is sound). The dedicated CI-mode path
+  is `actools audit --ci`: banner suppressed, PASS lines suppressed, and a single
+  `PASS=N WARN=N FAIL=N CRITICAL=N` machine summary emitted (`lib/report.sh`). V2
+  **records and pins** this distinction (e2e Step C asserts banner-absent + `PASS=`);
+  it does **not** re-wire the gate — changing the gate's invocation is a separate,
+  deliberate decision.
 
 ---
 
 ## CI-coverage summary
 
-**2 of 30** commands are exercised live in CI today: `audit` (`actools audit ci`)
-and `doctor` (`actools doctor`, plus the `doctor --deep` in-development gate), both
-in `.github/workflows/e2e.yml`. The other **28** commands have **no** live CI
-invocation — they are covered only transitively by the install path (the real-install
-e2e builds the stack and installs the CLI, but never runs them).
+**17 of 30** commands are exercised live in CI after **V2** (the real-install
+command harness in `.github/workflows/e2e.yml`):
 
-Closing this gap is the explicit mandate of **V2** (the real-install command
-harness): extend the e2e past the `audit`/`doctor` smoke to run the **read-only**
-safe surface against the live VM. The **interactive** rows (`console`, `shell`) and
-the **destructive** row (`restore`) are not auto-runnable without special handling
-(a TTY, or a staging/confirmation strategy), and the long-running read-only commands
-(`logs`, `worker-logs`, `stats`) need a timeout bound. V2 must keep the doc-claim
-guard's observed behavior in agreement with this matrix.
+- **doctor, audit** — the pre-existing smoke (`actools doctor` + `doctor --deep`
+  gate; `actools audit ci`). V2 additively pins `audit --ci` CI mode (Step C).
+- **Step A — deterministic read-only (10):** `status`, `log-dir`, `dry-run`,
+  `migrate`, `help`, `storage-info`, `redis-info`, `slow-log`, `pdf-test`
+  (each asserts a stable header/token), and `worker-status` (asserts exit `0` —
+  no stable cross-version drush token).
+- **Step A — tentative (2):** `tls-status`, `oom` — their headers are emitted
+  before the degrading lookup, so they are expected green in the no-DNS env, but
+  the **branch e2e is the arbiter**; if either hard-fails it is demoted to the
+  skip list as a declared deviation (and its row flips back to *none*).
+- **Step B — streaming (3):** `logs`, `stats`, `worker-logs` — long-running, so
+  bounded by a remote `timeout`; exit `124` (timeout fired) ≡ clean stream.
+
+The remaining **13** commands are **not** harnessed, by class:
+
+- **mutating (7)** — `backup`, `update`, `restart`, `caddy-reload`, `tunnel`,
+  `worker-run`, `drush` — a fresh-install e2e must stay re-runnable and unattended.
+  (`tunnel` is **also** unmet on the external-dependency axis — no Cloudflare in CI —
+  but its class is mutating: the `restart` sub-arm runs `systemctl restart cloudflared`.)
+- **interactive (2)** — `console`, `shell` — would hang an unattended runner.
+- **destructive (1)** — `restore` — overwrites a database.
+- **read-only with an external dependency unmet in CI (3)** — `storage-test`
+  (no S3 bucket; `ENABLE_S3_STORAGE=false`), `health` (external HTTPS to the fake
+  domain; `doctor` covers the local path), `restore-test` (a fresh install has no
+  backup; `doctor` covers it).
+
+These omissions are encoded as a comment block in the harness so they are
+intentional, not forgotten. V2 keeps the doc-claim guard's observed behavior in
+agreement with this matrix (all command references here stay inline `code`, so the
+guard extracts 0 fenced invocations from this file).
 
 ---
 

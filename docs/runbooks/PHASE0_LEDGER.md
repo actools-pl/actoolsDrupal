@@ -86,6 +86,82 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 030 — V2: real-install command harness (closes Track V)
+
+Date: <fill on apply>
+Phase: V2 (Track V — verification; the execution layer)
+Baseline: 85f078b (#58) — rebased onto WR `53d99a5` (#60) before merge; WR is byte-identical for V2's dependencies (`cli/actools`, `audit.sh` unchanged)
+Task prompt source: SPEC-V2-real-install-command-harness.md
+
+### Objective
+Turn the V1 matrix's *documented* command contracts into *executed* ones. Extend the
+real-install e2e (`.github/workflows/e2e.yml`) — which today runs only `audit` +
+`doctor` (2 of 30) — to run the **read-only safe surface** against the live VM after
+install, asserting each command's matrix signature/exit. Three appended steps (after
+"Run doctor (smoke)"; the working provision/deploy/audit/doctor steps are untouched):
+**Step A** runs the deterministic read-only commands over SSH (`status`, `log-dir`,
+`dry-run`, `migrate`, `help`, `storage-info`, `redis-info`, `slow-log`, `pdf-test`,
+each asserting a stable header/token, plus `worker-status` asserting exit `0`), and —
+**tentatively** — `tls-status` and `oom`; **Step B** runs the long-running streaming
+trio (`logs`, `stats`, `worker-logs`) under a **remote `timeout`**, treating exit
+`124` as success (clean stream) and a real pre-stream error (non-0/non-124) as
+failure, with `stats` also asserting `CONTAINER`; **Step C** runs `audit --ci` and
+asserts CI mode (human banner **suppressed** + machine summary `PASS=` present),
+**additively** — it does **not** touch the existing `audit ci` gate or `audit.sh`.
+Post-V2 the matrix CI-coverage is **17 of 30** (the harnessed read-only set +
+`audit` + `doctor`); **13** stay uncovered (7 mutating [incl. `tunnel` — class
+mutating; also lacks Cloudflare], 2 interactive, 1 destructive, 3 read-only with an
+external dependency unmet in CI — `storage-test`/`health`/`restore-test`), encoded
+as a skip-list comment block in the harness.
+
+### Finding recorded (not re-wired)
+`audit ci` ≠ `audit --ci`: the existing e2e gate (and cron) invoke `audit ci`; the
+bare word `ci` matches none of `audit.sh`'s flag cases, so it runs in **default**
+mode (banner shown; the `grep PASS≥10` gate counts default-mode `PASS` lines, so it
+is sound). `audit --ci` is the dedicated CI-mode path (banner suppressed; PASS lines
+suppressed; `PASS=N WARN=N FAIL=N CRITICAL=N` summary from `lib/report.sh`). V2
+**records and pins** this (Step C + the matrix note); it does **not** change the gate.
+
+### Declared deviations (see HANDOFF-V2)
+- **Step C signature swap.** The spec suggested asserting `[PASS]`/`[FAIL]` lines
+  remain in CI mode; the arm in fact **suppresses** PASS lines (`lib/output.sh:26-28`)
+  and emits a `PASS=N WARN=N FAIL=N CRITICAL=N` summary (`lib/report.sh:14`). CI mode
+  is therefore pinned by **banner-absent + token `PASS=` present** — the facts the
+  code actually emits.
+- **`worker-status` asserts exit `0`**, not a substring — its arm is a bare
+  `drush queue:list` exec with no stable cross-version output token.
+- **`tls-status`/`oom` kept but marked tentative** — their headers are emitted before
+  the degrading lookup and both arms return 0 on the degraded path, so they are
+  expected green; the **branch e2e is the arbiter** and demotes either to the skip
+  list (matrix row flips back to *none*) if it hard-fails.
+
+### Runtime authority changes
+**None.** No product-code file is touched (`cli/`, `actools.sh`, `core/`, `modules/`,
+`experimental/`, `installer/` all unchanged) — the harness only *runs and asserts*
+existing commands. `audit.sh` is byte-identical to baseline.
+
+### Files
+Edited (the three of SPEC-V2 §2.1): `.github/workflows/e2e.yml` (the harness, Steps
+A/B/C appended after "Run doctor (smoke)"), `docs/live-verification-matrix.md`
+(CI-coverage column flipped to `e2e` for the 15 harnessed commands; count
+2 → 17 of 30; the `audit ci`/`--ci` note; all refs inline `code`, 0 fenced
+invocations), and this ledger (ratify Entry 029 [WR] + this entry).
+
+### Gate
+**Behavior-CHANGING (CI surface).** Although no product-code file changes, `e2e.yml`
+now runs commands on the live VM, so a buggy harness would break every subsequent
+e2e on `main`. A **branch e2e MUST be green before merge** (`workflow_dispatch` on the
+phase branch; the real signal is `MariaDB ready.` followed by Steps A/B/C passing; an
+SSH-timeout is infra → re-run). The coding window **cannot run the VM** — the branch
+e2e is the live proof. Branch-e2e run #: <fill on apply>.
+
+### Verdict
+Pending — see SPEC-V2 §5. Closes Track V on approval + green branch e2e + doc-check.
+
+### Commit SHA
+Sandbox commit on 85f078b; operator stamps the squash/merge SHA on apply.
+
+
 ## Entry 029 — WR (worker-redis): install phpredis in the generated worker image
 
 Date: <fill on apply>
@@ -147,11 +223,10 @@ conflict-free except for the expected ledger renumber), `cli/actools`,
 untouched.
 
 ### Verdict
-Pending — see SPEC-WR §4/§8. Behavior-changing; branch-e2e-required. Coding window
-does not self-approve.
+**APPROVED — ratified (<date>): WR merged to `main` as `53d99a5` (#60); E2E Fresh Install #98 green — the build-time proof that `pecl install redis && docker-php-ext-enable redis` installs on the worker base image, with `MariaDB ready.` and doctor/audit/golden-drift green. The phpredis layer is unconditional (line 3 in all 5 `Dockerfile.worker` goldens incl. `redis-off`); `cli/actools` byte-identical (REGISTERED 30); generated-file impact worker-only. The runtime drush-bootstrap proof lands with this V2 rebase — V2's `worker-status` step asserts `drush queue:list` exits 0 against this fixed image. `53d99a5` is the verified base of V2 (rebased onto WR), and this ratification rides with the V2 patch.** *(Original pending text, for the record:)* Pending — see SPEC-WR §4/§8. Behavior-changing; branch-e2e-required. Coding window does not self-approve.
 
 ### Commit SHA
-Sandbox commit on 85f078b; operator stamps the squash/merge SHA on apply.
+`53d99a5` (#60).
 
 ## Entry 028 — V1: live-verification matrix (opens Track V) + F1/D-1 closeouts
 

@@ -144,6 +144,159 @@ jobs:
           fi
           echo "PASS: doctor + doctor --deep gate are working"
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # V2 real-install command harness (Steps A/B/C). The live-verification
+      # matrix (docs/live-verification-matrix.md) DOCUMENTS each command's output
+      # signature + exit contract; these steps EXECUTE the read-only safe surface
+      # on the live VM and assert it. Appended after the doctor smoke; the working
+      # provision/deploy/audit/doctor steps above are untouched. The SSH pattern is
+      # the same fixed one the steps above use: $SSH "/usr/local/bin/actools <cmd>".
+      # Each asserted signature is the stable, environment-independent part of the
+      # arm's output (the header/token emitted regardless of the degraded CI
+      # environment), and traces to a specific cli/actools arm (cited inline).
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Run read-only command surface (smoke)
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+
+          # ===========================================================================
+          # Step A — deterministic read-only commands. Environment facts (from the
+          # "Deploy and install" step): fake domain (no real DNS/TLS),
+          # ENABLE_S3_STORAGE=false (no S3), ENABLE_REDIS=true + worker_prod up.
+          # So redis-info / worker-status / pdf-test CAN run; DNS/TLS/S3 paths cannot.
+          #
+          # SKIP LIST — encoded so each omission is intentional, not forgotten. A
+          # fresh-install e2e must stay re-runnable and unattended, so we do NOT run:
+          #   external dependency unmet in CI:
+          #     storage-test  — S3 round-trip needs a bucket (ENABLE_S3_STORAGE=false)
+          #     tunnel        — needs cloudflared (no Cloudflare in CI)
+          #     health        — external HTTPS to the fake domain is unreliable;
+          #                     doctor's Site check already covers the local path
+          #     restore-test  — needs a backups/prod_db_*.sql.gz (+ .sha256); a fresh
+          #                     install has none; doctor's Restore-test check covers it
+          #   interactive (would hang an unattended runner):
+          #     console, shell
+          #   destructive:
+          #     restore
+          #   mutating (would make the e2e non-re-runnable):
+          #     backup, update, restart, caddy-reload, worker-run, drush
+          # (doctor + audit are already exercised by the steps above; audit --ci is
+          #  pinned additively in Step C.)
+          # ===========================================================================
+
+          check() {  # $1 = command+args, $2 = signature substring (asserted present)
+            local out; out=$($SSH "/usr/local/bin/actools $1 2>&1" || true)
+            if ! grep -qF "$2" <<<"$out"; then
+              echo "FAIL: 'actools $1' missing signature: $2"; echo "--- output ---"; echo "$out"; exit 1
+            fi
+            echo "OK: actools $1"
+          }
+
+          check_rc0() {  # $1 = command+args — asserts the command exits 0 on the VM
+            local out rc
+            out=$($SSH "/usr/local/bin/actools $1 2>&1" || true)
+            # '|| true' above masks the local rc, so read the REAL remote rc separately:
+            rc=$($SSH "/usr/local/bin/actools $1 >/dev/null 2>&1; echo \$?" || echo 1)
+            if [ "$rc" != "0" ]; then
+              echo "FAIL: 'actools $1' expected exit 0, got rc=$rc"; echo "--- output ---"; echo "$out"; exit 1
+            fi
+            echo "OK: actools $1 (exit 0)"
+          }
+
+          # Each signature is a stable header/token emitted by the arm BEFORE any
+          # precondition that fails in CI. Arm citations are in cli/actools.
+          check "status"        "actools_"                  # arm: docker compose ps — container_name actools_* (compose.sh)
+          check "log-dir"       "Install Log Directory"     # arm: echo "=== Install Log Directory ==="
+          check "dry-run"       "DRY-RUN"                   # arm: echo "=== DRY-RUN: Steps actools update will take ==="
+          check "migrate"       "XeLaTeX Migration Guide"   # arm: echo "=== XeLaTeX Migration Guide ==="
+          check "help"          "Actools Drupal Community"  # arm: default help|*) heredoc first line
+          check "storage-info"  "S3 Storage Configuration"  # arm: echo "=== S3 Storage Configuration ===" (after env source)
+          check "redis-info"    "used_memory"               # arm: redis-cli info memory (redis up); 'Redis not running' only if down
+          check "slow-log"      "PHP-FPM slow log"          # arm: echo "=== PHP-FPM slow log for prod ===" (before docker exec)
+          check "pdf-test"      "XeLaTeX Test"              # arm: echo "=== XeLaTeX Test (inside worker container) ===" (before exec)
+
+          # worker-status: the arm is a bare `drush queue:list` exec with no header
+          # token reliable across drush versions, so we assert a clean exit (0) rather
+          # than a substring (DECLARED DEVIATION — see HANDOFF-V2). worker_prod is up.
+          check_rc0 "worker-status"
+
+          # ---- TENTATIVE (no-DNS environment) — the BRANCH E2E is the arbiter ----
+          # Both headers are echoed by the arm BEFORE the lookup that degrades in CI,
+          # and both arms return 0 on the degraded path, so these are expected green.
+          # If the branch e2e shows either HARD-fails (non-zero before its header),
+          # move it to the SKIP LIST above as a DECLARED DEVIATION rather than flake.
+          check "tls-status"    "TLS Certificate Status"    # arm: echo "=== TLS Certificate Status ===" (before openssl; body 'not available yet')
+          check "oom"           "Recent OOM Events"         # arm: echo "=== Recent OOM Events ===" (before dmesg; body 'No OOM events')
+
+      - name: Run streaming commands (timeout-bounded)
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+
+          # ===========================================================================
+          # Step B — long-running read-only commands (logs/worker-logs follow `-f`;
+          # stats streams `docker stats`). They never return on their own, so bound
+          # each with a REMOTE `timeout`: the timeout firing (exit 124) MEANS the
+          # command was streaming cleanly = SUCCESS. A real pre-stream error (exit
+          # neither 0 nor 124) is a FAILURE. 8s comfortably exceeds stream startup —
+          # the branch e2e confirms the bound.
+          # ===========================================================================
+          stream() {  # $1 = command+args, $2 = optional signature ('' to skip)
+            local out rc
+            out=$($SSH "timeout 8 /usr/local/bin/actools $1 2>&1" || true)
+            # '|| true' masks the local rc; read the REAL remote rc (timeout → 124 on kill):
+            rc=$($SSH "timeout 8 /usr/local/bin/actools $1 >/dev/null 2>&1; echo \$?" || echo 1)
+            if [ "$rc" != "124" ] && [ "$rc" != "0" ]; then
+              echo "FAIL: 'actools $1' errored before streaming (rc=$rc)"; echo "--- output ---"; echo "$out"; exit 1
+            fi
+            if [ -n "$2" ] && ! grep -qF "$2" <<<"$out"; then
+              echo "FAIL: 'actools $1' missing signature: $2"; echo "--- output ---"; echo "$out"; exit 1
+            fi
+            echo "OK: actools $1 (streamed, rc=$rc)"
+          }
+
+          stream "logs"         ""           # arm: docker compose logs -f — content varies; clean-stream check suffices
+          stream "stats"        "CONTAINER"  # arm: docker stats --no-trunc — first-frame header contains CONTAINER
+          stream "worker-logs"  ""           # arm: docker compose logs -f worker_prod — content varies
+
+      - name: Pin audit CI-mode (--ci) signature
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+
+          # ===========================================================================
+          # Step C — additive pin of audit's CI-mode (--ci) path. Does NOT touch the
+          # existing `audit ci` gate above or audit.sh (V2 records and pins; re-wiring
+          # the gate is a separate, deliberate decision).
+          #
+          # FINDING (matrix / V1 doc-check), recorded verbatim: the existing gate
+          # invokes `actools audit ci`; the bare word `ci` matches NONE of audit.sh's
+          # flag cases (--complete|--security|--json|--ci|--deep|--security-active),
+          # so `audit ci` runs in DEFAULT mode (human banner shown — the `grep
+          # PASS>=10` gate is therefore sound, counting default-mode "  PASS  <msg>"
+          # lines). `actools audit --ci` is the dedicated CI-mode path, pinned here.
+          #
+          # SIGNATURE NOTE (DECLARED DEVIATION — see HANDOFF-V2): in CI mode the arm
+          # does NOT emit bracketed [PASS]/[FAIL] per-check lines. lib/output.sh
+          # SUPPRESSES PASS lines and prints non-PASS as `STATUS [PRIORITY] msg [id]`
+          # (output.sh:26-28); lib/report.sh then emits one machine summary line
+          # `PASS=N WARN=N FAIL=N CRITICAL=N` (report.sh:14). So CI-mode is pinned by
+          # two facts: the human banner is ABSENT, and that machine summary (token
+          # `PASS=`) is PRESENT. Exit is NOT asserted (it depends on which checks
+          # warn/fail with no DNS/TLS).
+          # ===========================================================================
+          OUT=$($SSH "/usr/local/bin/actools audit --ci 2>&1" || true)
+          if grep -qF "=== ACTOOLS DRUPAL AUDIT ===" <<<"$OUT"; then
+            echo "FAIL: 'audit --ci' did not enter CI mode — the human banner is present (should be suppressed)"
+            echo "--- output ---"; echo "$OUT"; exit 1
+          fi
+          if ! grep -qF "PASS=" <<<"$OUT"; then
+            echo "FAIL: 'audit --ci' did not emit the machine summary line (PASS=N WARN=N FAIL=N CRITICAL=N)"
+            echo "--- output ---"; echo "$OUT"; exit 1
+          fi
+          echo "OK: audit --ci entered CI mode (human banner suppressed; machine summary 'PASS=' present)"
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v7
