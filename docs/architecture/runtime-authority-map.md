@@ -158,8 +158,8 @@ closure alone, is required.
 > unclassified or wiring-flipped file. **C4 changed NO module file** — disposition
 > of the unwired files is deferred (see the disposition column). Baseline `d482818`.
 
-The 6 live modules ship **35 files: 21 wired, 1 documentation, 13 unwired.** The
-13 unwired files reside on the box (in-place install + `chown -R`, `actools.sh:94`/`:405`)
+The 6 live modules ship **34 files: 21 wired, 1 documentation, 12 unwired.** The
+12 unwired files reside on the box (in-place install + `chown -R`, `actools.sh:94`/`:405`)
 but never execute on the live path.
 
 ### Wired (21) — reached on the live path
@@ -192,10 +192,9 @@ but never execute on the live path.
 |---|---|
 | `modules/audit/docs/fix_catalog.md` | audit fix-catalog reference doc; referenced by no code |
 
-### Unwired (13) — ship on the box, OFF the live path; disposition deferred
+### Unwired (12) — ship on the box, OFF the live path; disposition deferred
 | file | what it is | disposition (deferred) |
 |---|---|---|
-| `modules/backup/encrypted_backup.sh` | "Phase 4.5 Item 2" — age-encrypted backups | **E2** (encrypted backups): reconcile/wire/harden |
 | `modules/backup/binlog-rotate.sh` | hourly binlog rotation/encryption/upload | **E3** (binlog/PITR) |
 | `modules/backup/db-full-backup.sh` | daily full dump (PITR baseline) | **E3** |
 | `modules/backup/pitr-restore.sh` | point-in-time restore | **E3** |
@@ -209,7 +208,7 @@ but never execute on the live path.
 | `modules/drupal/prepare.sh` | "Stage 1" extraction; superseded (`provision.sh` inlines it); unsourced | **Phase 5**: reconcile-or-delete |
 | `modules/drupal/secure.sh` | self-declared UNWIRED; "Phase 5 decision" | **Phase 5**: wire-or-delete |
 
-The 10-file `backup/` cluster is a **partial implementation of E2 + E3** — those
+The 9-file `backup/` cluster is a **partial implementation of E3** — those
 phases reconcile/test/harden it rather than build from scratch. C4 records and
 guards these files; it wires, deletes, and moves nothing.
 

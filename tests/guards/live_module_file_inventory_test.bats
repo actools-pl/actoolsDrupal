@@ -23,7 +23,7 @@ setup() {
   REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
-# --- the classified manifest (the 35 files of the 6 live modules) ---
+# --- the classified manifest (the 34 files of the 6 live modules) ---
 # WIRED: reached on the live path (source-closure of actools.sh, OR executed /
 # sourced via the cli/actools `audit` command).
 EXPECTED_WIRED_FILES=(
@@ -56,7 +56,6 @@ EXPECTED_DOC_FILES=(
 # UNWIRED: ship on the box (in-place install) but OFF the live path. Disposition
 # deferred — see header. These MUST stay off the live source-closure (test 2).
 EXPECTED_UNWIRED_FILES=(
-  modules/backup/encrypted_backup.sh
   modules/backup/binlog-rotate.sh
   modules/backup/db-full-backup.sh
   modules/backup/pitr-restore.sh

@@ -78,7 +78,7 @@ jobs:
             ./ root@$IP:/root/actoolsDrupal/
 
           # Create env file
-          $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\nMARIADB_VERSION=11.4\nENVIRONMENT_MODE=production-isolated\nENABLE_REDIS=true\nREDIS_MEM=256mb\nWORKER_MEMORY_LIMIT=2g\nPHP_MEMORY_LIMIT=512m\nDB_MEMORY_LIMIT=2g\n' > /root/actoolsDrupal/actools.env"
+          $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\nENABLE_ENCRYPTED_BACKUP=true\nMARIADB_VERSION=11.4\nENVIRONMENT_MODE=production-isolated\nENABLE_REDIS=true\nREDIS_MEM=256mb\nWORKER_MEMORY_LIMIT=2g\nPHP_MEMORY_LIMIT=512m\nDB_MEMORY_LIMIT=2g\n' > /root/actoolsDrupal/actools.env"
 
           # Run the installer, preserving the log, WITHOUT letting `tee` mask a
           # non-zero install — the bug being that a pipeline's exit status is
@@ -296,6 +296,62 @@ jobs:
             echo "--- output ---"; echo "$OUT"; exit 1
           fi
           echo "OK: audit --ci entered CI mode (human banner suppressed; machine summary 'PASS=' present)"
+
+      - name: Encrypted backup round-trip (E2 — behavior-changing)
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+          BK=/root/actoolsDrupal/backups
+          # ===========================================================================
+          # E2 is behavior-changing: the install env sets ENABLE_ENCRYPTED_BACKUP=true,
+          # so the generated daily cron encrypts at rest. Exercise the full producer ->
+          # consumer round-trip on the live box: run the backup, assert the ENCRYPTED
+          # artifact + its ciphertext checksum exist and that NO plaintext dump remains,
+          # then restore from the encrypted artifact (non-interactively) and assert the DB
+          # loads. An SSH-timeout here is infra (re-run); a real failure is a FAIL line.
+          # ===========================================================================
+
+          # 1) Produce a backup (the `backup` command runs the same generated cron).
+          $SSH "/usr/local/bin/actools backup 2>&1" | tee backup.log || true
+
+          # 2) The newest prod DB artifact must be the ENCRYPTED one, with a verifying
+          #    ciphertext checksum, and the plaintext dump must be ABSENT.
+          ENC=$($SSH "ls -t $BK/prod_db_*.sql.gz.age 2>/dev/null | head -1" || true)
+          if [ -z "$ENC" ]; then
+            echo "FAIL: no encrypted DB artifact (prod_db_<date>.sql.gz.age) was produced"
+            $SSH "ls -la $BK/ 2>&1" || true
+            exit 1
+          fi
+          echo "OK: encrypted artifact present: $ENC"
+          if ! $SSH "test -f '$ENC.sha256'"; then
+            echo "FAIL: ciphertext checksum '$ENC.sha256' is missing"; exit 1
+          fi
+          if ! $SSH "cd $BK && sha256sum -c \"\$(basename '$ENC').sha256\" >/dev/null 2>&1"; then
+            echo "FAIL: ciphertext checksum verification failed for $ENC"; exit 1
+          fi
+          echo "OK: ciphertext checksum verifies"
+          PLAIN="${ENC%.age}"
+          if $SSH "test -f '$PLAIN'"; then
+            echo "FAIL: plaintext dump '$PLAIN' was left on disk after encryption"; exit 1
+          fi
+          echo "OK: no plaintext dump remains (the encrypt stage removed it)"
+
+          # 3) Restore from the encrypted artifact, non-interactively. The only stdin read
+          #    in the restore arm is the y/N confirm; decrypt reads the file argument.
+          RESTORE=$($SSH "printf 'y\n' | /usr/local/bin/actools restore prod 2>&1" || true)
+          echo "$RESTORE" | tee restore.log
+          if ! grep -qF "Restore complete" <<<"$RESTORE"; then
+            echo "FAIL: restore from the encrypted artifact did not complete"; exit 1
+          fi
+          echo "OK: restore from the encrypted artifact completed"
+
+          # 4) The restored DB must contain tables.
+          TC=$($SSH "docker exec -i actools_db sh -c 'MYSQL_PWD=\"\$MARIADB_ROOT_PASSWORD\" mariadb -uroot -N -e \"SELECT count(*) FROM information_schema.tables WHERE table_schema=\\\"actools_prod\\\";\"' 2>/dev/null" || echo 0)
+          echo "restored table count: $TC"
+          if [ "${TC:-0}" -lt 1 ]; then
+            echo "FAIL: restored actools_prod has no tables after the encrypted round-trip"; exit 1
+          fi
+          echo "OK: encrypted backup round-trip verified (actools_prod has $TC tables)"
 
       - name: Upload logs
         if: always()

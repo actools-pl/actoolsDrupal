@@ -86,6 +86,161 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 032 — E2: encrypted-backup deploy (Age-at-rest, gated)
+
+Date: <fill on apply>
+Phase: E2 (Track E — the 4.5 build; encrypted backups)
+Baseline: 6d06a73 (#61) — current `main`, E1 (backup-format contract) merged
+Task prompt source: SPEC-E2-encrypted-backup-deploy.md
+
+### Objective
+Wire Age-encryption-at-rest into the canonical backup path, conforming to the E1 contract
+(scheme X, variant B). The standalone `modules/backup/encrypted_backup.sh` draft — which
+dumped with an argv password (`-p"${DB_ROOT_PASS}"`, the form
+`cron_security_shape_guard_test.bats` forbids) and used a per-second timestamp — is
+**absorbed and removed**; its encryption logic moves into the live generator
+`modules/backup/cron.sh` behind a new `ENABLE_ENCRYPTED_BACKUP` flag (default off, threaded
+into the render exactly as `ENABLE_S3_STORAGE`). When the flag is on, each DB dump and
+(S3-off) files archive is encrypted after its dump+checksum+integrity step:
+`age -r "$(cat ${INSTALL_DIR}/.age-public-key)" -o "<artifact>.age" "<artifact>"`, the
+`.sha256` is taken over the **ciphertext**, and on a successful encrypt+verify the plaintext
+artifact + its sidecar are removed (integrity-or-delete: on failure the partial `.age` is
+removed instead, leaving no encrypted artifact). The secure umask-077 `--defaults-extra-file`
+dump shape is preserved unchanged (encryption is a post-dump host-side step touching no
+credential), so the draft's argv-password flaw never ships. Retention and the rclone push are
+extended to cover `*.age`/`*.age.sha256`. The `restore` consumer (`cli/actools`) now selects
+the newest of `<env>_db_*.sql.gz` or `*.sql.gz.age`, requires `${INSTALL_DIR}/.age-key.txt`
+when the selection is encrypted, decrypts with `age --decrypt -i` before `gunzip | mariadb`,
+and — hardened beyond the spec minimum — **aborts before any `DROP DATABASE`** when a present
+`.sha256` fails (a missing sidecar still only warns). The timestamp stays **daily**
+(`<YYYY-MM-DD>`) per SPEC §5 (per-second remains the PITR/ad-hoc case, C).
+
+### Declared deviations (see HANDOFF-E2)
+- **Defensive key-presence check before DROP.** Beyond decrypt-on-load, the restore arm
+  fails closed if the selected artifact ends in `.age` but `${INSTALL_DIR}/.age-key.txt` is
+  absent — error + exit BEFORE the destructive `DROP DATABASE`/confirm, so a keyless box
+  cannot half-restore.
+- **Checksum is now fail-closed on the consumer.** The pre-E2 restore arm only *warned* on a
+  checksum miss; E2 makes a present-but-FAILING `.sha256` abort before any destructive action
+  (kept the exact `sha256sum -c "$BACKUP_FILE.sha256"` substring the contract-guard arm 4
+  greps). This strengthens A as well as B — declared so REVIEW expects the behavior change.
+- **On encrypt failure, the plaintext is retained.** Per SPEC's integrity-or-delete for the
+  *encrypted* artifact, a failed encrypt deletes only the partial `.age`/`.age.sha256`; the
+  plaintext dump + its sidecar are intentionally left so the backup is not lost outright.
+- **Guard arm-6 sed → global; root check anchored.** The restore arm now carries two
+  `"${env}"_db_` globs (plaintext + `.age`); arm 6's consumer-drift sed is made global so the
+  `.age` glob is doctored too (else the arm is vacuous). `_assert_agreement`'s consumer-root
+  check is anchored to the closing quote (`${INSTALL_DIR}/backups"`) so a `backups`-prefixed
+  sibling is rejected — pinned by new arm 9.
+- **Arm 10 uses a rendered-output doctor.** The ciphertext-checksum non-vacuity arm doctors
+  the *rendered* cron (not the generator) for sed/dash-safety; declared for transparency.
+- **X-grammar minor doc edit.** The scheme-X timestamp enumeration drops "encrypted" from the
+  per-second producer list (shipped encrypted-daily uses the daily timestamp); the
+  glob-matches-both-granularities clause is kept.
+- **Two consequential edits outside the SPEC §11 file list.** Deleting `encrypted_backup.sh`
+  forced (a) dropping it from `tests/guards/live_module_file_inventory_test.bats`'s
+  `EXPECTED_UNWIRED_FILES` manifest (its header instructs exactly this on a file removal; else
+  test 1 — `find modules -type f` vs the manifest — regresses) and (b) decrementing the
+  corresponding Unwired (13 → 12) row in `docs/architecture/runtime-authority-map.md`. Both are
+  truth-tracking consequences of the SPEC-mandated deletion, declared here.
+  **Completion (DOCCHECK-E2 finding (2)):** the runtime-authority-map count edit (b) is now
+  COMPLETE — the aggregate-summary prose (lines 161–162) is corrected to **34 files / 12
+  unwired** (35 → 34 once, 13 → 12 twice; wired 21 and documentation 1 unchanged), so it now
+  matches the `Unwired (12)` heading and the 12 table rows. The (b) edit is no longer partial.
+  **Completion (amendment-2 — line-211 Gate adjudication):** the runtime-authority-map count edit
+  now ALSO corrects line 211 — the `backup/`-cluster prose is changed **10-file → 9-file** and
+  **E2 + E3 → E3** (`encrypted_backup.sh` was deleted, leaving the 9 PITR files; the E2 portion is
+  complete — the encrypted draft is wired into `cron.sh`). The map's file counts are now fully
+  consistent: the aggregate summary (34 files / 12 unwired), the `Unwired (12)` heading, the 12
+  table rows, and the `backup/`-cluster sentence all agree.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Backup encryption at rest | none (live cron plaintext only; `encrypted_backup.sh` an unwired draft) | `cron.sh` encrypts DB + files artifacts to `.age` when `ENABLE_ENCRYPTED_BACKUP=true` (default off) |
+| `restore` consumer | globs `*.sql.gz`; verifies checksum but only WARNS on miss; no `.age` path | globs `*.sql.gz` + `*.sql.gz.age`; ABORTS on a present-but-failing checksum; requires the Age key + decrypts `.age` before load |
+| Registered CLI commands (REGISTERED) | 30 | 30 — no dispatch arm added/removed (restore arm body only) |
+| `encrypted_backup.sh` | unwired draft on the box | deleted (absorbed into `cron.sh`) |
+| Age keypair (`age.sh`) | generated, idle (consumed by nothing) | consumed by the live encrypted path (recipient = `.age-public-key`; decrypt = `.age-key.txt`) |
+
+### Generated-file impact
+
+| File | Status | Evidence |
+|---|---|---|
+| docker-compose.yml | Not touched | golden_drift_test 6/6 green |
+| Caddyfile | Not touched | — |
+| my.cnf | Not touched | — |
+| Dockerfiles | Not touched | — |
+| CLI | Changed intentionally | restore arm: `.age` selection + decrypt + fail-closed checksum/key |
+| backup cron golden | Changed intentionally (regenerated, not hand-edited) | `capture_backup_cron.sh capture`; SHA256SUMS self-consistent; backup_cron_drift_test 3/3 |
+
+### Files
+Edited: `modules/backup/cron.sh` (gated encrypt stage for DB + files; retention + rclone
+extended), `cli/actools` (restore arm: `.age` select/decrypt + fail-closed checksum/key),
+`docs/backup-format-contract.md` (B target→live; X-grammar refinement; A/C unchanged in
+substance), `tests/guards/backup_format_contract_guard_test.bats` (arms 7–10; arm-6 global
+sed; anchored root), `tests/guards/cron_security_shape_guard_test.bats` (arm 5: secure shape
+with encryption on), `tests/fixtures/golden/backup-cron/{actools-backup,SHA256SUMS}`
+(regenerated), `.github/workflows/e2e.yml` (`ENABLE_ENCRYPTED_BACKUP=true` in the install env
++ an encrypted round-trip step), `tests/guards/live_module_file_inventory_test.bats` +
+`docs/architecture/runtime-authority-map.md` (drop the removed draft — see deviations), and
+this ledger (add this entry + ratify Entry 031 [E1]). Deleted:
+`modules/backup/encrypted_backup.sh`.
+
+### Files intentionally not changed
+- All PITR/binlog (C) drafts (`db-full-backup.sh`, `pitr-restore.sh`, `cli-pitr.sh`,
+  `deploy-pitr.sh`, `binlog-rotate.sh`, `*.cnf`, `docker-compose.binlog.yml`,
+  `actools-db-backup.cron`) — deferred to E3; no `ENABLE_PITR` wiring. Byte-identical to baseline.
+- `modules/host/age.sh` — keypair generator already conforms (recipient/decrypt locations);
+  used as-is, byte-identical to baseline.
+- `tests/helpers/capture_backup_cron.sh` — renders encryption-ON via an inherited
+  `ENABLE_ENCRYPTED_BACKUP` env var (its fixed-env subshell does not export the flag), so no
+  helper edit was needed; byte-identical to baseline.
+
+### Tests run
+```bash
+# capture-before-change baseline + after; full suite; guards; golden; non-vacuity
+bats -r tests/                                              # 247 -> 252 total; 240 ok; 12 not-ok (jq-env, == E1 baseline set)
+bats tests/guards/backup_format_contract_guard_test.bats   # 10/10 (arms 7-10 new)
+bats tests/guards/cron_security_shape_guard_test.bats      # 5/5   (arm 5 new)
+bats tests/guards/live_module_file_inventory_test.bats     # 2/2   (manifest -1 file)
+bats tests/guards/doc_command_claim_guard_test.bats        # 5/5   (REGISTERED=30)
+bats tests/generated/golden_drift_test.bats                # 6/6
+bats tests/generated/backup_cron_drift_test.bats           # 3/3   (golden regenerated)
+# non-vacuity (real-code injection, restored after): arm 7 + arm 8 each FAIL on an injected
+# violation and recover; arms 6/9/10 are non-vacuity arms and pass (the oracle FAILS on
+# doctored OFF-TREE copies; the repo is never modified).
+```
+
+### Test result
+PASS (sandbox). The 12 not-ok are the pre-existing jq-environmental `secrets_test`/`state_test`
+failures, byte-identical to the E1 baseline set (no `jq`/`age` binary installable in the
+sandbox; the targeted guards render text + grep and need neither). Zero previously-passing
+tests regressed.
+
+### Gate
+**Behavior-CHANGING.** The live cron and the `restore` consumer change behavior, so a
+**branch e2e MUST be green before merge** (`workflow_dispatch` on the phase branch). The new
+"Encrypted backup round-trip" step runs the backup with `ENABLE_ENCRYPTED_BACKUP=true`,
+asserts the `prod_db_<date>.sql.gz.age` artifact + a verifying ciphertext checksum + NO
+plaintext remaining, then `printf 'y\n' | actools restore prod` and asserts the DB reloads.
+The real signal is `MariaDB ready.` followed by that step passing; an SSH-timeout is infra →
+re-run. The coding window cannot run the VM — the branch e2e is the live proof. Branch-e2e
+run #: <fill on apply>.
+
+### Verdict
+Pending — see SPEC-E2 §7. REVIEW (re-derive scope; byte-identity of age.sh/helper/PITR drafts;
+guard non-vacuity incl. the new encrypted + anchored-root + ciphertext-checksum arms; golden
+drift; the patch reproduces the tree) then DOC-CHECK (every documented command exists in
+`cli/actools`; no doc claims an unshipped feature as live — B is now live, C still not; no
+unmeasured perf/time guarantee survives; the project doc copies match the repo) then the
+operator's green branch e2e follow. The coding window does not self-approve.
+
+### Commit SHA
+Sandbox commit on 6d06a73; operator stamps the squash/merge SHA on apply.
+
+
 ## Entry 031 — E1: backup-format contract (opens Track E)
 
 Date: <fill on apply>
@@ -145,13 +300,18 @@ auto-collected by `bats -r tests/` in lint.yml — no workflow edit). Edited: th
 existing recursive bats job (lint.yml: `bats -r tests/`); no workflow file changes.
 
 ### Verdict
-Pending — see SPEC-E1 §7. REVIEW (guard non-vacuity + doc-vs-code spot checks) then
-DOC-CHECK (every pinned live pattern matches `cron.sh`/`restore` exactly; the B/C target
-sections are unmistakably not-yet-live) follow; no branch e2e. The coding window does not
-self-approve.
+**APPROVED — ratified (<date>): E1 merged to `main` as `6d06a73` (#61) — the squash-merge
+that opens Track E ("docs(e1): backup-format contract + live-(A) agreement guard"). The
+canonical contract (`docs/backup-format-contract.md`) and the live-A agreement guard
+(`tests/guards/backup_format_contract_guard_test.bats`, auto-collected by `bats -r tests/`)
+landed as specified; no producer, consumer, draft, module, or golden was touched (all
+byte-identical to `c17197f`) and the guard pins only the live (A) agreement with B/C marked
+not-yet-live, so the merge to `main` is behavior-free and required no branch e2e. `6d06a73`
+is the current `main` and the verified baseline of E2, which rides this ratification.**
+*(Original pending text, for the record:)* Pending — see SPEC-E1 §7. REVIEW (guard non-vacuity + doc-vs-code spot checks) then DOC-CHECK (every pinned live pattern matches `cron.sh`/`restore` exactly; the B/C target sections are unmistakably not-yet-live) follow; no branch e2e. The coding window does not self-approve.
 
 ### Commit SHA
-Sandbox commit on c17197f; operator stamps the squash/merge SHA on apply.
+`6d06a73` (#61).
 
 ## Entry 030 — V2: real-install command harness (closes Track V)
 
