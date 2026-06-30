@@ -1,8 +1,8 @@
 # /etc/mysql/mariadb.conf.d/99-binlog.cnf
 # Phase 4.5 Item 2 — Binary logging for Point-in-Time Recovery
-# Deploy: sudo cp 99-binlog.cnf /etc/mysql/mariadb.conf.d/
-#         docker compose restart db
-# Verify: docker compose exec db mysql -u root -p -e "SHOW VARIABLES LIKE 'log_bin%';"
+# Placed automatically by the installer (copied to ${INSTALL_DIR}/99-binlog.cnf) and
+# mounted into the db service by modules/stack/compose.sh when ENABLE_PITR=true, which
+# also declares the dedicated mariadb_binlogs volume. No manual cp/restart needed.
 
 [mysqld]
 # Binary log location (inside container maps to named volume)

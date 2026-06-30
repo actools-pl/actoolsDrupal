@@ -67,7 +67,7 @@ readonly FIXED_BACKUP_PASS="TEST_BACKUP_PASS_FIXED"
 # if a future edit moves it (a vestigial drift canary). The range is not
 # sed-extracted to generate a fixture; the CLI is validated directly by
 # tests/installer/cli_authority_test.bats (installed == cli/actools).
-readonly SC_START=521  SC_END=536
+readonly SC_START=528  SC_END=543
 
 # ── Variant specs: name|REDIS|S3|CADVISOR|ENV_MODE ───────────────────────────
 declare -a ALL_VARIANT_SPECS=(

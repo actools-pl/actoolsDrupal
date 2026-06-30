@@ -78,7 +78,7 @@ jobs:
             ./ root@$IP:/root/actoolsDrupal/
 
           # Create env file
-          $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\nENABLE_ENCRYPTED_BACKUP=true\nMARIADB_VERSION=11.4\nENVIRONMENT_MODE=production-isolated\nENABLE_REDIS=true\nREDIS_MEM=256mb\nWORKER_MEMORY_LIMIT=2g\nPHP_MEMORY_LIMIT=512m\nDB_MEMORY_LIMIT=2g\n' > /root/actoolsDrupal/actools.env"
+          $SSH "printf 'BASE_DOMAIN=e2e-${{ github.run_id }}.example.com\nEMAIL=ci@example.com\nDRUPAL_VERSION=11\nPHP_VERSION=8.3\nDB_ROOT_PASS=CiTestPass123\nDRUPAL_ADMIN_PASS=CiAdmin123\nDRUPAL_ADMIN_USER=admin\nDRUPAL_ADMIN_EMAIL=admin@example.com\nENABLE_S3_STORAGE=false\nENABLE_ENCRYPTED_BACKUP=true\nENABLE_PITR=true\nMARIADB_VERSION=11.4\nENVIRONMENT_MODE=production-isolated\nENABLE_REDIS=true\nREDIS_MEM=256mb\nWORKER_MEMORY_LIMIT=2g\nPHP_MEMORY_LIMIT=512m\nDB_MEMORY_LIMIT=2g\n' > /root/actoolsDrupal/actools.env"
 
           # Run the installer, preserving the log, WITHOUT letting `tee` mask a
           # non-zero install — the bug being that a pipeline's exit status is
@@ -352,6 +352,45 @@ jobs:
             echo "FAIL: restored actools_prod has no tables after the encrypted round-trip"; exit 1
           fi
           echo "OK: encrypted backup round-trip verified (actools_prod has $TC tables)"
+
+      - name: Binlog enablement (E3a — behavior-changing)
+        run: |
+          IP="${{ steps.server.outputs.server_ip }}"
+          SSH="ssh -o StrictHostKeyChecking=no -i /tmp/ci_key root@$IP"
+          # ===========================================================================
+          # E3a is behavior-changing: the install env sets ENABLE_PITR=true, so the
+          # canonical compose db service folds in the gated binlog wiring — the dedicated
+          # mariadb_binlogs named volume at /var/log/mysql plus the 99-binlog.cnf config
+          # mount. Prove on the live box that (1) MariaDB came up WITH the binlog config
+          # ("MariaDB ready." — the core my.cnf-class startup risk, incl. the named-volume
+          # ownership for the mysql user), (2) binary logging is ACTIVE (log_bin=ON), and
+          # (3) binlog data files are actually being written under /var/log/mysql in the db
+          # container. An SSH-timeout here is infra (re-run); a real failure is a FAIL line.
+          # ===========================================================================
+
+          # 1) MariaDB started cleanly WITH the binlog config (does not break startup).
+          if ! grep -qF "MariaDB ready." install.log; then
+            echo "FAIL: 'MariaDB ready.' not seen in the install log under ENABLE_PITR=true"; exit 1
+          fi
+          echo "OK: MariaDB ready. (the binlog config did not break startup)"
+
+          # 2) Binary logging is active (log_bin=ON).
+          LOGBIN=$($SSH "docker exec -i actools_db sh -c 'MYSQL_PWD=\"\$MARIADB_ROOT_PASSWORD\" mariadb -uroot -N -e \"SHOW VARIABLES LIKE \\\"log_bin\\\";\"' 2>/dev/null" || true)
+          echo "log_bin variable: $LOGBIN"
+          if ! echo "$LOGBIN" | grep -qiE 'log_bin[[:space:]]+ON'; then
+            echo "FAIL: log_bin is not ON (binary logging inactive under ENABLE_PITR=true)"; exit 1
+          fi
+          echo "OK: log_bin=ON (binary logging active)"
+
+          # 3) Binlog data files are being written to the dedicated volume at /var/log/mysql.
+          if ! $SSH "docker exec -i actools_db sh -c 'ls /var/log/mysql/mysql-bin.[0-9]* >/dev/null 2>&1'"; then
+            echo "FAIL: no binlog data file (mysql-bin.NNNNNN) under /var/log/mysql in actools_db"
+            $SSH "docker exec -i actools_db sh -c 'ls -la /var/log/mysql/ 2>&1'" || true
+            exit 1
+          fi
+          BINLOGS=$($SSH "docker exec -i actools_db sh -c 'ls /var/log/mysql/mysql-bin.[0-9]* 2>/dev/null'" || true)
+          echo "OK: binlog data file(s) present under /var/log/mysql:"
+          echo "$BINLOGS"
 
       - name: Upload logs
         if: always()

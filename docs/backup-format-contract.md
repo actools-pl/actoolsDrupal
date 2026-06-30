@@ -5,10 +5,13 @@
 > contract, pinned by a guard (see "What the guard enforces"). The **encrypted (B)**
 > variant is now **LIVE** — wired into the daily cron (`modules/backup/cron.sh`) and
 > gated by `ENABLE_ENCRYPTED_BACKUP` (**default off**, so enabling it is opt-in) — and
-> is pinned by the same guard. The **PITR (C)** clauses remain the **target** that the
-> draft scripts in `modules/backup/` are *not yet wired to*; they are marked
-> **TARGET / NOT YET LIVE** throughout and describe what E3 must build, not shipped
-> behavior.
+> is pinned by the same guard. The **PITR (C)** path is now **partially live**: binary
+> logging — the binlog *foundation* — is **LIVE** as of E3a, gated by `ENABLE_PITR`
+> (**default off**), via the standalone `99-binlog.cnf` config and the dedicated
+> `mariadb_binlogs` volume folded into the canonical compose db service. The C
+> **full-backup producer and the PITR restore remain TARGET / NOT YET LIVE** (E3b / E5);
+> the remaining draft scripts in `modules/backup/` are *not yet wired to* them, and
+> those clauses describe what the later E3 phases must build, not shipped behavior.
 
 ---
 
@@ -16,13 +19,15 @@
 
 `modules/backup/` carries the live daily backup generator (`cron.sh`) — which now
 performs Age encryption at rest behind the `ENABLE_ENCRYPTED_BACKUP` flag (E2) —
-alongside a nine-file draft cluster for point-in-time recovery (`db-full-backup.sh`,
-`pitr-restore.sh`, and their supporting `.cnf`/compose/cron files). Across the live
-code and those drafts there are three different ways a backup artifact gets named,
-located, time-stamped, encrypted, and checksummed. Left unreconciled, the encrypted
-backup (E2) and the binlog/PITR path (E3) would each cement an incompatible dialect
-into production; this contract is the single shape they conform to. E2 is now live
-and conforms; E3 remains a draft.
+alongside a six-file draft cluster for point-in-time recovery (`db-full-backup.sh`,
+`pitr-restore.sh`, `binlog-rotate.sh`, `cli-pitr.sh`, `deploy-pitr.sh`, and the
+`actools-db-backup.cron` schedule). Across the live code and those drafts there are
+three different ways a backup artifact gets named, located, time-stamped, encrypted,
+and checksummed. Left unreconciled, the encrypted backup (E2) and the binlog/PITR path
+(E3) would each cement an incompatible dialect into production; this contract is the
+single shape they conform to. E2 is now live and conforms; E3's binlog foundation is
+now live (gated `ENABLE_PITR`, default off) and the remaining PITR producer/restore
+stay drafts.
 
 This contract fixes one canonical artifact shape, pins the live producer-and-consumer
 agreement so it cannot silently drift, and records exactly where each draft diverges
@@ -42,14 +47,17 @@ The three dialects, in brief:
 - **PITR (C)** — `modules/backup/db-full-backup.sh` and `pitr-restore.sh`, with
   `binlog-rotate.sh`. A nested directory layout under `backups/db/<date>/`, a separate
   binlog archive, and a base dump taken with `--master-data=2` to embed the binlog
-  coordinate. Drafts; E3 wires them.
+  coordinate. The binlog *foundation* (binary logging via `99-binlog.cnf` + the
+  `mariadb_binlogs` volume, gated `ENABLE_PITR`, default off) is **live as of E3a**; the
+  full-backup producer and restore remain drafts (E3b / E5).
 
 The encryption key infrastructure is already live: `modules/host/age.sh`
 generates a per-deployment Age keypair at install (`.age-key.txt`, mode 600; the
 derived `.age-public-key`, mode 644). The encrypted variant (B) now consumes that key
-material on the live path (gated by `ENABLE_ENCRYPTED_BACKUP`); the PITR variant (C)
-does not consume it yet. No `ENABLE_PITR` or `ENABLE_BINLOG` flag exists in the tree;
-E3 introduces one.
+material on the live path (gated by `ENABLE_ENCRYPTED_BACKUP`); the PITR full-backup
+producer (C) does not consume it yet. The `ENABLE_PITR` flag now exists in the tree
+(introduced by E3a, **default off**); it currently gates binary logging only — the
+full-backup producer and restore that will also consume it remain drafts.
 
 ---
 
@@ -169,7 +177,9 @@ The base dump is taken with `--master-data=2`, which embeds the binlog file and
 position the dump corresponds to; binlog replay starts from that coordinate. The PITR
 tree is rooted **under** `${INSTALL_DIR}/backups/`, which reconciles the drafts' use of
 `${ACTOOLS_HOME}/backups/...` (the two are equal when `INSTALL_DIR=/home/actools`). The
-whole PITR path is gated by a future `ENABLE_PITR` flag that E3 introduces.
+whole PITR path is gated by the `ENABLE_PITR` flag (introduced by E3a, **default off**);
+E3a's binary logging consumes it now, and the full-backup producer and restore conform
+to the same gate as they land (E3b / E5).
 
 Checksum and integrity. Every artifact — plaintext or encrypted, standard or PITR —
 carries a verified `.sha256` sidecar computed over its **final** bytes (the ciphertext
@@ -249,7 +259,7 @@ agreement: it renders `cron.sh` with `ENABLE_ENCRYPTED_BACKUP=true` and asserts 
 artifact, the ciphertext checksum, and the plaintext removal on the producer side, and the
 `.age`-detecting decrypt path on the consumer side, with new non-vacuity arms.
 
-### C — `db-full-backup.sh` / `pitr-restore.sh` (with `binlog-rotate.sh`) → E3 — TARGET / NOT YET LIVE
+### C — `db-full-backup.sh` / `pitr-restore.sh` (with `binlog-rotate.sh`) → E3b / E3c / E5 — TARGET / NOT YET LIVE
 
 What C already gets right: the nested `backups/db/<YYYY-MM-DD>/full-dump-<HHMMSS>.sql.gz.age`
 layout with a `manifest.txt` and a per-artifact `.sha256`; the binlog archive
@@ -266,12 +276,16 @@ Where C diverges from X, and what E3 must do:
   variable, not the default, is authoritative.
 - **Password shape.** C's drafts dump and replay with `--user=root --password="${DB_ROOT_PASS}"`
   on argv. E3 must use the secure `--defaults-extra-file` shape, matching A.
-- **Gating.** PITR must be opt-in. E3 introduces the `ENABLE_PITR` flag and the binlog
-  generation it depends on (the `my.cnf`/compose changes), and defines the PITR
-  retention window described under X.
+- **Gating.** PITR must be opt-in. E3a introduced the `ENABLE_PITR` flag (default off)
+  and the binlog generation it depends on (the gated `compose.sh` volume/config wiring
+  plus the standalone `99-binlog.cnf` the installer places); the remaining E3 phases gate
+  the full-backup producer and restore behind the same flag and define the PITR retention
+  window described under X.
 
 C keeps its nested layout, `manifest.txt`, per-artifact `.sha256`, and `--master-data=2`
-base dump unchanged. E3 extends the guard to pin C once C is wired.
+base dump unchanged. The binlog foundation is already pinned by
+`tests/guards/binlog_enablement_guard_test.bats` (E3a); the later E3 phases extend the
+contract guard to pin the C producer/restore once they are wired.
 
 ---
 
@@ -293,8 +307,12 @@ doctoring the producer's filename stem, doctoring the restore glob, rooting the 
 glob at a `backups`-prefixed sibling, and checksumming the plaintext instead of the
 ciphertext each make the relevant assertion fail.
 
-The guard now asserts A and B. It does **not** yet assert the PITR (C) variant: those
-clauses of this document remain the **target** the C drafts are not yet wired to. E3
-extends the guard to pin C's agreement when E3 wires binlog/PITR. Until then, treat every
-C statement here as a specification of intended behavior, not a description of shipped
-behavior; A and B describe shipped behavior.
+The contract guard now asserts A and B. It does **not** yet assert the PITR (C)
+producer/restore artifact shapes: those clauses remain the **target** the C drafts are
+not yet wired to, and the later E3 phases extend this guard to pin C's agreement once
+they wire the producer/restore. The binlog *foundation* of C, by contrast, is shipped
+(gated `ENABLE_PITR`, **default off**) and is pinned separately by
+`tests/guards/binlog_enablement_guard_test.bats`. Until the producer/restore land, treat
+the C **producer/restore** statements here as a specification of intended behavior, not a
+description of shipped behavior; A, B, and the C binlog foundation describe shipped
+behavior.

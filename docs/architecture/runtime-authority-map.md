@@ -158,11 +158,11 @@ closure alone, is required.
 > unclassified or wiring-flipped file. **C4 changed NO module file** — disposition
 > of the unwired files is deferred (see the disposition column). Baseline `d482818`.
 
-The 6 live modules ship **34 files: 21 wired, 1 documentation, 12 unwired.** The
-12 unwired files reside on the box (in-place install + `chown -R`, `actools.sh:94`/`:405`)
+The 6 live modules ship **32 files: 22 wired, 1 documentation, 9 unwired.** The
+9 unwired files reside on the box (in-place install + `chown -R`, `actools.sh:94`/`:405`)
 but never execute on the live path.
 
-### Wired (21) — reached on the live path
+### Wired (22) — reached on the live path
 | file | reached via |
 |---|---|
 | `modules/audit/audit.sh` | EXECUTED by `cli/actools:320` (`audit` command; `AUDIT_SCRIPT` resolved :313, arm :312–321) |
@@ -173,6 +173,7 @@ but never execute on the live path.
 | `modules/audit/lib/security.sh` | sourced by `audit.sh:61` |
 | `modules/audit/lib/report.sh` | sourced by `audit.sh:62` |
 | `modules/backup/cron.sh` | source-closure of `actools.sh` (`:516`) |
+| `modules/backup/99-binlog.cnf` | mounted into the db service by `compose.sh` `generate_compose` (gated `ENABLE_PITR`); materialized beside `my.cnf` by `actools.sh:422` |
 | `modules/db/core.sh` | source-closure of `actools.sh` (`:457`) |
 | `modules/drupal/provision.sh` | source-closure of `actools.sh` (`:181`) |
 | `modules/host/age.sh` | source-closure — host loop (`:193`) |
@@ -192,7 +193,7 @@ but never execute on the live path.
 |---|---|
 | `modules/audit/docs/fix_catalog.md` | audit fix-catalog reference doc; referenced by no code |
 
-### Unwired (12) — ship on the box, OFF the live path; disposition deferred
+### Unwired (9) — ship on the box, OFF the live path; disposition deferred
 | file | what it is | disposition (deferred) |
 |---|---|---|
 | `modules/backup/binlog-rotate.sh` | hourly binlog rotation/encryption/upload | **E3** (binlog/PITR) |
@@ -200,17 +201,18 @@ but never execute on the live path.
 | `modules/backup/pitr-restore.sh` | point-in-time restore | **E3** |
 | `modules/backup/cli-pitr.sh` | `actools` CLI integration for PITR | **E3** |
 | `modules/backup/deploy-pitr.sh` | manual PITR deploy script (entrypoint for the above) | **E3** |
-| `modules/backup/mariadb-binlog.cnf` | binlog MariaDB config | **E3** |
-| `modules/backup/99-binlog.cnf` | binlog MariaDB config | **E3** |
-| `modules/backup/docker-compose.binlog.yml` | binlog volume compose override | **E3** |
 | `modules/backup/actools-db-backup.cron` | backup cron entries | **E3** |
 | `modules/audit/deploy-audit.sh` | self-declared UNWIRED + STALE; superseded by `lib/*.sh` | **Phase 5**: reconcile-or-delete |
 | `modules/drupal/prepare.sh` | "Stage 1" extraction; superseded (`provision.sh` inlines it); unsourced | **Phase 5**: reconcile-or-delete |
 | `modules/drupal/secure.sh` | self-declared UNWIRED; "Phase 5 decision" | **Phase 5**: wire-or-delete |
 
-The 9-file `backup/` cluster is a **partial implementation of E3** — those
-phases reconcile/test/harden it rather than build from scratch. C4 records and
-guards these files; it wires, deletes, and moves nothing.
+The remaining 6-file `backup/` cluster (`binlog-rotate.sh`, `db-full-backup.sh`,
+`pitr-restore.sh`, `cli-pitr.sh`, `deploy-pitr.sh`, `actools-db-backup.cron`) is a
+**partial implementation of E3** — still E3b/E3c/E3d/E5 targets that reconcile/test/
+harden it rather than build from scratch. E3a folded the binlog foundation
+(`99-binlog.cnf` + the gated volume/config wiring, default `ENABLE_PITR=false`) onto
+the live path and deleted the two superseded drafts (`mariadb-binlog.cnf`,
+`docker-compose.binlog.yml`); it wires none of these six.
 
 ## Command registry — registered vs not-registered
 

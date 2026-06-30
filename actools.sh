@@ -415,6 +415,13 @@ setup_stack() {
   # ── MariaDB my.cnf ──────────────────────────────────────────────────────────
   generate_mycnf
 
+  # ── Binlog config for PITR (gated; placed only when ENABLE_PITR=true) ─────────
+  # Materialized next to my.cnf so the gated ./99-binlog.cnf mount in compose.sh
+  # resolves; mounted into the db service by generate_compose when ENABLE_PITR=true.
+  if [[ "${ENABLE_PITR:-false}" == "true" ]]; then
+    cp "${INSTALL_DIR}/modules/backup/99-binlog.cnf" "${INSTALL_DIR}/99-binlog.cnf"
+  fi
+
   # ── Container images: Caddy / PHP / worker (modules/stack/images.sh) ─────────
   build_caddy_image
   build_php_image
