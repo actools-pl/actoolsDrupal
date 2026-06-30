@@ -86,6 +86,73 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 031 — E1: backup-format contract (opens Track E)
+
+Date: <fill on apply>
+Phase: E1 (Track E — the 4.5 build; opener)
+Baseline: c17197f (#59) — current `main`, Track V closed
+Task prompt source: SPEC-E1-backup-format-contract.md
+
+### Objective
+Fix the single canonical backup-artifact shape before E2 (wire `encrypted_backup.sh`)
+and E3 (wire binlog/PITR via `db-full-backup.sh`/`pitr-restore.sh`) cement three
+incompatible dialects into production. `modules/backup/` carries the live daily
+generator (`cron.sh`) plus a ten-file PITR/encrypted draft cluster, and across them a
+backup artifact is named, located, time-stamped, encrypted, and checksummed three
+different ways: **live (A)** — plaintext, gzipped, daily
+`${INSTALL_DIR}/backups/<env>_db_<YYYY-MM-DD>.sql.gz` (+ `.sha256`), flat directory;
+**encrypted (B, `encrypted_backup.sh`)** — the same stem and location plus an Age `.age`
+layer, a per-second timestamp, and the checksum taken over the ciphertext; **PITR (C,
+`db-full-backup.sh`/`pitr-restore.sh` with `binlog-rotate.sh`)** — a nested
+`backups/db/<YYYY-MM-DD>/full-dump-<HHMMSS>.sql.gz.age` layout with `manifest.txt`, a
+separate `backups/binlogs/` archive, and a `--master-data=2` base dump. E1 writes the
+canonical contract (`docs/backup-format-contract.md`): the live (A) format transcribed
+exactly from `cron.sh` and the `restore` arm (`cli/actools:241`); the canonical scheme X
+(naming grammar `<env>_<kind>_<timestamp>.<ext>[.age][.sha256]`, Age encryption with the
+`.sha256` on the ciphertext, the PITR layout rooted under `${INSTALL_DIR}/backups/`,
+integrity-or-delete, and the umask-077 `--defaults-extra-file` password shape mandatory
+for every producer); and the divergence ledger recording, per dialect, exactly where it
+diverges from X and what E2/E3 must do. The guard
+(`tests/guards/backup_format_contract_guard_test.bats`) renders the live cron through the
+existing `tests/helpers/capture_backup_cron.sh` and asserts the four-fold producer↔consumer
+agreement (same root `${INSTALL_DIR}/backups`, same `_db_` stem, same `.sql.gz` extension,
+same `<artifact>.sha256` sidecar) plus the integrity-or-delete sidecar, with two permanent
+non-vacuity arms — doctoring the producer stem (`_db_` → `_database_`) or the restore glob,
+each makes the agreement assertion fail on an off-tree scratch copy, and the repo is never
+modified. It pins **only** the live (A) agreement; B and C are marked **target / not yet
+live** throughout the doc, and E2/E3 each extend the guard when they wire their variant.
+
+### Runtime authority changes
+**None.** No producer, consumer, draft, module, or golden is touched. `cli/actools`,
+`modules/backup/cron.sh`, the ten draft files (`encrypted_backup.sh`,
+`db-full-backup.sh`, `pitr-restore.sh`, `cli-pitr.sh`, `deploy-pitr.sh`,
+`binlog-rotate.sh`, `mariadb-binlog.cnf`, `99-binlog.cnf`, `docker-compose.binlog.yml`,
+`actools-db-backup.cron`), `tests/fixtures/golden/backup-cron/*`,
+`tests/helpers/capture_backup_cron.sh`, and `modules/host/age.sh` are all byte-identical
+to baseline. The contract reconciles nothing and wires nothing; reconciliation is E2/E3.
+
+### Files
+New: `docs/backup-format-contract.md` (the canonical contract — the live format pinned
+from `cron.sh` + the `restore` arm at `cli/actools:241`, the canonical scheme X, the
+divergence ledger, with B/C unmistakably marked not-yet-live) and
+`tests/guards/backup_format_contract_guard_test.bats` (the live-A agreement guard,
+auto-collected by `bats -r tests/` in lint.yml — no workflow edit). Edited: this ledger
+(add this entry + ratify Entry 030 [V2]). Nothing else.
+
+### Gate
+**Behavior-FREE** — a contract doc + a guard + the ledger; nothing executable changes, so
+**no branch e2e** is required (like C1/D1b/D2/V1). The new guard is discovered by the
+existing recursive bats job (lint.yml: `bats -r tests/`); no workflow file changes.
+
+### Verdict
+Pending — see SPEC-E1 §7. REVIEW (guard non-vacuity + doc-vs-code spot checks) then
+DOC-CHECK (every pinned live pattern matches `cron.sh`/`restore` exactly; the B/C target
+sections are unmistakably not-yet-live) follow; no branch e2e. The coding window does not
+self-approve.
+
+### Commit SHA
+Sandbox commit on c17197f; operator stamps the squash/merge SHA on apply.
+
 ## Entry 030 — V2: real-install command harness (closes Track V)
 
 Date: <fill on apply>
@@ -156,10 +223,18 @@ SSH-timeout is infra → re-run). The coding window **cannot run the VM** — th
 e2e is the live proof. Branch-e2e run #: <fill on apply>.
 
 ### Verdict
-Pending — see SPEC-V2 §5. Closes Track V on approval + green branch e2e + doc-check.
+**APPROVED — ratified (<date>): V2 merged to `main` as `c17197f` (#59) — the squash-merge
+that closes Track V ("ci(v2): real-install command harness — run read-only safe surface
+live (closes Track V)"). The harness (Steps A/B/C appended after "Run doctor (smoke)" in
+`.github/workflows/e2e.yml`) and the `docs/live-verification-matrix.md` CI-coverage update
+(2 → 17 of 30, plus the `audit ci`/`--ci` finding) landed as specified; no product-code
+file changed and `audit.sh` stayed byte-identical, so the merge to `main` is the live proof
+that the read-only safe surface runs green against the VM after install (the gate's required
+green branch e2e was satisfied before the merge landed). `c17197f` is the current `main` and
+the verified baseline of Track E (E1), which rides this ratification.** *(Original pending text, for the record:)* Pending — see SPEC-V2 §5. Closes Track V on approval + green branch e2e + doc-check.
 
 ### Commit SHA
-Sandbox commit on 85f078b; operator stamps the squash/merge SHA on apply.
+`c17197f` (#59).
 
 
 ## Entry 029 — WR (worker-redis): install phpredis in the generated worker image
