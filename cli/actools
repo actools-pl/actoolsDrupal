@@ -242,15 +242,28 @@ case "${1:-help}" in
     env="${2:-prod}"
     db="actools_${env}"
     BACKUP_FILE="${3:-}"
-    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups"/"${env}"_db_*.sql.gz 2>/dev/null | head -1)
+    [[ -z "$BACKUP_FILE" ]] &&       BACKUP_FILE=$(ls -t "${INSTALL_DIR}/backups"/"${env}"_db_*.sql.gz "${INSTALL_DIR}/backups"/"${env}"_db_*.sql.gz.age 2>/dev/null | head -1)
     [[ -z "$BACKUP_FILE" ]] && { echo "No backups found for $env"; exit 1; }
     echo "Restoring $env from: $BACKUP_FILE"
-    sha256sum -c "$BACKUP_FILE.sha256" 2>/dev/null && echo "Checksum OK" || echo "WARNING: no checksum file"
+    if [[ -f "$BACKUP_FILE.sha256" ]]; then
+      sha256sum -c "$BACKUP_FILE.sha256" >/dev/null 2>&1 && echo "Checksum OK" \
+        || { echo "CHECKSUM FAILED: $BACKUP_FILE -- aborting before any destructive action" >&2; exit 1; }
+    else
+      echo "WARNING: no checksum file for $BACKUP_FILE"
+    fi
+    if [[ "$BACKUP_FILE" == *.age && ! -f "${INSTALL_DIR}/.age-key.txt" ]]; then
+      echo "ERROR: $BACKUP_FILE is encrypted but no Age private key at ${INSTALL_DIR}/.age-key.txt" >&2
+      exit 1
+    fi
     read -rp "OVERWRITE actools_${env}? [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$@"' _ -e \
       "DROP DATABASE IF EXISTS \`${db}\`; CREATE DATABASE \`${db}\` CHARACTER SET utf8mb4;"
-    gunzip -c "$BACKUP_FILE" | docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$db"
+    if [[ "$BACKUP_FILE" == *.age ]]; then
+      age --decrypt -i "${INSTALL_DIR}/.age-key.txt" "$BACKUP_FILE" | gunzip -c | docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$db"
+    else
+      gunzip -c "$BACKUP_FILE" | docker exec -i actools_db sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$1"' _ "$db"
+    fi
     echo "Restore complete. Run: actools drush $env cr"
     ;;
 

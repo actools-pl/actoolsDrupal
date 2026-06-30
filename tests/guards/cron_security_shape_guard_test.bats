@@ -22,6 +22,8 @@
 #          the guard demonstrably bites on the exact form being purged.
 #   arm 4: the generator SOURCE itself carries the secure heredoc and no
 #          argv-password text (bites at the source even before render).
+#   arm 5: the secure shape still holds when ENABLE_ENCRYPTED_BACKUP=true — the
+#          E2 encryption stage adds no argv-password and preserves the dump shape.
 #
 # Rendering goes through tests/helpers/capture_backup_cron.sh (the P0-L golden
 # capture helper), so the guard always checks the bytes the installer would
@@ -178,4 +180,16 @@ _assert_secure_shape() {
     echo "argv-password text found in the live setup_backup_cron source (${gen})."
     return 1
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Arm 5: the secure shape holds with encryption ON (E2).
+# Rendering with ENABLE_ENCRYPTED_BACKUP=true adds the Age encryption stage; it must
+# not change the dump shape or introduce an argv-password. The same oracle must pass.
+# ---------------------------------------------------------------------------
+
+@test "generated backup cron is secure with ENABLE_ENCRYPTED_BACKUP=true (encryption adds no argv password)" {
+  run env ENABLE_ENCRYPTED_BACKUP=true bash "$CRON_HELPER" render "${RENDER_TMP}/enc-cron"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  _assert_secure_shape "${RENDER_TMP}/enc-cron"
 }

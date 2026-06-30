@@ -3,21 +3,26 @@
 > Applies to: Actools v11.2.0+ · Drupal 11 · MariaDB 11.4
 > Status of this document: the **live (A)** format below is the current, in-effect
 > contract, pinned by a guard (see "What the guard enforces"). The **encrypted (B)**
-> and **PITR (C)** clauses are the **target** that the draft scripts in
-> `modules/backup/` are *not yet wired to*; they are marked **TARGET / NOT YET LIVE**
-> throughout and describe what E2 and E3 must build, not shipped behavior.
+> variant is now **LIVE** — wired into the daily cron (`modules/backup/cron.sh`) and
+> gated by `ENABLE_ENCRYPTED_BACKUP` (**default off**, so enabling it is opt-in) — and
+> is pinned by the same guard. The **PITR (C)** clauses remain the **target** that the
+> draft scripts in `modules/backup/` are *not yet wired to*; they are marked
+> **TARGET / NOT YET LIVE** throughout and describe what E3 must build, not shipped
+> behavior.
 
 ---
 
 ## Why this document exists
 
-`modules/backup/` carries the live daily backup generator (`cron.sh`) alongside a
-ten-file draft cluster for encrypted backups and point-in-time recovery
-(`encrypted_backup.sh`, `db-full-backup.sh`, `pitr-restore.sh`, and their
-supporting `.cnf`/compose/cron files). Across the live code and those drafts there
-are three different ways a backup artifact gets named, located, time-stamped,
-encrypted, and checksummed. Left unreconciled, wiring the encrypted backup (E2) and
-the binlog/PITR path (E3) would cement three incompatible dialects into production.
+`modules/backup/` carries the live daily backup generator (`cron.sh`) — which now
+performs Age encryption at rest behind the `ENABLE_ENCRYPTED_BACKUP` flag (E2) —
+alongside a nine-file draft cluster for point-in-time recovery (`db-full-backup.sh`,
+`pitr-restore.sh`, and their supporting `.cnf`/compose/cron files). Across the live
+code and those drafts there are three different ways a backup artifact gets named,
+located, time-stamped, encrypted, and checksummed. Left unreconciled, the encrypted
+backup (E2) and the binlog/PITR path (E3) would each cement an incompatible dialect
+into production; this contract is the single shape they conform to. E2 is now live
+and conforms; E3 remains a draft.
 
 This contract fixes one canonical artifact shape, pins the live producer-and-consumer
 agreement so it cannot silently drift, and records exactly where each draft diverges
@@ -30,19 +35,21 @@ The three dialects, in brief:
 - **Live (A)** — the daily cron in `modules/backup/cron.sh`, consumed by the `backup`
   and `restore` arms of `cli/actools`. Plaintext, gzipped, daily timestamp, flat
   directory. This is what ships today.
-- **Encrypted (B)** — `modules/backup/encrypted_backup.sh`. The same filename stem and
-  location as A, plus an Age-encrypted `.age` layer and a per-second timestamp. A draft;
-  E2 wires it.
+- **Encrypted (B)** — now part of `modules/backup/cron.sh`, gated by
+  `ENABLE_ENCRYPTED_BACKUP` (default off). The same filename stem, location, and
+  **daily** timestamp as A, plus an Age-encrypted `.age` layer over the gzip. Live as
+  of E2; consumed by the same `restore` arm, which detects `.age` and decrypts.
 - **PITR (C)** — `modules/backup/db-full-backup.sh` and `pitr-restore.sh`, with
   `binlog-rotate.sh`. A nested directory layout under `backups/db/<date>/`, a separate
   binlog archive, and a base dump taken with `--master-data=2` to embed the binlog
   coordinate. Drafts; E3 wires them.
 
-The encryption key infrastructure is already live and idle: `modules/host/age.sh`
+The encryption key infrastructure is already live: `modules/host/age.sh`
 generates a per-deployment Age keypair at install (`.age-key.txt`, mode 600; the
-derived `.age-public-key`, mode 644), so the key material the encrypted and PITR
-variants need already exists — it is simply not consumed yet. No `ENABLE_PITR` or
-`ENABLE_BINLOG` flag exists in the tree; E3 introduces one.
+derived `.age-public-key`, mode 644). The encrypted variant (B) now consumes that key
+material on the live path (gated by `ENABLE_ENCRYPTED_BACKUP`); the PITR variant (C)
+does not consume it yet. No `ENABLE_PITR` or `ENABLE_BINLOG` flag exists in the tree;
+E3 introduces one.
 
 ---
 
@@ -136,11 +143,11 @@ Naming grammar.
 
 where `<kind>` is `db` or `files` for the standard and encrypted backups; `<ext>` is
 `sql.gz` for a database dump and `tar.gz` for a files archive; and `<timestamp>` is
-`YYYY-MM-DD` for the daily standard cron and `YYYY-MM-DD_HHMMSS` for encrypted, PITR,
-and ad-hoc producers. The finer granularity exists so that multiple backups on the same
-day never clobber one another. Because both granularities are valid, a consumer glob
-must match both — for example `"<env>"_db_*.sql.gz` matches `prod_db_2026-06-29.sql.gz`
-and `prod_db_2026-06-29_140322.sql.gz` alike.
+`YYYY-MM-DD` for the daily standard cron (including its gated encrypted variant, B) and
+`YYYY-MM-DD_HHMMSS` for PITR and ad-hoc producers. The finer granularity exists so that
+multiple backups on the same day never clobber one another. Because both granularities
+are valid, a consumer glob must match both — for example `"<env>"_db_*.sql.gz` matches
+`prod_db_2026-06-29.sql.gz` and `prod_db_2026-06-29_140322.sql.gz` alike.
 
 Encryption (Age). An encrypted artifact appends `.age` to the otherwise-identical name
 (`<env>_db_<timestamp>.sql.gz.age`). The recipient is the contents of
@@ -193,30 +200,54 @@ each with a verified `.sha256`, produced with the secure `--defaults-extra-file`
 password shape, and consumed by a `restore` glob that names the same artifact. E1 pins
 this agreement with the guard and changes nothing.
 
-### B — `encrypted_backup.sh` → E2 — TARGET / NOT YET LIVE
+### B — encrypted daily backup in `cron.sh` (gated by `ENABLE_ENCRYPTED_BACKUP`) — LIVE (E2)
 
-What B already gets right: the DB dump stem and location match A
-(`${INSTALL_DIR}/backups/<env>_db_<timestamp>.sql.gz`); it appends `.age` and writes the
-`.sha256` over the ciphertext (`<name>.sql.gz.age` with `<name>.sql.gz.age.sha256`); it
-recovers the recipient from `${INSTALL_DIR}/.age-public-key`; and it removes the
-plaintext dump after encrypting. Its per-second timestamp differs from A's daily
-timestamp, but that difference is *allowed* by X's grammar and absorbed by the
-matching glob, so it is not a divergence.
+B is the daily DB dump and (S3-off) files archive, Age-encrypted at rest. It is produced
+by `modules/backup/cron.sh` itself — the standalone `encrypted_backup.sh` draft was
+absorbed and removed — and is gated by `ENABLE_ENCRYPTED_BACKUP` (default off, threaded
+into the render exactly as `ENABLE_S3_STORAGE` is). When the flag is off the cron behaves
+exactly as A; when on, an encryption stage runs after each artifact's dump + checksum +
+integrity check.
 
-Where B diverges from X, and what E2 must do:
+What B does (shipped):
 
-- **Password shape.** B's draft dumps with `mariadb-dump -uroot -p"${DB_ROOT_PASS}"` —
-  the password on argv, as root. This is the insecure form that
-  `cron_security_shape_guard_test.bats` forbids. E2 must convert B to the secure
-  `umask 077` `--defaults-extra-file` shape inside the DB container, reading the
-  password from `.actools-state.json` at runtime, matching A.
-- **Consumer does not yet understand `.age`.** The live `restore` arm decompresses with
-  `gunzip` and has no `.age` branch, so it cannot consume B's output. E2 must extend the
-  `restore` consumer to detect a `.age` suffix and decrypt (with the private key at
-  `${INSTALL_DIR}/.age-key.txt`) before decompressing. The `<name>.sql.gz.age` filename
-  and the ciphertext `.sha256` sidecar are canonical and must be preserved.
+- **Naming and timestamp.** The encrypted artifact is `<env>_db_<YYYY-MM-DD>.sql.gz.age`
+  (and `<env>_files_<YYYY-MM-DD>.tar.gz.age` for the files archive) — the **daily**
+  timestamp, identical to A's, with `.age` appended. Per-second timestamps remain the
+  PITR/ad-hoc case (C), not this daily cron.
+- **Encryption.** `age -r "$(cat ${INSTALL_DIR}/.age-public-key)" -o "<artifact>.age" "<artifact>"`
+  — the recipient is the public key from `modules/host/age.sh`. The matching private key
+  for decryption is `${INSTALL_DIR}/.age-key.txt` (mode 600).
+- **Checksum over ciphertext.** The sidecar is `sha256sum "<artifact>.age" > "<artifact>.age.sha256"`,
+  computed over the **ciphertext**, then verified — so integrity is checkable without the
+  private key, per X.
+- **Plaintext removal / integrity-or-delete.** On a successful encrypt+verify the plaintext
+  artifact and its `.sha256` are removed, leaving only the `.age` + `.age.sha256`. If the
+  encrypt or its checksum fails, the partial `.age`/`.age.sha256` are deleted, so a failed
+  encrypted backup leaves no encrypted artifact (the integrity-or-delete invariant).
+- **Secure password shape — by construction.** The DB dump is unchanged: it remains the
+  in-container `mariadb-dump --defaults-extra-file=<umask-077 temp>` form, reading the
+  password from `.actools-state.json` at runtime. Encryption is a post-dump host-side step
+  that touches no credential, so the draft's old argv-password flaw
+  (`encrypted_backup.sh:30`, `-p"${DB_ROOT_PASS}"`) never shipped — it was fixed by
+  construction, not ported. No password appears on argv in either the encryption-on or
+  encryption-off rendering.
+- **Retention and off-host copy.** The prune globs also delete aged `*.sql.gz.age`,
+  `*.sql.gz.age.sha256`, `*.tar.gz.age`, and `*.tar.gz.age.sha256`; the rclone `--include`
+  set also pushes `*.age` and `*.age.sha256`. Encrypted artifacts are retained and
+  off-hosted exactly like plaintext.
+- **Consumer.** The `restore` arm of `cli/actools` selects the newest of
+  `<env>_db_*.sql.gz` or `<env>_db_*.sql.gz.age`; if the selected file ends in `.age` it
+  requires `${INSTALL_DIR}/.age-key.txt` and decrypts with
+  `age --decrypt -i "${INSTALL_DIR}/.age-key.txt"` before `gunzip | mariadb`. A
+  present-but-failing `<file>.sha256` now **aborts** before any `DROP DATABASE` (a missing
+  sidecar still only warns). Off-host, an operator decrypts a `.age` artifact manually with
+  `age --decrypt -i ~/.age-key.txt <file>.age`.
 
-E2 extends the guard to pin B's producer-and-consumer agreement once B is wired.
+The guard (`backup_format_contract_guard_test.bats`) now pins B's producer-and-consumer
+agreement: it renders `cron.sh` with `ENABLE_ENCRYPTED_BACKUP=true` and asserts the `.age`
+artifact, the ciphertext checksum, and the plaintext removal on the producer side, and the
+`.age`-detecting decrypt path on the consumer side, with new non-vacuity arms.
 
 ### C — `db-full-backup.sh` / `pitr-restore.sh` (with `binlog-rotate.sh`) → E3 — TARGET / NOT YET LIVE
 
@@ -246,19 +277,24 @@ base dump unchanged. E3 extends the guard to pin C once C is wired.
 
 ## What the guard enforces now vs later
 
-`tests/guards/backup_format_contract_guard_test.bats` pins **only the live (A)
-agreement** at this baseline. Concretely it renders the live cron through the existing
-`tests/helpers/capture_backup_cron.sh` helper and asserts: the producer writes
+`tests/guards/backup_format_contract_guard_test.bats` pins both the live (A) agreement
+and the now-live encrypted (B) agreement. For A it renders the live cron through the
+existing `tests/helpers/capture_backup_cron.sh` helper and asserts: the producer writes
 `<env>_db_<…>.sql.gz` under a `…/backups/` path; the producer writes a `<dump>.sha256`
 sidecar and runs `sha256sum -c`; the `restore` consumer's default glob shares the
-producer's stem (`_db_`), extension (`.sql.gz`), and `${INSTALL_DIR}/backups` root; and
-the consumer reads the same `<file>.sha256` sidecar convention. Two non-vacuity arms
-prove the guard bites: doctoring the producer's filename stem, or doctoring the restore
-glob, each makes the agreement assertion fail.
+producer's stem (`_db_`), extension (`.sql.gz`), and `${INSTALL_DIR}/backups` root (the
+root assertion is anchored to the closing quote, so a `backups`-prefixed sibling does not
+pass); and the consumer reads the same `<file>.sha256` sidecar convention. For B it
+renders the cron with `ENABLE_ENCRYPTED_BACKUP=true` and asserts the producer emits
+`<env>_db_<…>.sql.gz.age`, checksums the **ciphertext** (`<dump>.sql.gz.age.sha256`), and
+removes the plaintext; and that the `restore` consumer selects `*.sql.gz.age` and decrypts
+with the private key before load. Several non-vacuity arms prove the guard bites:
+doctoring the producer's filename stem, doctoring the restore glob, rooting the consumer
+glob at a `backups`-prefixed sibling, and checksumming the plaintext instead of the
+ciphertext each make the relevant assertion fail.
 
-The guard does **not** assert anything about the encrypted (B) or PITR (C) variants.
-Those clauses of this document are the **target** the drafts are not yet wired to. E2
-extends the guard to pin B's agreement when E2 wires encrypted backups, and E3 extends
-it to pin C's agreement when E3 wires binlog/PITR. Until then, treat every B and C
-statement here as a specification of intended behavior, not a description of shipped
-behavior.
+The guard now asserts A and B. It does **not** yet assert the PITR (C) variant: those
+clauses of this document remain the **target** the C drafts are not yet wired to. E3
+extends the guard to pin C's agreement when E3 wires binlog/PITR. Until then, treat every
+C statement here as a specification of intended behavior, not a description of shipped
+behavior; A and B describe shipped behavior.

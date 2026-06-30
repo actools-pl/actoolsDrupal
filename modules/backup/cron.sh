@@ -42,6 +42,7 @@ setup_backup_cron() {
   local s3_bucket="${S3_BUCKET:-}"
   local s3_endpoint="${S3_ENDPOINT_URL:-}"
   local s3_provider="${STORAGE_PROVIDER:-aws}"
+  local enc_on="${ENABLE_ENCRYPTED_BACKUP:-false}"
 
   cat > /etc/cron.daily/actools-backup <<BACKUP
 #!/usr/bin/env bash
@@ -53,6 +54,7 @@ ENABLE_S3_STORAGE="${s3_on}"
 S3_BUCKET="${s3_bucket}"
 S3_ENDPOINT_URL="${s3_endpoint}"
 STORAGE_PROVIDER="${s3_provider}"
+ENABLE_ENCRYPTED_BACKUP="${enc_on}"
 
 command -v docker &>/dev/null || exit 1
 cd "\${INSTALL_DIR}" || { echo "ERROR: INSTALL_DIR not found: \${INSTALL_DIR}" >&2; exit 1; }
@@ -74,6 +76,15 @@ for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
     rm -f "\$DUMPFILE" "\$DUMPFILE.sha256"
   }
 
+  if [[ "\${ENABLE_ENCRYPTED_BACKUP}" == "true" && -f "\$DUMPFILE" ]]; then
+    if age -r "\$(cat \${INSTALL_DIR}/.age-public-key)" -o "\$DUMPFILE.age" "\$DUMPFILE" && sha256sum "\$DUMPFILE.age" > "\$DUMPFILE.age.sha256" && sha256sum -c "\$DUMPFILE.age.sha256" &>/dev/null; then
+      rm -f "\$DUMPFILE" "\$DUMPFILE.sha256"
+    else
+      echo "DB backup encryption FAILED: \$DUMPFILE" >&2
+      rm -f "\$DUMPFILE.age" "\$DUMPFILE.age.sha256"
+    fi
+  fi
+
   if [[ "\${ENABLE_S3_STORAGE}" == "true" ]]; then
     if docker compose exec -T php_prod bash -c \
       "cd /var/www/html/prod && ./vendor/bin/drush s3fs:refresh-cache 2>/dev/null" \
@@ -92,6 +103,14 @@ for env in $(echo "${ENVIRONMENTS}" | tr ',' ' '); do
           echo "Files backup FAILED integrity check: \$FILES_DST" >&2
           rm -f "\$FILES_DST" "\$FILES_DST.sha256"
         }
+      if [[ "\${ENABLE_ENCRYPTED_BACKUP}" == "true" && -f "\$FILES_DST" ]]; then
+        if age -r "\$(cat \${INSTALL_DIR}/.age-public-key)" -o "\$FILES_DST.age" "\$FILES_DST" && sha256sum "\$FILES_DST.age" > "\$FILES_DST.age.sha256" && sha256sum -c "\$FILES_DST.age.sha256" &>/dev/null; then
+          rm -f "\$FILES_DST" "\$FILES_DST.sha256"
+        else
+          echo "Files backup encryption FAILED: \$FILES_DST" >&2
+          rm -f "\$FILES_DST.age" "\$FILES_DST.age.sha256"
+        fi
+      fi
     fi
   fi
 done
@@ -100,11 +119,16 @@ find "\${BACKUP_DIR}" -name "*.sql.gz"        -mtime +${BACKUP_RETENTION_DAYS:-7
 find "\${BACKUP_DIR}" -name "*.sql.gz.sha256"  -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
 find "\${BACKUP_DIR}" -name "*.tar.gz"         -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
 find "\${BACKUP_DIR}" -name "*.tar.gz.sha256"  -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
+find "\${BACKUP_DIR}" -name "*.sql.gz.age"        -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
+find "\${BACKUP_DIR}" -name "*.sql.gz.age.sha256" -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
+find "\${BACKUP_DIR}" -name "*.tar.gz.age"        -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
+find "\${BACKUP_DIR}" -name "*.tar.gz.age.sha256" -mtime +${BACKUP_RETENTION_DAYS:-7} -delete
 
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 if [[ -n "\${RCLONE_REMOTE}" ]] && command -v rclone &>/dev/null; then
   rclone copy "\${BACKUP_DIR}" "\${RCLONE_REMOTE}/" \
     --include "*.sql.gz" --include "*.tar.gz" \
+    --include "*.age" --include "*.age.sha256" \
     && echo "Remote backup pushed to \${RCLONE_REMOTE}"
 fi
 BACKUP
