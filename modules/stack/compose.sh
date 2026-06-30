@@ -28,6 +28,7 @@ generate_compose() {
   local REDIS_MEM="${REDIS_MEMORY_LIMIT:-256m}"
   local CADVISOR="${ENABLE_CADVISOR:-false}"
   local REDIS_ON="${ENABLE_REDIS:-true}"
+  local PITR_ON="${ENABLE_PITR:-false}"
 
   PHP_ENV_BLOCK="
       PHP_MEMORY_LIMIT: \"${WEB_MEM}\"
@@ -84,7 +85,7 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
-  db_data:
+  db_data:$(if [[ "${PITR_ON}" == "true" ]]; then printf '\n  mariadb_binlogs: { driver: local }'; fi)
 
 services:
 
@@ -237,8 +238,8 @@ fi)
       MARIADB_AUTO_UPGRADE: "1"
     volumes:
       - db_data:/var/lib/mysql
-      - ./logs/db:/var/log/mysql
-      - ./my.cnf:/etc/mysql/conf.d/actools.cnf:ro
+      - $(if [[ "${PITR_ON}" == "true" ]]; then printf 'mariadb_binlogs'; else printf './logs/db'; fi):/var/log/mysql
+      - ./my.cnf:/etc/mysql/conf.d/actools.cnf:ro$(if [[ "${PITR_ON}" == "true" ]]; then printf '\n      - ./99-binlog.cnf:/etc/mysql/mariadb.conf.d/99-binlog.cnf:ro'; fi)
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s

@@ -86,6 +86,151 @@ Approved / Needs revision / Blocked
 ### Forbidden next scope
 ````
 
+## Entry 033 — E3a: binlog enablement (PITR foundation — binary logging, gated)
+
+Date: <fill on apply>
+Phase: E3a (Track E — the 4.5 build; PITR foundation / binary logging)
+Baseline: 3f59987 (#62) — current `main`, E2 (encrypted-backup deploy) merged
+Task prompt source: SPEC-E3a-binlog-enablement.md
+
+### Objective
+Enable binary logging as the Point-in-Time-Recovery FOUNDATION, conforming to the E1 contract
+(scheme X, variant C — the binlog foundation only). The volume + config mount are folded
+**directly into the canonical `compose.sh` db service**, gated by a new `ENABLE_PITR` flag
+(**default off** → no behavior change unless enabled) — the same absorb pattern E2 used, and
+exactly what the deleted overlay `docker-compose.binlog.yml` itself recommended. The binlog
+config is kept as the standalone, auditable `modules/backup/99-binlog.cnf` (a DB-critical config
+is far more reviewable as a `.cnf` artifact than buried in a shell heredoc): `actools.sh` places
+it beside `my.cnf` in `INSTALL_DIR` (gated, after the `mycnf.sh` step) and `compose.sh` mounts it
+into the db service at `/etc/mysql/mariadb.conf.d/99-binlog.cnf` plus the dedicated
+`mariadb_binlogs` named volume at `/var/log/mysql` (gated), declaring the named volume in the
+top-level `volumes:` section. The absorbed overlay `docker-compose.binlog.yml` and the
+byte-identical dead-twin `mariadb-binlog.cnf` are **deleted**; `deploy-pitr.sh`'s single dangling
+reference to the dead-twin is repointed to `99-binlog.cnf` (no other change to that draft). This
+is the FOUNDATION only — binary logging on. The full-backup producer (E3b), rotation (E3c), the
+`pitr` CLI (E3d), and restore (E5) remain unwired drafts, out of scope.
+
+### Declared deviations (see HANDOFF-E3a)
+- **`/var/log/mysql` mount is a REPLACE, not an ADD.** The db service already binds
+  `./logs/db:/var/log/mysql`. The spec's literal "add `mariadb_binlogs:/var/log/mysql`" would
+  produce a duplicate container-path mount. When `ENABLE_PITR=true` the single
+  `…:/var/log/mysql` line renders `mariadb_binlogs` **in place of** `./logs/db` (one unambiguous
+  mount) — which is also exactly what a `docker-compose -f` overlay merge would yield (volumes
+  key by container path; the override wins). When off, the same line renders `./logs/db` —
+  byte-identical to the golden. **Known risk (gated by e2e):** the named volume's ownership for
+  the container's `mysql` user (UID 999) vs the pre-created `./logs/db` bind; `slow.log` also
+  writes under `/var/log/mysql`, so it shares the named volume when PITR is on. The e2e
+  `MariaDB ready.` + `log_bin=ON` + a real `mysql-bin.NNNNNN` file is the live proof.
+- **`printf` inline-append technique, not the redis service-fragment heredoc.** The spec
+  referenced the redis `$(if …; then cat <<FRAG … FRAG; fi)` standalone-fragment pattern. That
+  pattern works for **service-level** blocks (an empty render collapses into the blank-line gap
+  between services, as the redis-off golden already captures), but the binlog config mount lives
+  **inside the db service `volumes:` list**, where a standalone `$(…)` rendering empty would
+  inject a stray blank line mid-list and break byte-identity with the golden. The fragments are
+  therefore appended inline to the preceding real line via `printf '\n      - …'` (and the
+  `./logs/db`↔`mariadb_binlogs` swap is a single-line ternary), giving exact byte control: when
+  off, nothing is appended. Proven by golden_drift 6/6.
+- **`SC_START`/`SC_END` canary update in `tests/helpers/capture_golden_outputs.sh`** (outside the
+  §13 file list). The gated `cp` block inserted into `actools.sh` shifts `setup_cli()` downward
+  (`521→528`), so the helper's function-range canary is updated to match (established precedent —
+  it has tracked `setup_cli` across P0-G/K/L/M). golden_drift re-runs this helper, so the
+  assertion would otherwise break. The goldens themselves are unchanged.
+- **`ENABLE_PITR` threaded as a consumed env var only — no summary-display line.** The flag is
+  consumed by `compose.sh`/`actools.sh` but is not echoed in any install summary, mirroring E2's
+  `ENABLE_ENCRYPTED_BACKUP` (which appears in no summary either); §13 lists the `actools.sh`
+  deliverable as gated config placement, not summary display.
+
+### Runtime authority changes
+
+| Concern | Before | After |
+|---|---|---|
+| Binary logging (PITR foundation) | none — binlog config an unwired `.cnf` draft; overlay + dead-twin drafts on the box | `compose.sh` db service mounts `mariadb_binlogs:/var/log/mysql` + `./99-binlog.cnf` and declares the named volume when `ENABLE_PITR=true` (default off); `actools.sh` places `99-binlog.cnf` beside `my.cnf` when on |
+| `ENABLE_PITR` flag | does not exist | new flag, **default off**; threaded into the install/compose render like `ENABLE_REDIS`/`ENABLE_S3_STORAGE`; gates binary logging only (producer/restore still drafts) |
+| `modules/backup/99-binlog.cnf` | unwired draft | **WIRED** — mounted by `compose.sh` (gated) + placed by `actools.sh:422` (gated) |
+| Registered CLI commands (REGISTERED) | 30 | 30 — no dispatch arm added/removed (no `pitr` command) |
+| `mariadb-binlog.cnf` / `docker-compose.binlog.yml` | unwired drafts on the box | **deleted** (byte-identical dead-twin / absorbed into `compose.sh`) |
+
+### Generated-file impact
+
+| File | Status | Evidence |
+|---|---|---|
+| docker-compose.yml | Default output NOT changed (gated wiring renders only when `ENABLE_PITR=true`) | golden_drift_test 6/6 green; all 5 variants byte-identical |
+| Caddyfile | Not touched | — |
+| my.cnf | Not touched | `mycnf.sh` byte-identical to baseline |
+| Dockerfiles | Not touched | — |
+| CLI | Not touched | `cli/actools` byte-identical; REGISTERED=30 |
+| backup cron golden | Not touched | — |
+
+### Files
+Edited: `modules/stack/compose.sh` (gated binlog block: top-level `mariadb_binlogs` volume, db
+service config mount + `/var/log/mysql` named-volume swap, `local PITR_ON`), `actools.sh` (gated
+`99-binlog.cnf` placement after the `mycnf.sh` step), `modules/backup/99-binlog.cnf` (header
+comment only — automated-wiring note; the `[mysqld]` body is byte-identical, no setting changed),
+`modules/backup/deploy-pitr.sh` (one-line dead-twin ref → `99-binlog.cnf`),
+`docs/backup-format-contract.md` (C binlog **foundation** target→live; producer/restore still
+target; A/B byte-true), `.github/workflows/e2e.yml` (`ENABLE_PITR=true` in the install env + a
+binlog-enablement step), `docs/architecture/runtime-authority-map.md` (inventory 34→32:
+`99-binlog.cnf` unwired→wired, the two deleted drafts removed, single consistent count),
+`tests/guards/live_module_file_inventory_test.bats` (manifest 34→32),
+`tests/helpers/capture_golden_outputs.sh` (`SC_START`/`SC_END` canary — see deviations), and this
+ledger (add this entry + ratify Entry 032 [E2]). New: `tests/guards/binlog_enablement_guard_test.bats`.
+Deleted: `modules/backup/docker-compose.binlog.yml`, `modules/backup/mariadb-binlog.cnf`.
+
+### Files intentionally not changed
+- `modules/stack/mycnf.sh`, `modules/backup/cron.sh`, `cli/actools` — byte-identical to baseline
+  (no `my.cnf` change, no cron change, no CLI surface / `pitr` command).
+- The other PITR cluster drafts (`db-full-backup.sh`, `pitr-restore.sh`, `cli-pitr.sh`,
+  `binlog-rotate.sh`, `actools-db-backup.cron`) beyond the single `deploy-pitr.sh` ref —
+  byte-identical; deferred to E3b/E3c/E3d/E5. **No argv-password conversion** (those convert with
+  the files that wire them).
+- The E2 encrypted path (`cron.sh` + the `restore` arm) — byte-identical to baseline.
+
+### Tests run
+```bash
+# capture-before-change baseline + after; full suite; new guard; golden; gating bite
+bats -r tests/                                            # 252 -> 259 total (+7 new guard); 0 fail (jq+age installed)
+bats tests/guards/binlog_enablement_guard_test.bats       # 7/7 (incl. arm 6 — the gating/non-vacuity bite)
+bats tests/generated/golden_drift_test.bats               # 6/6 (default output byte-identical; PITR off renders nothing)
+bats tests/guards/live_module_file_inventory_test.bats    # 2/2 (manifest 34->32; 99-binlog.cnf now ON the closure)
+bats tests/guards/backup_format_contract_guard_test.bats  # 10/10 (A + B agreements unchanged)
+bats tests/guards/doc_command_claim_guard_test.bats       # REGISTERED=30 (no pitr command)
+# non-vacuity: arm 6 doctors an OFF-TREE copy of compose.sh (gate forced always-true) and proves
+# the ENABLE_PITR=false/unset arms would FAIL against an ungated block; the repo is never modified.
+```
+
+### Test result
+PASS (sandbox). `bats -r tests/` is 259 total / 0 fail (this sandbox has `jq`+`age` installed, so
+the E2-era jq-environmental failures do not apply). The new guard is 7/7 incl. the gating arm;
+golden_drift is 6/6 with the goldens unchanged (the gated wiring renders to nothing when
+`ENABLE_PITR` is unset/false); the inventory guard is 2/2 with `99-binlog.cnf` correctly on the
+live closure. Zero previously-passing tests regressed.
+
+### Gate
+**Behavior-CHANGING (opt-in).** When `ENABLE_PITR=true` the db service composition changes (the
+dedicated `mariadb_binlogs` volume + the `99-binlog.cnf` mount), so a **branch e2e MUST be green
+before merge** (`workflow_dispatch` on the phase branch). The new "Binlog enablement (E3a)" step
+installs with `ENABLE_PITR=true` and asserts `MariaDB ready.` (the binlog config does not break
+startup — the core `my.cnf`-class risk, incl. the named-volume ownership for the `mysql` user),
+`log_bin=ON` (binary logging active), and a `mysql-bin.NNNNNN` file under `/var/log/mysql` in the
+db container (binlogs writing to the dedicated volume). `MariaDB ready.` + `log_bin=ON` green is
+the merge signal; an SSH-timeout is infra → re-run. With `ENABLE_PITR` unset/false the generated
+compose is byte-identical to today's (golden_drift 6/6), so the merge to `main` is behavior-free
+for existing deployments — the behavior change is opt-in. The coding window cannot run the VM —
+the branch e2e is the live proof. Branch-e2e run #: <fill on apply>.
+
+### Verdict
+Pending — see SPEC-E3a §13. REVIEW (re-derive the gated rendering both ways; prove the
+off-rendering is byte-clean; prove the new guard's gating/non-vacuity arm bites on an off-tree
+copy; confirm no PITR producer/restore is wired; byte-identity of mycnf.sh/cron.sh/cli-actools/the
+5 untouched cluster files; the patch reproduces the tree) then DOC-CHECK (C binlog foundation live
++ code-true, producer/restore still target; the runtime-authority recount is consistent with no
+third stale count; the project doc copies match the repo) then the operator's green branch e2e
+(`MariaDB ready.` + `log_bin=ON`). The coding window does not self-approve.
+
+### Commit SHA
+Sandbox commit on 3f59987; operator stamps the squash/merge SHA on apply.
+
+
 ## Entry 032 — E2: encrypted-backup deploy (Age-at-rest, gated)
 
 Date: <fill on apply>
@@ -230,12 +375,16 @@ re-run. The coding window cannot run the VM — the branch e2e is the live proof
 run #: <fill on apply>.
 
 ### Verdict
-Pending — see SPEC-E2 §7. REVIEW (re-derive scope; byte-identity of age.sh/helper/PITR drafts;
-guard non-vacuity incl. the new encrypted + anchored-root + ciphertext-checksum arms; golden
-drift; the patch reproduces the tree) then DOC-CHECK (every documented command exists in
-`cli/actools`; no doc claims an unshipped feature as live — B is now live, C still not; no
-unmeasured perf/time guarantee survives; the project doc copies match the repo) then the
-operator's green branch e2e follow. The coding window does not self-approve.
+**APPROVED — ratified (<date>): E2 merged to `main` as `3f59987` (#62) — the squash-merge
+"feat(e2): encrypted-backup deploy — Age-at-rest in cron.sh, gated, restore decrypts (Track E)".
+The gated encrypt-at-rest stage in `cron.sh` and the `.age`-aware, fail-closed `restore` consumer
+landed as specified; branch e2e #104 is green — `MariaDB ready.` with the encrypted-backup
+round-trip (the `prod_db_<date>.sql.gz.age` artifact + a verifying ciphertext checksum + no
+plaintext remaining, then `restore prod` reloads the DB). `age.sh`, the PITR/binlog (C) drafts, and
+the non-encrypted backup shape were untouched (byte-identical to `6d06a73`), and the encrypted path
+is gated by `ENABLE_ENCRYPTED_BACKUP` (default off), so the change is opt-in. `3f59987` is the
+current `main` and the verified baseline of E3a, which rides this ratification.**
+*(Original pending text, for the record:)* Pending — see SPEC-E2 §7. REVIEW (re-derive scope; byte-identity of age.sh/helper/PITR drafts; guard non-vacuity incl. the new encrypted + anchored-root + ciphertext-checksum arms; golden drift; the patch reproduces the tree) then DOC-CHECK (every documented command exists in `cli/actools`; no doc claims an unshipped feature as live — B is now live, C still not; no unmeasured perf/time guarantee survives; the project doc copies match the repo) then the operator's green branch e2e follow. The coding window does not self-approve.
 
 ### Commit SHA
 Sandbox commit on 6d06a73; operator stamps the squash/merge SHA on apply.

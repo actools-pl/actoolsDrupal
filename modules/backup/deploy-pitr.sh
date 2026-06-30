@@ -36,7 +36,7 @@ echo "  Done"
 echo "▶ Copying module files to ${MODULES}..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-cp "${SCRIPT_DIR}/mariadb-binlog.cnf"  "${MODULES}/99-binlog.cnf"
+cp "${SCRIPT_DIR}/99-binlog.cnf"  "${MODULES}/99-binlog.cnf"
 cp "${SCRIPT_DIR}/db-full-backup.sh"   "${MODULES}/db-full-backup.sh"
 cp "${SCRIPT_DIR}/binlog-rotate.sh"    "${MODULES}/binlog-rotate.sh"
 cp "${SCRIPT_DIR}/pitr-restore.sh"     "${MODULES}/pitr-restore.sh"

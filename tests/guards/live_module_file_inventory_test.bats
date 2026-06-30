@@ -23,7 +23,7 @@ setup() {
   REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
-# --- the classified manifest (the 34 files of the 6 live modules) ---
+# --- the classified manifest (the 32 files of the 6 live modules) ---
 # WIRED: reached on the live path (source-closure of actools.sh, OR executed /
 # sourced via the cli/actools `audit` command).
 EXPECTED_WIRED_FILES=(
@@ -34,6 +34,7 @@ EXPECTED_WIRED_FILES=(
   modules/audit/lib/stack.sh
   modules/audit/lib/security.sh
   modules/audit/lib/report.sh
+  modules/backup/99-binlog.cnf
   modules/backup/cron.sh
   modules/db/core.sh
   modules/drupal/provision.sh
@@ -61,9 +62,6 @@ EXPECTED_UNWIRED_FILES=(
   modules/backup/pitr-restore.sh
   modules/backup/cli-pitr.sh
   modules/backup/deploy-pitr.sh
-  modules/backup/mariadb-binlog.cnf
-  modules/backup/99-binlog.cnf
-  modules/backup/docker-compose.binlog.yml
   modules/backup/actools-db-backup.cron
   modules/audit/deploy-audit.sh
   modules/drupal/prepare.sh
