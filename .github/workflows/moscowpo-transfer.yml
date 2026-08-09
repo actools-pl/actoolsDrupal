@@ -1,0 +1,85 @@
+name: Moscow Physics PDF Transfer
+
+on:
+  push:
+    branches:
+      - chatgpt-moscowpo-transfer-20260809
+    paths:
+      - .github/workflows/moscowpo-transfer.yml
+
+jobs:
+  fetch-archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch 2025-2026 PDFs from official archive
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, os, re, sys, hashlib
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          page = 'https://mos.olimpiada.ru/tasks/phys'
+          html = requests.get(page, timeout=30)
+          html.raise_for_status()
+          soup = BeautifulSoup(html.text, 'html.parser')
+
+          target = None
+          for h in soup.find_all(['h2','h3','h4']):
+              if '2025-2026' in h.get_text(' ', strip=True):
+                  target = h
+                  break
+          if target is None:
+              raise SystemExit('2025-2026 section not found')
+
+          links = []
+          node = target.next_sibling
+          while node is not None:
+              if getattr(node, 'name', None) in ('h2','h3') and '2025-2026' not in node.get_text(' ', strip=True):
+                  break
+              if hasattr(node, 'find_all'):
+                  for a in node.find_all('a', href=True):
+                      href = urljoin(page, a['href'])
+                      if href.lower().split('?',1)[0].endswith('.pdf'):
+                          links.append(href)
+              node = node.next_sibling
+
+          # fallback: URL path for this academic year
+          if not links:
+              for a in soup.find_all('a', href=True):
+                  href = urljoin(page, a['href'])
+                  if '/2025-26/' in href and href.lower().split('?',1)[0].endswith('.pdf'):
+                      links.append(href)
+
+          links = list(dict.fromkeys(links))
+          print('PDF count:', len(links))
+          if len(links) != 20:
+              print('\n'.join(links))
+              raise SystemExit(f'Expected 20 PDFs for 2025-2026, got {len(links)}')
+
+          outdir = 'moscowpo/2025-2026'
+          os.makedirs(outdir, exist_ok=True)
+          rows=[]
+          sess=requests.Session()
+          for i,u in enumerate(links,1):
+              fn=u.rsplit('/',1)[-1].split('?',1)[0]
+              path=os.path.join(outdir,fn)
+              r=sess.get(u,timeout=60)
+              r.raise_for_status()
+              data=r.content
+              if not data.startswith(b'%PDF'):
+                  raise SystemExit(f'Not a PDF: {u}')
+              open(path,'wb').write(data)
+              rows.append([i,fn,len(data),hashlib.sha256(data).hexdigest(),u])
+              print(i,fn,len(data))
+          with open('moscowpo/2025-2026_manifest.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.writer(f); w.writerow(['index','filename','bytes','sha256','source_url']); w.writerows(rows)
+          PY
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moscowpo-2025-2026
+          path: moscowpo
+          if-no-files-found: error
+          retention-days: 1
