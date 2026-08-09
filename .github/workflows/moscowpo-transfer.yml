@@ -7,62 +7,80 @@ on:
     paths:
       - .github/workflows/moscowpo-transfer.yml
 
-permissions:
-  contents: write
-
 jobs:
   fetch-archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - year: '2011-2012'
+            expected: 28
+          - year: '2010-2011'
+            expected: 27
+          - year: '2009-2010'
+            expected: 18
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: chatgpt-moscowpo-transfer-20260809
       - name: Install parser
         run: python -m pip install --quiet beautifulsoup4 requests
-      - name: Fetch and verify 2025-2026 PDFs
+
+      - name: Fetch and verify official PDFs
         shell: bash
+        env:
+          YEAR: ${{ matrix.year }}
+          EXPECTED: ${{ matrix.expected }}
         run: |
           python - <<'PY'
-          import csv, os, hashlib
-          from urllib.parse import urljoin, urlparse
+          import os, hashlib
+          from urllib.parse import urljoin, urlparse, unquote
           import requests
-          from bs4 import BeautifulSoup, Tag
+          from bs4 import BeautifulSoup
 
           PAGE='https://mos.olimpiada.ru/tasks/phys'
-          YEAR='2025-2026'
-          r=requests.get(PAGE,timeout=30); r.raise_for_status()
+          YEAR=os.environ['YEAR']
+          EXPECTED=int(os.environ['EXPECTED'])
+          s=requests.Session()
+          s.headers.update({'User-Agent':'Mozilla/5.0 (compatible; archive-transfer/1.0)'})
+          r=s.get(PAGE,timeout=60); r.raise_for_status()
           soup=BeautifulSoup(r.text,'html.parser')
           heading=next((h for h in soup.find_all(['h2','h3']) if YEAR in h.get_text(' ',strip=True)),None)
-          if not heading: raise SystemExit('year heading not found')
+          if not heading: raise SystemExit(f'{YEAR}: year heading not found')
           links=[]
           for el in heading.find_all_next():
-              if el is not heading and el.name in ('h2','h3') and 'учебный год' in el.get_text(' ',strip=True): break
+              if el is not heading and el.name in ('h2','h3') and 'учебный год' in el.get_text(' ',strip=True):
+                  break
               if el.name=='a' and el.get('href'):
                   u=urljoin(PAGE,el['href'])
-                  if u.lower().split('?',1)[0].endswith('.pdf'): links.append(u)
+                  if urlparse(u).path.lower().endswith('.pdf'):
+                      links.append(u)
           links=list(dict.fromkeys(links))
-          print('unique links',len(links))
-          if len(links)!=20: raise SystemExit(f'expected 20, got {len(links)}')
-          out=f'moscowpo/{YEAR}'; os.makedirs(out,exist_ok=True)
-          used=set(); rows=[]; s=requests.Session()
+          print(f'{YEAR}: unique PDF links = {len(links)}')
+          if len(links)!=EXPECTED:
+              print('\n'.join(links))
+              raise SystemExit(f'{YEAR}: expected {EXPECTED}, got {len(links)}')
+
+          out=os.path.join('archive',YEAR); os.makedirs(out,exist_ok=True)
+          used=set()
           for i,u in enumerate(links,1):
-              base=os.path.basename(urlparse(u).path) or f'{i:03d}.pdf'
-              name=base
-              stem,ext=os.path.splitext(base); n=2
+              base=unquote(os.path.basename(urlparse(u).path)) or f'{i:03d}.pdf'
+              name=base; stem,ext=os.path.splitext(base); n=2
               while name.lower() in used:
                   name=f'{stem}__{n}{ext}'; n+=1
               used.add(name.lower())
-              rr=s.get(u,timeout=90); rr.raise_for_status(); data=rr.content
-              if not data.startswith(b'%PDF'): raise SystemExit(f'not pdf: {u}')
+              rr=s.get(u,timeout=120); rr.raise_for_status(); data=rr.content
+              if not data.startswith(b'%PDF'):
+                  raise SystemExit(f'{YEAR}: not a PDF: {u}')
               open(os.path.join(out,name),'wb').write(data)
-              rows.append([i,name,len(data),hashlib.sha256(data).hexdigest(),u])
-          with open(f'moscowpo/{YEAR}_manifest.csv','w',newline='',encoding='utf-8') as f:
-              w=csv.writer(f); w.writerow(['index','filename','bytes','sha256','source_url']); w.writerows(rows)
+              print(f'{i:02d}/{EXPECTED} {name} {len(data)} bytes sha256={hashlib.sha256(data).hexdigest()}')
+          actual=[x for x in os.listdir(out) if x.lower().endswith('.pdf')]
+          if len(actual)!=EXPECTED:
+              raise SystemExit(f'{YEAR}: wrote {len(actual)} PDFs, expected {EXPECTED}')
           PY
-      - name: Commit staged PDFs
-        run: |
-          git config user.name 'ChatGPT Archive Transfer'
-          git config user.email 'actions@users.noreply.github.com'
-          git add moscowpo
-          git commit -m 'Stage Moscow Physics 2025-2026 PDFs' || true
-          git push origin HEAD:chatgpt-moscowpo-transfer-20260809
+
+      - name: Upload year ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.year }}_Moscow_Physics_Olympiad_PDFs
+          path: archive/${{ matrix.year }}/*.pdf
+          if-no-files-found: error
+          retention-days: 1
